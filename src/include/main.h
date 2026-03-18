@@ -39,6 +39,7 @@
 #include "keyboard.h"
 #include "mouse.h"
 #include "packet.h"
+#include "passthrough.h"
 #include "pinout.h"
 #include "screen.h"
 #include "serial.h"

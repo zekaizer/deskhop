@@ -153,6 +153,10 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
 
     iface->protocol = tuh_hid_get_protocol(dev_addr, instance);
 
+    /* Capture raw descriptor for Semi-DDM passthrough */
+    passthrough_capture_descriptor(
+        passthrough_get_state(), dev_addr, instance, itf_protocol, desc_report, desc_len);
+
     /* Parse the report descriptor into our internal structure. */
     parse_report_descriptor(iface, desc_report, desc_len);
 
@@ -203,6 +207,9 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
 
     /* Also signal the other board to flash LED, to enable easy verification if serial works */
     send_value(ENABLE, FLASH_LED_MSG);
+
+    /* Dump captured descriptors for debugging */
+    passthrough_dump_descriptors(passthrough_get_state());
 
     /* Kick off the report querying */
     tuh_hid_receive_report(dev_addr, instance);
