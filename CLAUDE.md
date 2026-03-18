@@ -80,6 +80,12 @@ cd build-test && ctest --output-on-failure
 - Stubs in `tests/stubs/` for Pico SDK types
 - Scope: new modules + changed/added functions in existing files
 - Waiver: skip test if it requires invasive changes to upstream code
+- Coverage: `cmake -DCOVERAGE=ON`, then after `ctest`:
+  ```bash
+  LLVM_PROFILE_FILE=cov.profraw ctest --output-on-failure
+  llvm-profdata merge -sparse cov.profraw -o cov.profdata
+  llvm-cov report ./test_passthrough -instr-profile=cov.profdata -ignore-filename-regex='(unity|stubs)'
+  ```
 
 ## Lint
 
