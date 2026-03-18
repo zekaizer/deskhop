@@ -67,6 +67,28 @@ A PreToolUse hook injects a hint requiring explicit user confirmation before mod
 - Commits must be **atomic** — one logical change per commit.
 - Use **Conventional Commits** format: `type(scope): description` (e.g., `feat(passthrough):`, `fix(remap):`, `docs:`, `chore:`).
 
+## Test
+
+```bash
+cmake -S tests -B build-test -DCMAKE_C_COMPILER=clang
+cmake --build build-test
+cd build-test && ctest --output-on-failure
+```
+
+- Framework: Unity (ThrowTheSwitch), submodule at `tests/unity/`
+- Host-only build (`clang`, x86) — NOT cross-compiled for RP2040
+- Stubs in `tests/stubs/` for Pico SDK types
+- Scope: new modules + changed/added functions in existing files
+- Waiver: skip test if it requires invasive changes to upstream code
+
+## Lint
+
+- **clang-format**: `.clang-format` at project root (LLVM-based, 110 col, 4-space indent)
+  - `git clang-format --extensions c,h origin/semi-ddm` — format changed lines only
+- **clang-tidy**: `.clang-tidy` at project root (`bugprone-*`, `clang-analyzer-*`)
+  - Uses `build-test/compile_commands.json`
+  - Scope: changed `src/` files only
+
 ## Code Style
 
 - Follow DeskHop upstream coding style (C11, English comments, TinyUSB callback patterns)
