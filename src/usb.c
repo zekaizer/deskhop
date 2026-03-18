@@ -157,8 +157,8 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
     iface->protocol = tuh_hid_get_protocol(dev_addr, instance);
 
     /* Capture raw descriptor for Semi-DDM passthrough */
-    passthrough_capture_descriptor(
-        passthrough_get_state(), dev_addr, instance, itf_protocol, desc_report, desc_len);
+    passthrough_state_t *pt = passthrough_get_state();
+    passthrough_capture_descriptor(pt, dev_addr, instance, itf_protocol, desc_report, desc_len);
 
     /* Parse the report descriptor into our internal structure. */
     parse_report_descriptor(iface, desc_report, desc_len);
@@ -212,7 +212,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
     send_value(ENABLE, FLASH_LED_MSG);
 
     /* Dump captured descriptors for debugging */
-    passthrough_dump_descriptors(passthrough_get_state());
+    passthrough_dump_descriptors(pt);
 
     /* Kick off the report querying */
     tuh_hid_receive_report(dev_addr, instance);
