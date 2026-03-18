@@ -57,6 +57,15 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
         if (instance == ITF_NUM_HID_VENDOR)
             return desc_hid_report_vendor;
 
+    /* Passthrough instances: return captured descriptor from host device */
+    passthrough_state_t *pt = passthrough_get_state();
+    if (pt->active && instance >= ITF_NUM_PT_BASE) {
+        uint16_t len;
+        const uint8_t *desc = passthrough_get_report_desc(pt, instance, &len);
+        if (desc)
+            return desc;
+    }
+
     switch(instance) {
         case ITF_NUM_HID:
             return desc_hid_report;
@@ -155,6 +164,164 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     _desc_str[0] = (TUSB_DESC_STRING << 8) | (2 * chr_count + 2);
 
     return _desc_str;
+}
+
+//--------------------------------------------------------------------+
+// Passthrough Configuration Descriptor Builder (P2)
+//--------------------------------------------------------------------+
+
+/* Append one HID interface descriptor block (25 bytes) to buffer */
+static uint16_t append_hid_itf(uint8_t *buf, uint8_t itf_num, uint8_t str_idx,
+                                uint8_t protocol, uint16_t report_desc_len,
+                                uint8_t ep_addr, uint16_t ep_size, uint8_t ep_interval) {
+    /* Interface descriptor (9 bytes) */
+    buf[0] = 9;
+    buf[1] = TUSB_DESC_INTERFACE;
+    buf[2] = itf_num;
+    buf[3] = 0;                                            /* bAlternateSetting */
+    buf[4] = 1;                                            /* bNumEndpoints */
+    buf[5] = TUSB_CLASS_HID;
+    buf[6] = (protocol != 0) ? HID_SUBCLASS_BOOT : 0;     /* bInterfaceSubClass */
+    buf[7] = protocol;                                     /* bInterfaceProtocol */
+    buf[8] = str_idx;
+
+    /* HID class descriptor (9 bytes) */
+    buf[9]  = 9;
+    buf[10] = HID_DESC_TYPE_HID;
+    buf[11] = 0x11;                                        /* bcdHID 1.11 lo */
+    buf[12] = 0x01;                                        /* bcdHID 1.11 hi */
+    buf[13] = 0;                                           /* bCountryCode */
+    buf[14] = 1;                                           /* bNumDescriptors */
+    buf[15] = HID_DESC_TYPE_REPORT;
+    buf[16] = (uint8_t)(report_desc_len);                  /* wDescriptorLength lo */
+    buf[17] = (uint8_t)(report_desc_len >> 8);             /* wDescriptorLength hi */
+
+    /* Endpoint descriptor (7 bytes) */
+    buf[18] = 7;
+    buf[19] = TUSB_DESC_ENDPOINT;
+    buf[20] = ep_addr;
+    buf[21] = TUSB_XFER_INTERRUPT;
+    buf[22] = (uint8_t)(ep_size);                          /* wMaxPacketSize lo */
+    buf[23] = (uint8_t)(ep_size >> 8);                     /* wMaxPacketSize hi */
+    buf[24] = ep_interval;
+
+    return 25; /* TUD_HID_DESC_LEN */
+}
+
+/* Build full configuration descriptor: DeskHop interfaces + passthrough interfaces.
+ * Stores result in state->config_desc / config_desc_len. */
+void passthrough_build_config_desc(passthrough_state_t *state) {
+    uint8_t *buf = state->config_desc;
+    uint16_t off = 0;
+    uint8_t num_pt = state->iface_count;
+    uint8_t num_itf = 2 + num_pt;
+
+#ifdef DH_DEBUG
+    num_itf += 2; /* CDC Communication + Data interfaces */
+#endif
+
+    /* Configuration descriptor header (9 bytes) */
+    buf[off++] = 9;
+    buf[off++] = TUSB_DESC_CONFIGURATION;
+    off += 2; /* wTotalLength — filled at end */
+    buf[off++] = num_itf;
+    buf[off++] = 1;    /* bConfigurationValue */
+    buf[off++] = 0;    /* iConfiguration */
+    buf[off++] = 0x80 | TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP;
+    buf[off++] = 250;  /* bMaxPower: 500mA / 2 */
+
+    /* DeskHop ITF 0: main HID (keyboard + abs mouse + consumer + system) */
+    off += append_hid_itf(buf + off, ITF_NUM_HID, STRID_PRODUCT,
+                          HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report),
+                          0x81, CFG_TUD_HID_EP_BUFSIZE, 1);
+
+    /* DeskHop ITF 1: relative mouse helper */
+    off += append_hid_itf(buf + off, ITF_NUM_HID_REL_M, STRID_MOUSE,
+                          HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report_relmouse),
+                          0x82, CFG_TUD_HID_EP_BUFSIZE, 1);
+
+    /* Passthrough interfaces (captured from host device) */
+    for (uint8_t i = 0; i < num_pt; i++) {
+        off += append_hid_itf(buf + off, ITF_NUM_PT_BASE + i, 0,
+                              state->ifaces[i].itf_protocol,
+                              state->ifaces[i].desc_len,
+                              EPNUM_PT_BASE + i,
+                              CFG_TUD_HID_EP_BUFSIZE, 1);
+    }
+
+#ifdef DH_DEBUG
+    {
+        /* CDC descriptor (66 bytes): dynamically assigned after passthrough EPs */
+        uint8_t cdc_itf   = ITF_NUM_PT_BASE + num_pt;
+        uint8_t ep_notif   = 0x80 | (3 + num_pt);     /* IN */
+        uint8_t ep_out     = (uint8_t)(3 + num_pt + 1);
+        uint8_t ep_in      = 0x80 | (3 + num_pt + 1); /* IN */
+
+        /* Interface Association (8) */
+        buf[off++] = 8;  buf[off++] = TUSB_DESC_INTERFACE_ASSOCIATION;
+        buf[off++] = cdc_itf; buf[off++] = 2;
+        buf[off++] = TUSB_CLASS_CDC;
+        buf[off++] = CDC_COMM_SUBCLASS_ABSTRACT_CONTROL_MODEL;
+        buf[off++] = CDC_COMM_PROTOCOL_NONE; buf[off++] = 0;
+
+        /* CDC Control Interface (9) */
+        buf[off++] = 9;  buf[off++] = TUSB_DESC_INTERFACE;
+        buf[off++] = cdc_itf; buf[off++] = 0; buf[off++] = 1;
+        buf[off++] = TUSB_CLASS_CDC;
+        buf[off++] = CDC_COMM_SUBCLASS_ABSTRACT_CONTROL_MODEL;
+        buf[off++] = CDC_COMM_PROTOCOL_NONE; buf[off++] = STRID_DEBUG;
+
+        /* Header Functional Descriptor (5) */
+        buf[off++] = 5;  buf[off++] = 0x24; /* CS_INTERFACE */
+        buf[off++] = 0x00; /* Header */
+        buf[off++] = 0x20; buf[off++] = 0x01; /* bcdCDC 1.20 */
+
+        /* Call Management (5) */
+        buf[off++] = 5;  buf[off++] = 0x24;
+        buf[off++] = 0x01; /* Call Management */
+        buf[off++] = 0;  buf[off++] = (uint8_t)(cdc_itf + 1);
+
+        /* ACM (4) */
+        buf[off++] = 4;  buf[off++] = 0x24;
+        buf[off++] = 0x02; /* ACM */ buf[off++] = 0x02;
+
+        /* Union (5) */
+        buf[off++] = 5;  buf[off++] = 0x24;
+        buf[off++] = 0x06; /* Union */
+        buf[off++] = cdc_itf; buf[off++] = (uint8_t)(cdc_itf + 1);
+
+        /* Notification EP (7) */
+        buf[off++] = 7;  buf[off++] = TUSB_DESC_ENDPOINT;
+        buf[off++] = ep_notif; buf[off++] = TUSB_XFER_INTERRUPT;
+        buf[off++] = 8;  buf[off++] = 0;  /* wMaxPacketSize */
+        buf[off++] = 16; /* bInterval */
+
+        /* CDC Data Interface (9) */
+        buf[off++] = 9;  buf[off++] = TUSB_DESC_INTERFACE;
+        buf[off++] = (uint8_t)(cdc_itf + 1);
+        buf[off++] = 0; buf[off++] = 2;
+        buf[off++] = TUSB_CLASS_CDC_DATA;
+        buf[off++] = 0; buf[off++] = 0; buf[off++] = 0;
+
+        /* Data EP OUT (7) */
+        buf[off++] = 7;  buf[off++] = TUSB_DESC_ENDPOINT;
+        buf[off++] = ep_out; buf[off++] = TUSB_XFER_BULK;
+        buf[off++] = 64; buf[off++] = 0;  /* wMaxPacketSize */
+        buf[off++] = 0;
+
+        /* Data EP IN (7) */
+        buf[off++] = 7;  buf[off++] = TUSB_DESC_ENDPOINT;
+        buf[off++] = ep_in; buf[off++] = TUSB_XFER_BULK;
+        buf[off++] = 64; buf[off++] = 0;
+        buf[off++] = 0;
+    }
+#endif
+
+    /* Fill wTotalLength (bytes 2-3 of config header) */
+    buf[2] = (uint8_t)(off);
+    buf[3] = (uint8_t)(off >> 8);
+
+    state->config_desc_len = off;
 }
 
 //--------------------------------------------------------------------+
@@ -263,6 +430,11 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
 
     if (global_state.config_mode_active)
         return desc_configuration_config;
-    else
-        return desc_configuration;
+
+    /* When passthrough is active, return dynamically built descriptor */
+    passthrough_state_t *pt = passthrough_get_state();
+    if (pt->active && pt->config_desc_len > 0)
+        return pt->config_desc;
+
+    return desc_configuration;
 }

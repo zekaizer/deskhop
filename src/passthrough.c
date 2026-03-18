@@ -11,6 +11,71 @@ int dh_debug_printf(const char *format, ...);
 #include "main.h"
 #endif
 
+/* ================================================== *
+ * ==============  P2: Device-side API  ============= *
+ * ================================================== */
+
+#ifdef UNIT_TEST
+/* Stub: real implementation lives in usb_descriptors.c */
+void passthrough_build_config_desc(passthrough_state_t *state) {
+    state->config_desc_len = 9;
+}
+#endif
+
+bool passthrough_activate(passthrough_state_t *state) {
+    if (!state || state->iface_count == 0)
+        return false;
+
+    passthrough_build_config_desc(state);
+
+    if (state->config_desc_len == 0)
+        return false;
+
+    state->active = true;
+    return true;
+}
+
+const uint8_t *passthrough_get_report_desc(const passthrough_state_t *state,
+                                           uint8_t device_instance,
+                                           uint16_t *out_len) {
+    if (!state || !out_len || device_instance < ITF_NUM_PT_BASE)
+        return NULL;
+
+    uint8_t idx = device_instance - ITF_NUM_PT_BASE;
+    if (idx >= state->iface_count)
+        return NULL;
+
+    *out_len = state->ifaces[idx].desc_len;
+    return state->ifaces[idx].desc;
+}
+
+int8_t passthrough_host_to_device_instance(const passthrough_state_t *state,
+                                           uint8_t dev_addr,
+                                           uint8_t instance) {
+    if (!state)
+        return -1;
+
+    for (uint8_t i = 0; i < state->iface_count; i++) {
+        if (state->ifaces[i].dev_addr == dev_addr &&
+            state->ifaces[i].instance == instance) {
+            return (int8_t)(ITF_NUM_PT_BASE + i);
+        }
+    }
+    return -1;
+}
+
+int8_t passthrough_device_to_host_index(const passthrough_state_t *state,
+                                        uint8_t device_instance) {
+    if (!state || device_instance < ITF_NUM_PT_BASE)
+        return -1;
+
+    uint8_t idx = device_instance - ITF_NUM_PT_BASE;
+    if (idx >= state->iface_count)
+        return -1;
+
+    return (int8_t)idx;
+}
+
 static passthrough_state_t pt_state;
 
 passthrough_state_t *passthrough_get_state(void) {
