@@ -42,6 +42,19 @@ void tud_hid_set_report_cb(uint8_t instance,
                            uint8_t const *buffer,
                            uint16_t bufsize) {
 
+    /* Passthrough: forward output reports from host (Win11/Options+) to receiver */
+    passthrough_state_t *pt = passthrough_get_state();
+    if (pt->active && instance >= ITF_NUM_PT_BASE) {
+        int8_t idx = passthrough_device_to_host_index(pt, instance);
+        if (idx >= 0) {
+            tuh_hid_set_report(pt->ifaces[idx].dev_addr,
+                               pt->ifaces[idx].instance,
+                               report_id, report_type,
+                               (void *)buffer, bufsize);
+        }
+        return;
+    }
+
     /* We received a report on the config report ID */
     if (instance == ITF_NUM_HID_VENDOR && report_id == REPORT_ID_VENDOR) {
         /* Security - only if config mode is enabled are we allowed to do anything. While the report_id
@@ -224,6 +237,29 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
 
     if (dev_addr > MAX_DEVICES || instance >= MAX_INTERFACES)
         return;
+
+    /* Passthrough: forward raw non-keyboard reports to device side.
+     * Keyboard always goes through DeskHop parsing for hotkey/remap (FR-PT-007).
+     * When active output: raw passthrough replaces DeskHop mouse processing.
+     * When not active: fall through to DeskHop processing (mouse → UART → other board). */
+    passthrough_state_t *pt = passthrough_get_state();
+    if (pt->active && itf_protocol != HID_ITF_PROTOCOL_KEYBOARD) {
+        int8_t dev_inst = passthrough_host_to_device_instance(pt, dev_addr, instance);
+        if (dev_inst >= 0) {
+            int8_t idx = dev_inst - ITF_NUM_PT_BASE;
+            bool forward = CURRENT_BOARD_IS_ACTIVE_OUTPUT || pt->ifaces[idx].always_passthrough;
+
+            if (forward)
+                tud_hid_n_report(dev_inst, 0, report, len);
+
+            if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
+                /* Raw passthrough fully handles this report */
+                tuh_hid_receive_report(dev_addr, instance);
+                return;
+            }
+            /* Not active output: fall through to DeskHop processing */
+        }
+    }
 
     hid_interface_t *iface = &global_state.iface[dev_addr-1][instance];
 
