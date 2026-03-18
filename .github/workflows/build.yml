@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main
+      - semi-ddm
   pull_request:
-    branches: 
+    branches:
       - main
+      - semi-ddm
   workflow_dispatch:
 
 jobs:

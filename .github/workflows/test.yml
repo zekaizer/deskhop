@@ -1,0 +1,33 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - semi-ddm
+  pull_request:
+    branches:
+      - semi-ddm
+  workflow_dispatch:
+
+jobs:
+  unit-test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install clang
+        run: sudo apt-get install -y clang
+
+      - name: Configure
+        run: cmake -S tests -B build-test -DCMAKE_C_COMPILER=clang
+
+      - name: Build
+        run: cmake --build build-test
+
+      - name: Run tests
+        working-directory: build-test
+        run: ctest --output-on-failure
