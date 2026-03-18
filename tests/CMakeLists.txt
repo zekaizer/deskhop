@@ -4,6 +4,13 @@ project(deskhop_tests C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Coverage support: cmake -DCOVERAGE=ON ...
+option(COVERAGE "Enable code coverage with llvm-cov" OFF)
+if(COVERAGE)
+    add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
+    add_link_options(-fprofile-instr-generate -fcoverage-mapping)
+endif()
+
 # Unity test framework
 add_library(unity STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/unity/src/unity.c
