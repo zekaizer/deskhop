@@ -1,0 +1,9 @@
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-reserved-identifier,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+HeaderFilterRegex: 'src/.*'
+WarningsAsErrors: ''
