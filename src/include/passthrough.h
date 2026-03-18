@@ -33,4 +33,5 @@ bool passthrough_capture_descriptor(passthrough_state_t *state,
                                     uint8_t itf_protocol,
                                     uint8_t const *desc_report,
                                     uint16_t desc_len);
+void passthrough_remove_device(passthrough_state_t *state, uint8_t dev_addr);
 void passthrough_dump_descriptors(const passthrough_state_t *state);

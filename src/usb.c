@@ -140,6 +140,9 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
     /* Also clear the interface structure, otherwise plugging something else later
        might be a fun (and confusing) experience */
     memset(iface, 0, sizeof(hid_interface_t));
+
+    /* Clean up passthrough state for this device */
+    passthrough_remove_device(passthrough_get_state(), dev_addr);
 }
 
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_report, uint16_t desc_len) {

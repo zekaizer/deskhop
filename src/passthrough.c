@@ -30,13 +30,24 @@ bool passthrough_capture_descriptor(passthrough_state_t *state,
     if (!state || !desc_report || desc_len == 0)
         return false;
 
-    if (state->iface_count >= MAX_PASSTHROUGH_IFACES)
-        return false;
-
     if (desc_len > MAX_HID_DESC_SIZE)
         return false;
 
-    passthrough_iface_t *iface = &state->ifaces[state->iface_count];
+    /* Check for duplicate (same dev_addr + instance) and overwrite */
+    passthrough_iface_t *iface = NULL;
+    for (uint8_t i = 0; i < state->iface_count; i++) {
+        if (state->ifaces[i].dev_addr == dev_addr && state->ifaces[i].instance == instance) {
+            iface = &state->ifaces[i];
+            break;
+        }
+    }
+
+    /* No existing entry — allocate new slot */
+    if (!iface) {
+        if (state->iface_count >= MAX_PASSTHROUGH_IFACES)
+            return false;
+        iface = &state->ifaces[state->iface_count++];
+    }
 
     iface->dev_addr     = dev_addr;
     iface->instance     = instance;
@@ -47,8 +58,27 @@ bool passthrough_capture_descriptor(passthrough_state_t *state,
     /* HID++ vendor interfaces use protocol NONE */
     iface->always_passthrough = (itf_protocol == HID_ITF_PROTOCOL_NONE);
 
-    state->iface_count++;
     return true;
+}
+
+void passthrough_remove_device(passthrough_state_t *state, uint8_t dev_addr) {
+    if (!state)
+        return;
+
+    /* Remove all interfaces belonging to this device, compact the array */
+    uint8_t write = 0;
+    for (uint8_t read = 0; read < state->iface_count; read++) {
+        if (state->ifaces[read].dev_addr != dev_addr) {
+            if (write != read)
+                state->ifaces[write] = state->ifaces[read];
+            write++;
+        }
+    }
+    /* Zero out vacated slots */
+    for (uint8_t i = write; i < state->iface_count; i++)
+        memset(&state->ifaces[i], 0, sizeof(passthrough_iface_t));
+
+    state->iface_count = write;
 }
 
 void passthrough_dump_descriptors(const passthrough_state_t *state) {
