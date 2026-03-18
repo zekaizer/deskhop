@@ -11,7 +11,7 @@ on:
 
 jobs:
   unit-test:
-    name: Unit tests
+    name: Unit tests + Coverage
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -19,11 +19,11 @@ jobs:
         with:
           submodules: true
 
-      - name: Install clang
-        run: sudo apt-get install -y clang
+      - name: Install clang and llvm tools
+        run: sudo apt-get install -y clang llvm
 
-      - name: Configure
-        run: cmake -S tests -B build-test -DCMAKE_C_COMPILER=clang
+      - name: Configure (with coverage)
+        run: cmake -S tests -B build-test -DCMAKE_C_COMPILER=clang -DCOVERAGE=ON
 
       - name: Build
         run: cmake --build build-test
@@ -31,3 +31,36 @@ jobs:
       - name: Run tests
         working-directory: build-test
         run: ctest --output-on-failure
+        env:
+          LLVM_PROFILE_FILE: coverage-%p.profraw
+
+      - name: Generate coverage report
+        working-directory: build-test
+        run: |
+          llvm-profdata merge -sparse coverage-*.profraw -o coverage.profdata
+
+          # Collect all test executables (exclude placeholder)
+          BINS=$(find . -maxdepth 1 -executable -type f -name 'test_*' ! -name 'test_placeholder')
+
+          if [ -z "$BINS" ]; then
+            echo "No test binaries with source coverage found. Skipping."
+            exit 0
+          fi
+
+          # Build -object flags for llvm-cov
+          OBJ_FLAGS=""
+          FIRST=""
+          for bin in $BINS; do
+            if [ -z "$FIRST" ]; then
+              FIRST="$bin"
+            else
+              OBJ_FLAGS="$OBJ_FLAGS -object=$bin"
+            fi
+          done
+
+          echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          llvm-cov report $FIRST $OBJ_FLAGS \
+            -instr-profile=coverage.profdata \
+            -ignore-filename-regex='(unity|stubs)' | tee -a $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
