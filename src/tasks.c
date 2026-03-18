@@ -48,6 +48,28 @@ void usb_device_task(device_t *state) {
     tud_task();
 }
 
+/* Check if passthrough needs activation and handle re-enumeration sequence.
+ * Runs on core0 since tud_disconnect/tud_connect are device-side operations. */
+void passthrough_task(device_t *state) {
+    passthrough_state_t *pt = passthrough_get_state();
+
+    /* Phase 1: Activate after captures stabilize (500ms since last capture) */
+    if (!pt->active && pt->iface_count > 0 && pt->last_capture_us > 0) {
+        if (time_us_64() - pt->last_capture_us > _MS(500)) {
+            if (passthrough_activate(pt)) {
+                tud_disconnect();
+                pt->reconnect_at_us = time_us_64() + _MS(200);
+            }
+        }
+    }
+
+    /* Phase 2: Reconnect after 200ms disconnect delay (USB spec minimum) */
+    if (pt->reconnect_at_us > 0 && time_us_64() >= pt->reconnect_at_us) {
+        tud_connect();
+        pt->reconnect_at_us = 0;
+    }
+}
+
 void usb_host_task(device_t *state) {
     if (tuh_inited())
         tuh_task();

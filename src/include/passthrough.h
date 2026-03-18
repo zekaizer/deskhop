@@ -34,6 +34,8 @@ typedef struct {
     bool                 active;
     uint8_t              config_desc[MAX_CONFIG_DESC_SIZE];
     uint16_t             config_desc_len;
+    uint64_t             last_capture_us;   /* Timestamp of most recent capture */
+    uint64_t             reconnect_at_us;   /* Scheduled tud_connect() time (0=none) */
 } passthrough_state_t;
 
 passthrough_state_t *passthrough_get_state(void);

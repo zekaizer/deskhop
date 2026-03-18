@@ -34,3 +34,4 @@ void process_uart_tx_task(device_t *);
 void screensaver_task(device_t *);
 void usb_device_task(device_t *);
 void usb_host_task(device_t *);
+void passthrough_task(device_t *);

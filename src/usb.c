@@ -172,6 +172,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
     /* Capture raw descriptor for Semi-DDM passthrough */
     passthrough_state_t *pt = passthrough_get_state();
     passthrough_capture_descriptor(pt, dev_addr, instance, itf_protocol, desc_report, desc_len);
+    pt->last_capture_us = time_us_64();
 
     /* Parse the report descriptor into our internal structure. */
     parse_report_descriptor(iface, desc_report, desc_len);
