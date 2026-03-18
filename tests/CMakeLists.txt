@@ -31,3 +31,17 @@ enable_testing()
 add_executable(test_placeholder test_placeholder.c)
 target_link_libraries(test_placeholder unity)
 add_test(NAME placeholder COMMAND test_placeholder)
+
+# Passthrough descriptor capture test
+add_executable(test_passthrough
+    test_passthrough.c
+    ${SRC_DIR}/passthrough.c
+    ${STUB_INCLUDES}/stubs.c
+)
+target_compile_definitions(test_passthrough PRIVATE UNIT_TEST)
+target_include_directories(test_passthrough PRIVATE
+    ${SRC_DIR}/include
+    ${STUB_INCLUDES}
+)
+target_link_libraries(test_passthrough unity)
+add_test(NAME passthrough COMMAND test_passthrough)

@@ -2,7 +2,14 @@
  * Semi-DDM USB Passthrough — descriptor capture and state management.
  */
 
+#ifdef UNIT_TEST
+#include "passthrough.h"
+#include <string.h>
+#define HID_ITF_PROTOCOL_NONE 0
+int dh_debug_printf(const char *format, ...);
+#else
 #include "main.h"
+#endif
 
 static passthrough_state_t pt_state;
 
