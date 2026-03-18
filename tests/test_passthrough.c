@@ -94,6 +94,50 @@ void test_capture_rejects_oversized_descriptor(void) {
     TEST_ASSERT_EQUAL_UINT8(0, state.iface_count);
 }
 
+void test_remove_device_clears_all_interfaces(void) {
+    uint8_t desc[] = {0x01};
+    passthrough_capture_descriptor(&state, 1, 0, 1, desc, 1);
+    passthrough_capture_descriptor(&state, 1, 1, 2, desc, 1);
+    passthrough_capture_descriptor(&state, 1, 2, 0, desc, 1);
+    TEST_ASSERT_EQUAL_UINT8(3, state.iface_count);
+
+    passthrough_remove_device(&state, 1);
+    TEST_ASSERT_EQUAL_UINT8(0, state.iface_count);
+}
+
+void test_remove_device_keeps_other_devices(void) {
+    uint8_t desc[] = {0x01};
+    passthrough_capture_descriptor(&state, 1, 0, 1, desc, 1);
+    passthrough_capture_descriptor(&state, 2, 0, 2, desc, 1);
+    passthrough_capture_descriptor(&state, 1, 1, 0, desc, 1);
+
+    passthrough_remove_device(&state, 1);
+    TEST_ASSERT_EQUAL_UINT8(1, state.iface_count);
+    TEST_ASSERT_EQUAL_UINT8(2, state.ifaces[0].dev_addr);
+}
+
+void test_duplicate_capture_overwrites(void) {
+    uint8_t desc1[] = {0xAA, 0xBB};
+    uint8_t desc2[] = {0xCC, 0xDD, 0xEE};
+
+    passthrough_capture_descriptor(&state, 1, 0, 1, desc1, sizeof(desc1));
+    TEST_ASSERT_EQUAL_UINT8(1, state.iface_count);
+
+    /* Same dev_addr + instance should overwrite, not add */
+    passthrough_capture_descriptor(&state, 1, 0, 2, desc2, sizeof(desc2));
+    TEST_ASSERT_EQUAL_UINT8(1, state.iface_count);
+    TEST_ASSERT_EQUAL_UINT8(2, state.ifaces[0].itf_protocol);
+    TEST_ASSERT_EQUAL_UINT16(3, state.ifaces[0].desc_len);
+    TEST_ASSERT_EQUAL_UINT8(0xCC, state.ifaces[0].desc[0]);
+}
+
+void test_dump_does_not_crash(void) {
+    uint8_t desc[] = {0x05, 0x01};
+    passthrough_capture_descriptor(&state, 1, 0, 1, desc, sizeof(desc));
+    passthrough_dump_descriptors(&state);
+    passthrough_dump_descriptors(NULL);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_init_zeros_state);
@@ -103,5 +147,9 @@ int main(void) {
     RUN_TEST(test_capture_rejects_null_input);
     RUN_TEST(test_capture_rejects_overflow);
     RUN_TEST(test_capture_rejects_oversized_descriptor);
+    RUN_TEST(test_remove_device_clears_all_interfaces);
+    RUN_TEST(test_remove_device_keeps_other_devices);
+    RUN_TEST(test_duplicate_capture_overwrites);
+    RUN_TEST(test_dump_does_not_crash);
     return UNITY_END();
 }
