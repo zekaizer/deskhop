@@ -25,6 +25,7 @@ typedef struct {
     bool                 enumeration_done;
 } passthrough_state_t;
 
+passthrough_state_t *passthrough_get_state(void);
 void passthrough_init(passthrough_state_t *state);
 bool passthrough_capture_descriptor(passthrough_state_t *state,
                                     uint8_t dev_addr,
