@@ -40,6 +40,17 @@ typedef struct {
     /* Upstream device identity for VID/PID switching (FR-PT-009) */
     uint16_t             upstream_vid;
     uint16_t             upstream_pid;
+
+    /* Deferred HID++ output report (sent from main loop, not callback) */
+    struct {
+        uint8_t  dev_addr;
+        uint8_t  instance;
+        uint8_t  report_id;
+        uint8_t  report_type;
+        uint8_t  data[32];
+        uint16_t len;
+        bool     pending;
+    } out_queue;
 } passthrough_state_t;
 
 passthrough_state_t *passthrough_get_state(void);

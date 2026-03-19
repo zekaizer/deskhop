@@ -73,6 +73,51 @@ void passthrough_task(device_t *state) {
         tud_connect();
         pt->reconnect_at_us = 0;
     }
+
+    /* Phase 3: Send HID++ output via raw control transfer.
+     * Logitech receivers expect full report (rid + data) in the DATA phase,
+     * with rid also in wValue — matching Linux hid-logitech-hidpp behavior. */
+    if (pt->out_queue.pending) {
+        uint8_t rid  = pt->out_queue.report_id;
+        uint8_t type = pt->out_queue.report_type;
+        uint16_t len = pt->out_queue.len;
+
+        /* Build full report: report_id + payload */
+        static uint8_t buf[33];
+        buf[0] = rid;
+        memcpy(buf + 1, pt->out_queue.data, len);
+        uint16_t full_len = len + 1;
+
+        /* Host-side instance number matches USB bInterfaceNumber */
+        uint8_t itf_num = pt->out_queue.instance;
+
+        static tusb_control_request_t request;
+        request = (tusb_control_request_t){
+            .bmRequestType_bit = {
+                .recipient = TUSB_REQ_RCPT_INTERFACE,
+                .type      = TUSB_REQ_TYPE_CLASS,
+                .direction = TUSB_DIR_OUT
+            },
+            .bRequest = 0x09, /* HID_REQ_CONTROL_SET_REPORT */
+            .wValue   = tu_htole16((uint16_t)((type << 8) | rid)),
+            .wIndex   = tu_htole16((uint16_t)itf_num),
+            .wLength  = tu_htole16(full_len)
+        };
+
+        tuh_xfer_t xfer = {
+            .daddr       = pt->out_queue.dev_addr,
+            .ep_addr     = 0,
+            .setup       = &request,
+            .buffer      = buf,
+            .complete_cb = NULL,
+            .user_data   = 0
+        };
+
+        bool ok = tuh_control_xfer(&xfer);
+        dh_debug_printf("[PT] OUT raw xfer itf=%d rid=0x%02X wLen=%d ok=%d\n",
+                        itf_num, rid, full_len, ok);
+        pt->out_queue.pending = false;
+    }
 }
 
 void usb_host_task(device_t *state) {
