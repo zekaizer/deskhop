@@ -251,8 +251,8 @@
 |------|------|
 | ID | FR-AO-004 |
 | 우선순위 | 필수 |
-| 설명 | `tuh_hid_report_received_cb()`에서 interface 유형에 따라 라우팅을 분기해야 한다: (1) `always_passthrough == true` → 항상 Win11, (2) keyboard → 리매핑 엔진 경유 후 active output, (3) mouse → active output에 따라 passthrough 또는 파싱. |
-| 수용 조건 | 세 유형의 report가 각각 의도된 경로로 전달되며, 혼선이 없다. |
+| 설명 | `tuh_hid_report_received_cb()`에서 interface 유형에 따라 라우팅을 분기해야 한다: (1) `always_passthrough == true` + sw_id≠0 (프로토콜) → 항상 Win11, (2) `always_passthrough == true` + sw_id=0 (입력 이벤트) → active output에만 전달 (FR-AO-005), (3) keyboard → 리매핑 엔진 경유 후 active output, (4) mouse → active output에 따라 passthrough 또는 파싱. |
+| 수용 조건 | 네 유형의 report가 각각 의도된 경로로 전달되며, 혼선이 없다. |
 
 ---
 
@@ -680,17 +680,16 @@
 ```c
 #define MAX_PASSTHROUGH_IFACES  6
 #define MAX_HID_DESC_SIZE       512
+#define MAX_CONFIG_DESC_SIZE    280
+#define ITF_NUM_PT_BASE         2
+#define EPNUM_PT_BASE           0x83
 
 typedef struct {
     uint8_t  dev_addr;
     uint8_t  instance;              /* host 측 */
-    uint8_t  device_instance;       /* device 측 (Win11 노출) */
-    uint8_t  ep_in;
     uint8_t  itf_protocol;          /* KEYBOARD / MOUSE / NONE */
     uint16_t desc_len;
     uint8_t  desc[MAX_HID_DESC_SIZE];
-    uint16_t max_report_size;
-    uint8_t  report_id;
     bool     always_passthrough;    /* HID++ vendor: true */
 } passthrough_iface_t;
 
@@ -698,7 +697,17 @@ typedef struct {
     uint8_t              iface_count;
     passthrough_iface_t  ifaces[MAX_PASSTHROUGH_IFACES];
     bool                 enumeration_done;
-    bool                 passthrough_active;
+    bool                 active;
+    uint8_t              config_desc[MAX_CONFIG_DESC_SIZE];
+    uint16_t             config_desc_len;
+    uint64_t             last_capture_us;
+    uint64_t             reconnect_at_us;
+    uint16_t             upstream_vid;
+    uint16_t             upstream_pid;
+    struct { /* deferred HID++ output queue */
+        uint8_t dev_addr, instance, report_id, report_type;
+        uint8_t data[32]; uint16_t len; bool pending;
+    } out_queue;
 } passthrough_state_t;
 ```
 
@@ -744,3 +753,63 @@ typedef struct {
 | `src/tasks.c` | 수정 | `remap_engine_tick()` 주기적 호출 |
 | `src/handlers.c` | 수정 | Output 전환 시 passthrough 플래그 제어 |
 | `CMakeLists.txt` | 수정 | 신규 소스 파일 추가 |
+| `src/tasks.c` | 수정 | `passthrough_task()` 추가 (re-enumeration + deferred SET_REPORT) |
+
+---
+
+## 부록 B. HID++ 2.0 프로토콜 참고
+
+### B.1 메시지 구조
+
+| 필드 | Offset | Short (0x10, 7B) | Long (0x11, 20B) |
+|------|--------|-------------------|-------------------|
+| Report ID | 0 | 0x10 | 0x11 |
+| Device Index | 1 | 1 byte | 1 byte |
+| Feature Index | 2 | 1 byte | 1 byte |
+| Function ID \| SW ID | 3 | 상위 4bit \| 하위 4bit | 상위 4bit \| 하위 4bit |
+| Parameters | 4+ | 3 bytes | 16 bytes |
+
+### B.2 SW ID 분류
+
+| sw_id (byte[3] & 0x0F) | 의미 | 라우팅 |
+|------------------------|------|--------|
+| 0 | Unsolicited event (디바이스 → 호스트) | Active output에만 전달 |
+| 1-14 | Host query response | 항상 Win11 전달 |
+| 15 (0x0F) | Reserved (DeskHop IRoot 쿼리용) | 인터셉트 |
+
+### B.3 관찰된 Feature Index 테이블 (Unifying C52B + MX Master 3S)
+
+> Feature index는 디바이스마다 동적으로 할당된다. IRoot(0x0000, 항상 index 0)로 런타임 조회 가능.
+
+| Feature Index | Feature ID (추정) | 이름 | 입력 이벤트? |
+|--------------|-------------------|------|-------------|
+| 0x00 | 0x0000 | IRoot | No |
+| 0x02 | 0x0003 | IFeatureSet | No |
+| 0x03 | 0x0005 | DeviceInfo | No |
+| 0x04 | 0x1D4B | Connection | Yes (connect/disconnect) |
+| 0x08 | 0x1000 | Battery | Yes (level change) |
+| 0x09 | 0x1B04 | ReprogControls V4 | **Yes (버튼 이벤트)** |
+| 0x0C | 0x2201 | DPI/Resolution | No |
+| 0x0E | 0x2121 | HiResScroll | **Yes (스크롤 이벤트)** |
+| 0x0F | 0x2150 | Thumbwheel | **Yes (스크롤/제스처)** |
+
+### B.4 IRoot 쿼리 프로토콜
+
+Feature ID로 feature index를 조회 (IRoot는 항상 feature index 0, function 0):
+
+```
+Request:  [0x10, devIdx, 0x00, (fn=0<<4 | swId), featureID_hi, featureID_lo, 0x00]
+Response: [0x10, devIdx, 0x00, (fn=0<<4 | swId), featureIndex,  featureType,  0x00]
+```
+
+### B.5 SET_REPORT 프로토콜 (Output Report)
+
+Logitech 수신기는 Interrupt OUT endpoint가 없으므로 SET_REPORT control transfer만 사용 가능.
+TinyUSB의 `tuh_hid_set_report()`는 wLength에 report_id를 포함하지 않아 STALL 발생.
+
+올바른 포맷 (`tuh_control_xfer` 직접 사용):
+- wValue = `(report_type << 8) | report_id`
+- wLength = full report 크기 (short: 7, long: 20)
+- DATA = `[report_id + payload]`
+
+상세: `docs/hidpp-output-protocol.md` 참조

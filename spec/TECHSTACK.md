@@ -203,7 +203,7 @@ Logitech HID++ vendor interface는 캡처/전달되지 않음.
 
 - **Win11 (Pico A)**: Bolt 수신기의 원본 descriptor/report를 그대로 passthrough
 - **Android (Pico B)**: 기존 DeskHop 방식 (파싱 후 고정 descriptor로 재생성)
-- **HID++ vendor interface**: active output과 무관하게 Win11 ↔ 수신기 간 **상시 양방향 통신** 유지 (Options+ 세션 끊김 방지)
+- **HID++ vendor interface**: **프로토콜 메시지**(sw_id≠0)는 active output과 무관하게 Win11 ↔ 수신기 간 상시 양방향 통신 유지 (Options+ 세션 끊김 방지). **입력 이벤트**(sw_id=0, HiRes Scroll/버튼 등)는 active output에만 전달
 
 ### 3.2 모드별 데이터 경로
 
@@ -223,7 +223,7 @@ Logitech HID++ vendor interface는 캡처/전달되지 않음.
 ```
 
 - 키보드 report는 예외: 키 리매핑 엔진 처리를 위해 파싱 경로 유지 (§4 참조)
-- Output report (Win11 → 수신기 방향)도 passthrough 필요: `tud_hid_set_report_cb()` → `tuh_hid_set_report()`
+- Output report (Win11 → 수신기 방향)도 passthrough 필요: `tud_hid_set_report_cb()`에서 큐잉 → `passthrough_task()`에서 `tuh_control_xfer()`로 전송. TinyUSB의 `tuh_hid_set_report()`는 wLength에 report_id를 포함하지 않아 Logitech 수신기에서 STALL 발생. `tuh_control_xfer()`로 직접 SET_REPORT 전송 시 wLength=full report(7B/20B), DATA=[report_id + payload]
 
 #### Active Output = Android (Interface 레벨 분리)
 
@@ -241,14 +241,24 @@ HID++ vendor interface는 active output과 **무관하게** Win11에 항상 양�
                     │     → 파싱 → UART → Pico B → Android
                     │
                     └── itf_protocol == NONE (HID++ vendor)
-                          → tud_hid_n_report() → Win11     ✅ 항상 전달
+                          │
+                          ├── sw_id ≠ 0 (프로토콜 응답)
+                          │     → tud_hid_n_report() → Win11    ✅ 항상 전달
+                          │
+                          └── sw_id == 0 (입력 이벤트: 스크롤, 버튼 등)
+                                → drop (P3: mouse_report_t 변환 → UART → Pico B)
 ```
+
+> **sw_id 분류**: HID++ 2.0 report의 byte[3] 하위 4비트(sw_id)로 구분.
+> sw_id=0은 디바이스가 자발적으로 보내는 입력 이벤트(unsolicited),
+> sw_id≠0은 호스트 쿼리에 대한 응답(solicited). `passthrough_is_hidpp_input_event()` 참조.
 
 ```
 [Win11 Options+] → tud_hid_set_report_cb()
                     │
                     └── instance == HID++ vendor interface
-                          → tuh_hid_set_report() → Bolt 수신기  ✅ 항상 전달
+                          → out_queue에 큐잉 → passthrough_task()
+                          → tuh_control_xfer() → Bolt 수신기  ✅ 항상 전달
 ```
 
 #### Interface 유형별 라우팅 정책
@@ -257,7 +267,8 @@ HID++ vendor interface는 active output과 **무관하게** Win11에 항상 양�
 |---------------|-------------------|-------------------|------------|
 | Keyboard (KEYBOARD) | active output에만 전달 | LED set_report (기존) | ✅ 의존 |
 | Mouse (MOUSE) | active output에만 전달 | 없음 | ✅ 의존 |
-| HID++ vendor (NONE) | **Win11에 항상 전달** | **항상 수신기로 전달** | ❌ **상시 연결** |
+| HID++ vendor (NONE) — 프로토콜 (sw_id≠0) | **Win11에 항상 전달** | **항상 수신기로 전달** | ❌ **상시 연결** |
+| HID++ vendor (NONE) — 입력 이벤트 (sw_id=0) | active output에만 전달 | — | ✅ 의존 |
 
 ### 3.3 핵심 데이터 구조체
 
@@ -266,31 +277,54 @@ HID++ vendor interface는 active output과 **무관하게** Win11에 항상 양�
 
 #define MAX_PASSTHROUGH_IFACES  6
 #define MAX_HID_DESC_SIZE       512
-#define MAX_RAW_REPORT_SIZE     64
+#define MAX_CONFIG_DESC_SIZE    280
+#define ITF_NUM_PT_BASE         2      /* device 측 passthrough interface base */
+#define EPNUM_PT_BASE           0x83   /* device 측 passthrough endpoint base */
 
 typedef struct {
     uint8_t  dev_addr;
     uint8_t  instance;             /* host 측 instance */
-    uint8_t  device_instance;      /* device 측 대응 instance (Win11에 노출) */
-    uint8_t  ep_in;
     uint8_t  itf_protocol;         /* HID_ITF_PROTOCOL_KEYBOARD / MOUSE / NONE */
     uint16_t desc_len;
     uint8_t  desc[MAX_HID_DESC_SIZE];   /* raw HID report descriptor */
-    uint16_t max_report_size;           /* max input report size */
-    uint8_t  report_id;                 /* 0 if not used */
-    bool     always_passthrough;        /* true: HID++ vendor — active 무관 상시 전달 */
+    bool     always_passthrough;        /* true: HID++ vendor — 프로토콜 메시지 상시 전달 */
 } passthrough_iface_t;
 
 typedef struct {
     uint8_t              iface_count;
     passthrough_iface_t  ifaces[MAX_PASSTHROUGH_IFACES];
     bool                 enumeration_done;
-    bool                 passthrough_active;     /* true when Win11 is active output */
+
+    /* Device-side passthrough state */
+    bool                 active;
+    uint8_t              config_desc[MAX_CONFIG_DESC_SIZE];
+    uint16_t             config_desc_len;
+    uint64_t             last_capture_us;
+    uint64_t             reconnect_at_us;
+
+    /* Upstream device identity (FR-PT-009) */
+    uint16_t             upstream_vid;
+    uint16_t             upstream_pid;
+
+    /* Deferred HID++ output report queue */
+    struct {
+        uint8_t  dev_addr;
+        uint8_t  instance;
+        uint8_t  report_id;
+        uint8_t  report_type;
+        uint8_t  data[32];
+        uint16_t len;
+        bool     pending;
+    } out_queue;
 } passthrough_state_t;
 ```
 
 Enumeration 시 `itf_protocol == HID_ITF_PROTOCOL_NONE`인 interface는 `always_passthrough = true`로 설정한다.
-이 플래그가 설정된 interface는 output 전환과 무관하게 Win11 ↔ 수신기 간 양방향 report를 항상 중계한다.
+이 플래그가 설정된 interface의 **프로토콜 메시지**(sw_id≠0)는 output 전환과 무관하게 Win11 ↔ 수신기 간 항상 중계한다.
+**입력 이벤트**(sw_id=0)는 active output에만 전달한다 (FR-AO-005).
+
+Output report는 TinyUSB device callback에서 직접 전송할 수 없으므로 `out_queue`에 큐잉한 뒤
+`passthrough_task()`(10Hz)에서 `tuh_control_xfer()`로 전송한다.
 
 ### 3.4 구현 단계별 계획
 
@@ -373,24 +407,59 @@ VID/PID를 그대로 노출해야 한다.
 **비 Logitech 디바이스**: upstream_vid != 0x046D인 경우 VID/PID는 전환되지만
 string descriptor는 DeskHop 문자열 유지. Options+ 연동은 Logitech 전용.
 
-#### Phase 3: 양방향 상시 통신 (HID++ Always-On Passthrough)
+#### Phase 3: 양방향 상시 통신 (HID++ Always-On Passthrough) — 구현 완료
 
 **목표**: HID++ vendor interface의 양방향 통신을 active output과 무관하게 항상 유지.
 Options+가 수신기를 항상 인식하고, Android 사용 중에도 설정 변경/배터리 조회 등이 동작.
 
-**수정 파일**: `usb.c` (`tud_hid_set_report_cb`, `tuh_hid_report_received_cb`), `passthrough.c`
+**수정 파일**: `usb.c`, `passthrough.c`, `tasks.c`
 
-**작업 내용**:
-- `tuh_hid_report_received_cb()`에서 `always_passthrough == true`인 interface는 active output 체크 없이 `tud_hid_n_report()`로 전달
-- `tud_hid_set_report_cb()`에서 `always_passthrough == true`인 instance는 항상 `tuh_hid_set_report()`로 수신기에 전달
-- `device_instance` ↔ host `(dev_addr, instance)` 양방향 매핑 테이블 구현
-- HID++ feature request/response 양방향 확인
+**구현 결과**:
 
-**검증 기준**:
-- Options+에서 DPI 변경, 버튼 리매핑 등 설정 적용 가능
-- 제스처 버튼(gesture button) 동작 확인
-- **Android active 상태에서** Options+가 수신기 연결 상태를 "connected"로 표시
-- **Android active 상태에서** Options+ 설정 변경이 정상 적용
+1. **Input (수신기 → PC) 라우팅** (`tuh_hid_report_received_cb`):
+   - `always_passthrough` interface에서 sw_id 분류 (`passthrough_is_hidpp_input_event()`)
+   - sw_id≠0 (프로토콜 응답): 항상 `tud_hid_n_report()` → Win11
+   - sw_id=0 (입력 이벤트): active output일 때만 전달, 비활성 시 drop
+   - `tuh_hid_receive_report()`는 항상 re-queue (vendor interface 폴링 유지 필수)
+
+2. **Output (PC → 수신기) 전달** (`tud_hid_set_report_cb` → `passthrough_task`):
+   - TinyUSB device callback 내에서 control transfer 불가 → `out_queue`에 큐잉
+   - `passthrough_task()`(10Hz)에서 `tuh_control_xfer()`로 직접 SET_REPORT 전송
+   - **TinyUSB의 `tuh_hid_set_report()`는 사용 불가**: wLength에 report_id 미포함 → Logitech 수신기 STALL
+   - 올바른 포맷: wLength=full report(7B/20B), DATA=[report_id + payload]
+   - 상세: `docs/hidpp-output-protocol.md` 참조
+
+3. **양방향 매핑**: `passthrough_host_to_device_instance()` / `passthrough_device_to_host_index()`
+
+**HID++ 2.0 메시지 구조** (vendor interface, report ID 0x10/0x11):
+
+| 필드 | Offset | Short (0x10, 7B) | Long (0x11, 20B) |
+|------|--------|-------------------|-------------------|
+| Report ID | 0 | 0x10 | 0x11 |
+| Device Index | 1 | 1 byte | 1 byte |
+| Feature Index | 2 | 1 byte | 1 byte |
+| Function ID \| SW ID | 3 | 상위 4bit \| 하위 4bit | 상위 4bit \| 하위 4bit |
+| Parameters | 4+ | 3 bytes | 16 bytes |
+
+**관찰된 Feature Index 테이블** (Unifying C52B + MX Master 3S, 디바이스별 동적 할당):
+
+| Feature Index | Feature ID (추정) | 이름 | 입력 이벤트? |
+|--------------|-------------------|------|-------------|
+| 0x00 | 0x0000 | IRoot | No |
+| 0x08 | 0x1000 | Battery | Yes |
+| 0x09 | 0x1B04 | ReprogControls V4 | **Yes (버튼)** |
+| 0x0E | 0x2121 | HiResScroll | **Yes (스크롤)** |
+| 0x0F | 0x2150 | Thumbwheel | **Yes (제스처)** |
+
+> Feature index는 디바이스마다 다르게 할당된다. IRoot(feature 0x0000, 항상 index 0)를 통해
+> 런타임에 feature ID → feature index 매핑을 조회할 수 있다. P3(HID++ 변환)에서 활용 예정.
+
+**검증 결과** (Unifying C52B):
+- ✅ Options+에서 MX Master + MX Keys 검색/연결 확인
+- ✅ Android active 상태에서 Options+ "connected" 유지
+- ✅ Android active 상태에서 Options+ 설정 변경 정상 적용
+- ✅ Android active 상태에서 HID++ 입력 이벤트(휠/사이드버튼)가 Win11에서 동작하지 않음 (sw_id 분류)
+- ⏳ Bolt (C548) 테스트 미완료 — 별도 확인 필요
 
 #### Phase 4: 동적 Descriptor 생성
 
