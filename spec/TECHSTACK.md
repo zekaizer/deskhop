@@ -337,6 +337,42 @@ Enumeration 시 `itf_protocol == HID_ITF_PROTOCOL_NONE`인 interface는 `always_
 - Win11에서 Device Manager → HID 장치가 Bolt 수신기와 동일한 interface 수로 인식
 - Logitech Options+가 수신기를 인식하고 연결 상태 표시
 
+##### 조건부 VID/PID 전환 (Conditional VID/PID Switching)
+
+Logi Options+는 VID/PID로 디바이스를 식별한다. DeskHop의 VID/PID(0x1209/0xC000)로는
+Options+가 HID++ 통신을 시도하지 않으므로, passthrough 활성화 시 upstream 디바이스의
+VID/PID를 그대로 노출해야 한다.
+
+**설계**:
+- `passthrough_state_t`에 `upstream_vid`, `upstream_pid` 필드 추가
+- `tuh_hid_mount_cb()`에서 `tuh_vid_pid_get()`로 upstream VID/PID 캡처 (동기, 1회)
+- Re-enumeration 시 `tud_descriptor_device_cb()`가 upstream VID/PID로 device descriptor 반환
+- `tud_descriptor_string_cb()`에서 Logitech VID(0x046D) 감지 시 제조사/제품 문자열 전환
+  - Manufacturer → "Logitech", Product → "USB Receiver" (하드코딩, async capture 회피)
+- Upstream 디바이스 분리(unmount) 시 DeskHop 원래 VID/PID로 재열거
+
+**VID/PID 전환 흐름**:
+```
+[Bolt 연결] → tuh_hid_mount_cb → upstream_vid=0x046D, upstream_pid=0xC548 캡처
+           → 500ms 안정화 대기
+           → passthrough_activate() → config descriptor 생성
+           → tud_disconnect() → 200ms → tud_connect()
+           → tud_descriptor_device_cb(): VID=0x046D, PID=0xC548 반환
+           → tud_descriptor_string_cb(): "Logitech" / "USB Receiver" 반환
+           → Host(Win11/macOS)가 Logitech Bolt로 인식
+           → Options+가 HID++ 통신 시작
+
+[Bolt 분리] → tuh_hid_umount_cb → passthrough_remove_device()
+           → iface_count == 0 → active=false, upstream_vid/pid=0
+           → tud_disconnect() → 200ms → tud_connect()
+           → tud_descriptor_device_cb(): VID=0x1209, PID=0xC000 반환 (DeskHop)
+```
+
+**우선순위**: config mode > passthrough VID/PID > DeskHop VID/PID
+
+**비 Logitech 디바이스**: upstream_vid != 0x046D인 경우 VID/PID는 전환되지만
+string descriptor는 DeskHop 문자열 유지. Options+ 연동은 Logitech 전용.
+
 #### Phase 3: 양방향 상시 통신 (HID++ Always-On Passthrough)
 
 **목표**: HID++ vendor interface의 양방향 통신을 active output과 무관하게 항상 유지.

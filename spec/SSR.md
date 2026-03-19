@@ -150,7 +150,7 @@
 | 우선순위 | 필수 |
 | 설명 | Passthrough 모드에서 Logitech MX 시리즈의 확장 기능(제스처 버튼, 썸휠, DPI 전환, MagSpeed 무한스크롤)이 Options+와 연동하여 동작해야 한다. |
 | 전제 | FR-PT-004 (raw passthrough) + FR-AO-002 (HID++ output report 전달) |
-| 수용 조건 | Options+에서 DPI 변경, 버튼 리매핑 설정이 정상 적용되고, 제스처 버튼이 동작한다. |
+| 수용 조건 | VID/PID 전환(FR-PT-009) 후 Options+에서 DPI 변경, 버튼 리매핑 설정이 정상 적용되고, 제스처 버튼이 동작한다. |
 
 #### FR-PT-006: 트리플 모니터 지원
 
@@ -180,6 +180,27 @@
 | 우선순위 | 필수 |
 | 설명 | Android가 active output일 때, keyboard/mouse report는 기존 DeskHop 방식으로 파싱 후 UART를 통해 Pico B에 전달하고, Pico B가 고정 HID descriptor로 Android에 출력한다. |
 | 수용 조건 | Android 태블릿에서 키보드 입력, 마우스 이동/클릭/스크롤이 정상 동작한다. |
+
+#### FR-PT-009: 조건부 VID/PID 전환
+
+| 항목 | 내용 |
+|------|------|
+| ID | FR-PT-009 |
+| 우선순위 | 필수 |
+| 설명 | Passthrough 활성화 시 USB Device Descriptor의 VID/PID를 upstream 디바이스(Bolt 수신기)와 동일하게 노출해야 한다. Logitech VID(0x046D) 감지 시 제조사/제품 string descriptor도 "Logitech" / "USB Receiver"로 전환한다. |
+| 전제 | FR-PT-001 (descriptor 캡처) + FR-PT-003 (re-enumeration) |
+| 구현 | `tuh_hid_mount_cb()`에서 `tuh_vid_pid_get()`로 VID/PID 캡처 → `passthrough_state_t.upstream_vid/pid`에 저장 → re-enumeration 시 `tud_descriptor_device_cb()`에서 upstream VID/PID 반환 |
+| 수용 조건 | Re-enumeration 후 호스트 시스템 리포트에서 VID=0x046D, PID=0xC548로 표시되고, Logi Options+가 디바이스를 인식한다. |
+
+#### FR-PT-010: Unmount 시 VID/PID 원복
+
+| 항목 | 내용 |
+|------|------|
+| ID | FR-PT-010 |
+| 우선순위 | 필수 |
+| 설명 | Upstream 디바이스(Bolt 수신기) 분리 시, passthrough를 비활성화하고 DeskHop 원래 VID/PID(0x1209/0xC000)로 자동 재열거해야 한다. |
+| 절차 | `tuh_hid_umount_cb()` → `passthrough_remove_device()` → iface_count==0 → `active=false`, VID/PID 클리어 → `tud_disconnect()` → 200ms → `tud_connect()` |
+| 수용 조건 | Bolt 분리 후 호스트에서 DeskHop VID/PID로 다시 인식되고, 기본 키보드/마우스 기능이 정상 동작한다. |
 
 ---
 
