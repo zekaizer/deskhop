@@ -42,6 +42,34 @@ void tud_hid_set_report_cb(uint8_t instance,
                            uint8_t const *buffer,
                            uint16_t bufsize) {
 
+    /* Passthrough: forward output reports from host (Win11/Options+) to receiver */
+    passthrough_state_t *pt = passthrough_get_state();
+    if (pt->active && instance >= ITF_NUM_PT_BASE) {
+        int8_t idx = passthrough_device_to_host_index(pt, instance);
+#ifdef DH_DEBUG
+        {
+            char hex[32] = {0};
+            int pos = 0;
+            for (uint16_t i = 0; i < bufsize && i < 8 && pos < 30; i++)
+                pos += snprintf(hex + pos, sizeof(hex) - pos, "%02X ", buffer[i]);
+            dh_debug_printf("[PT] OUT rid=0x%02X type=%d len=%d idx=%d [%s]\n",
+                            report_id, report_type, bufsize, idx, hex);
+        }
+#endif
+        if (idx >= 0 && bufsize <= sizeof(pt->out_queue.data)) {
+            /* Queue for deferred send from main loop — SET_REPORT control
+             * transfers fail when called from TinyUSB device callbacks. */
+            pt->out_queue.dev_addr    = pt->ifaces[idx].dev_addr;
+            pt->out_queue.instance    = pt->ifaces[idx].instance;
+            pt->out_queue.report_id   = report_id;
+            pt->out_queue.report_type = report_type;
+            pt->out_queue.len         = bufsize;
+            memcpy(pt->out_queue.data, buffer, bufsize);
+            pt->out_queue.pending     = true;
+        }
+        return;
+    }
+
     /* We received a report on the config report ID */
     if (instance == ITF_NUM_HID_VENDOR && report_id == REPORT_ID_VENDOR) {
         /* Security - only if config mode is enabled are we allowed to do anything. While the report_id
@@ -115,6 +143,14 @@ void tud_cdc_rx_cb(uint8_t itf) {
 }
 #endif
 
+/* SET_REPORT completion callback — verify control transfer actually reached the device */
+void tuh_hid_set_report_complete_cb(uint8_t dev_addr, uint8_t idx,
+                                     uint8_t report_id, uint8_t report_type,
+                                     uint16_t len) {
+    dh_debug_printf("[PT] SET_REPORT done dev=%d idx=%d rid=0x%02X len=%d %s\n",
+                    dev_addr, idx, report_id, len, len ? "OK" : "FAIL");
+}
+
 /* ================================================== *
  * ===============  USB HOST Section  =============== *
  * ================================================== */
@@ -142,7 +178,17 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
     memset(iface, 0, sizeof(hid_interface_t));
 
     /* Clean up passthrough state for this device */
-    passthrough_remove_device(passthrough_get_state(), dev_addr);
+    passthrough_state_t *pt = passthrough_get_state();
+    passthrough_remove_device(pt, dev_addr);
+
+    /* Re-enumerate as DeskHop when all passthrough interfaces are gone (FR-PT-010) */
+    if (pt->active && pt->iface_count == 0) {
+        dh_debug_printf("[PT] All interfaces removed, reverting to DeskHop identity\n");
+        pt->active = false;
+        pt->config_desc_len = 0;
+        tud_disconnect();
+        pt->reconnect_at_us = time_us_64() + _MS(200);
+    }
 }
 
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_report, uint16_t desc_len) {
@@ -159,6 +205,17 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
     /* Capture raw descriptor for Semi-DDM passthrough */
     passthrough_state_t *pt = passthrough_get_state();
     passthrough_capture_descriptor(pt, dev_addr, instance, itf_protocol, desc_report, desc_len);
+    pt->last_capture_us = time_us_64();
+
+    /* Capture upstream VID/PID once per device (FR-PT-009) */
+    if (pt->upstream_vid == 0) {
+        tuh_vid_pid_get(dev_addr, &pt->upstream_vid, &pt->upstream_pid);
+        dh_debug_printf("[PT] Upstream device VID=%04X PID=%04X\n",
+                        pt->upstream_vid, pt->upstream_pid);
+    }
+
+    dh_debug_printf("[PT] Mount dev=%d inst=%d proto=%d\n",
+                    dev_addr, instance, itf_protocol);
 
     /* Parse the report descriptor into our internal structure. */
     parse_report_descriptor(iface, desc_report, desc_len);
@@ -224,6 +281,44 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
 
     if (dev_addr > MAX_DEVICES || instance >= MAX_INTERFACES)
         return;
+
+    /* Passthrough: forward raw non-keyboard reports to device side.
+     * Keyboard always goes through DeskHop parsing for hotkey/remap (FR-PT-007).
+     * When active output: raw passthrough replaces DeskHop mouse processing.
+     * When not active: fall through to DeskHop processing (mouse → UART → other board). */
+    passthrough_state_t *pt = passthrough_get_state();
+    if (pt->active && itf_protocol != HID_ITF_PROTOCOL_KEYBOARD) {
+        int8_t dev_inst = passthrough_host_to_device_instance(pt, dev_addr, instance);
+        if (dev_inst >= 0) {
+            int8_t idx = dev_inst - ITF_NUM_PT_BASE;
+
+            /* HID++ vendor interfaces: route by message type (sw_id classification).
+             * Protocol responses (sw_id!=0) always go to A for Options+ etc.
+             * Input events (sw_id==0) only go to active output; dropped on inactive
+             * (P3 will convert these to standard mouse reports via UART). */
+            bool handled = false;
+
+            if (pt->ifaces[idx].always_passthrough) {
+                bool is_input = passthrough_is_hidpp_input_event(report, len);
+                bool forward  = !is_input || CURRENT_BOARD_IS_ACTIVE_OUTPUT;
+
+                if (forward) {
+                    bool ok = tud_hid_n_report(dev_inst, 0, report, len);
+                    if (!ok)
+                        dh_debug_printf("[PT] IN fwd FAILED\n");
+                }
+                handled = true;
+            } else if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
+                tud_hid_n_report(dev_inst, 0, report, len);
+                handled = true;
+            }
+
+            tuh_hid_receive_report(dev_addr, instance);
+            if (handled)
+                return;
+            /* Not active output: fall through to DeskHop processing */
+        }
+    }
 
     hid_interface_t *iface = &global_state.iface[dev_addr-1][instance];
 

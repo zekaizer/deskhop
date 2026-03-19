@@ -25,11 +25,20 @@ tusb_desc_device_t const desc_device = DEVICE_DESCRIPTOR(0x1209, 0xc000);
 
 // Invoked when received GET DEVICE DESCRIPTOR
 // Application return pointer to descriptor
+static tusb_desc_device_t desc_device_passthrough;
+
 uint8_t const *tud_descriptor_device_cb(void) {
     if (global_state.config_mode_active)
         return (uint8_t const *)&desc_device_config;
-    else
-        return (uint8_t const *)&desc_device;
+
+    passthrough_state_t *pt = passthrough_get_state();
+    if (pt->active && pt->upstream_vid != 0) {
+        desc_device_passthrough = (tusb_desc_device_t)DEVICE_DESCRIPTOR(
+            pt->upstream_vid, pt->upstream_pid);
+        return (uint8_t const *)&desc_device_passthrough;
+    }
+
+    return (uint8_t const *)&desc_device;
 }
 
 //--------------------------------------------------------------------+
@@ -56,6 +65,15 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
     if (global_state.config_mode_active)
         if (instance == ITF_NUM_HID_VENDOR)
             return desc_hid_report_vendor;
+
+    /* Passthrough instances: return captured descriptor from host device */
+    passthrough_state_t *pt = passthrough_get_state();
+    if (pt->active && instance >= ITF_NUM_PT_BASE) {
+        uint16_t len;
+        const uint8_t *desc = passthrough_get_report_desc(pt, instance, &len);
+        if (desc)
+            return desc;
+    }
 
     switch(instance) {
         case ITF_NUM_HID:
@@ -132,13 +150,20 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
         memcpy(&_desc_str[1], string_desc_arr[0], 2);
         chr_count = 1;
     } else {
-        // Note: the 0xEE index string is a Microsoft OS 1.0 Descriptors.
-        // https://docs.microsoft.com/en-us/windows-hardware/drivers/usbcon/microsoft-defined-usb-descriptors
+        const char *str = NULL;
 
-        if (!(index < sizeof(string_desc_arr) / sizeof(string_desc_arr[0])))
-            return NULL;
+        /* Override manufacturer/product strings for Logitech passthrough (FR-PT-009) */
+        passthrough_state_t *pt = passthrough_get_state();
+        if (!global_state.config_mode_active && pt->active && pt->upstream_vid == 0x046D) {
+            if (index == STRID_MANUFACTURER) str = "Logitech";
+            else if (index == STRID_PRODUCT)  str = "USB Receiver";
+        }
 
-        const char *str = (index == STRID_SERIAL) ? serial_number : string_desc_arr[index];
+        if (!str) {
+            if (!(index < sizeof(string_desc_arr) / sizeof(string_desc_arr[0])))
+                return NULL;
+            str = (index == STRID_SERIAL) ? serial_number : string_desc_arr[index];
+        }
 
         // Cap at max char
         chr_count = strlen(str);
@@ -155,6 +180,91 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     _desc_str[0] = (TUSB_DESC_STRING << 8) | (2 * chr_count + 2);
 
     return _desc_str;
+}
+
+//--------------------------------------------------------------------+
+// Passthrough Configuration Descriptor Builder (P2)
+//--------------------------------------------------------------------+
+
+/* Append one HID interface descriptor block to buffer using TinyUSB macro */
+static uint16_t append_hid_itf(uint8_t *buf, uint8_t itf_num, uint8_t str_idx,
+                                uint8_t protocol, uint16_t report_desc_len,
+                                uint8_t ep_addr, uint16_t ep_size, uint8_t ep_interval) {
+    const uint8_t desc[] = {
+        TUD_HID_DESCRIPTOR(itf_num, str_idx, protocol, report_desc_len,
+                           ep_addr, ep_size, ep_interval)
+    };
+    memcpy(buf, desc, sizeof(desc));
+    return sizeof(desc);
+}
+
+/* Build full configuration descriptor: DeskHop interfaces + passthrough interfaces.
+ * Stores result in state->config_desc / config_desc_len. */
+void passthrough_build_config_desc(passthrough_state_t *state) {
+    uint8_t *buf = state->config_desc;
+    uint16_t off = 0;
+    uint8_t num_pt = state->iface_count;
+    uint8_t num_itf = 2 + num_pt;
+
+#ifdef DH_DEBUG
+    num_itf += 2; /* CDC Communication + Data interfaces */
+#endif
+
+    /* Configuration descriptor header (9 bytes) */
+    buf[off++] = 9;
+    buf[off++] = TUSB_DESC_CONFIGURATION;
+    off += 2; /* wTotalLength — filled at end */
+    buf[off++] = num_itf;
+    buf[off++] = 1;    /* bConfigurationValue */
+    buf[off++] = 0;    /* iConfiguration */
+    buf[off++] = 0x80 | TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP;
+    buf[off++] = 250;  /* bMaxPower: 500mA / 2 */
+
+    /* DeskHop ITF 0: main HID (keyboard + abs mouse + consumer + system) */
+    off += append_hid_itf(buf + off, ITF_NUM_HID, STRID_PRODUCT,
+                          HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report),
+                          0x81, CFG_TUD_HID_EP_BUFSIZE, 1);
+
+    /* DeskHop ITF 1: relative mouse helper */
+    off += append_hid_itf(buf + off, ITF_NUM_HID_REL_M, STRID_MOUSE,
+                          HID_ITF_PROTOCOL_NONE, sizeof(desc_hid_report_relmouse),
+                          0x82, CFG_TUD_HID_EP_BUFSIZE, 1);
+
+    /* Passthrough interfaces (captured from host device) */
+    for (uint8_t i = 0; i < num_pt; i++) {
+        off += append_hid_itf(buf + off, ITF_NUM_PT_BASE + i, 0,
+                              state->ifaces[i].itf_protocol,
+                              state->ifaces[i].desc_len,
+                              EPNUM_PT_BASE + i,
+                              CFG_TUD_HID_EP_BUFSIZE, 1);
+    }
+
+#ifdef DH_DEBUG
+    {
+        uint8_t cdc_itf  = ITF_NUM_PT_BASE + num_pt;
+        uint8_t ep_notif = 0x80 | (3 + num_pt);
+        uint8_t ep_out   = (uint8_t)(3 + num_pt + 1);
+        uint8_t ep_in    = 0x80 | (3 + num_pt + 1);
+
+        const uint8_t cdc[] = {
+            TUD_CDC_DESCRIPTOR(cdc_itf, STRID_DEBUG, ep_notif, 8,
+                               ep_out, ep_in, 64)
+        };
+        memcpy(buf + off, cdc, sizeof(cdc));
+        off += sizeof(cdc);
+    }
+#endif
+
+    if (off > MAX_CONFIG_DESC_SIZE) {
+        state->config_desc_len = 0;
+        return;
+    }
+
+    /* Fill wTotalLength (bytes 2-3 of config header) */
+    buf[2] = (uint8_t)(off);
+    buf[3] = (uint8_t)(off >> 8);
+
+    state->config_desc_len = off;
 }
 
 //--------------------------------------------------------------------+
@@ -263,6 +373,11 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
 
     if (global_state.config_mode_active)
         return desc_configuration_config;
-    else
-        return desc_configuration;
+
+    /* When passthrough is active, return dynamically built descriptor */
+    passthrough_state_t *pt = passthrough_get_state();
+    if (pt->active && pt->config_desc_len > 0)
+        return pt->config_desc;
+
+    return desc_configuration;
 }

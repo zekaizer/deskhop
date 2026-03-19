@@ -249,21 +249,31 @@ static void cdc_write_str(const char *str) {
 
 
 int dh_debug_printf(const char *format, ...) {
+    static bool at_line_start = true;
     va_list args;
     va_start(args, format);
     char raw[256];
     char buffer[512];
+    int j = 0;
 
     vsnprintf(raw, sizeof(raw), format, args);
 
+    /* Prepend timestamp only at the start of a new line */
+    if (at_line_start && raw[0]) {
+        uint32_t ms = (uint32_t)(time_us_64() / 1000);
+        j = snprintf(buffer, sizeof(buffer), "[%7lu] ", (unsigned long)ms);
+    }
+
     /* Convert bare \n to \r\n for CDC serial terminals */
-    int j = 0;
     for (int i = 0; raw[i] && j < (int)sizeof(buffer) - 2; i++) {
         if (raw[i] == '\n' && (i == 0 || raw[i - 1] != '\r'))
             buffer[j++] = '\r';
         buffer[j++] = raw[i];
     }
     buffer[j] = '\0';
+
+    /* Track whether next call starts a new line */
+    at_line_start = (j > 0 && buffer[j - 1] == '\n');
 
     cdc_write_str(buffer);
     tud_cdc_write_flush();
