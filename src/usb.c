@@ -46,13 +46,24 @@ void tud_hid_set_report_cb(uint8_t instance,
     passthrough_state_t *pt = passthrough_get_state();
     if (pt->active && instance >= ITF_NUM_PT_BASE) {
         int8_t idx = passthrough_device_to_host_index(pt, instance);
-        dh_debug_printf("[PT] OUT inst=%d rid=0x%02X len=%d idx=%d\n",
-                        instance, report_id, bufsize, idx);
-        if (idx >= 0) {
-            tuh_hid_set_report(pt->ifaces[idx].dev_addr,
-                               pt->ifaces[idx].instance,
-                               report_id, report_type,
-                               (void *)buffer, bufsize);
+        {
+            char hex[32] = {0};
+            int pos = 0;
+            for (uint16_t i = 0; i < bufsize && i < 8 && pos < 30; i++)
+                pos += snprintf(hex + pos, sizeof(hex) - pos, "%02X ", buffer[i]);
+            dh_debug_printf("[PT] OUT rid=0x%02X type=%d len=%d idx=%d [%s]\n",
+                            report_id, report_type, bufsize, idx, hex);
+        }
+        if (idx >= 0 && bufsize <= sizeof(pt->out_queue.data)) {
+            /* Queue for deferred send from main loop — SET_REPORT control
+             * transfers fail when called from TinyUSB device callbacks. */
+            pt->out_queue.dev_addr    = pt->ifaces[idx].dev_addr;
+            pt->out_queue.instance    = pt->ifaces[idx].instance;
+            pt->out_queue.report_id   = report_id;
+            pt->out_queue.report_type = report_type;
+            pt->out_queue.len         = bufsize;
+            memcpy(pt->out_queue.data, buffer, bufsize);
+            pt->out_queue.pending     = true;
         }
         return;
     }
@@ -130,6 +141,14 @@ void tud_cdc_rx_cb(uint8_t itf) {
 }
 #endif
 
+/* SET_REPORT completion callback — verify control transfer actually reached the device */
+void tuh_hid_set_report_complete_cb(uint8_t dev_addr, uint8_t idx,
+                                     uint8_t report_id, uint8_t report_type,
+                                     uint16_t len) {
+    dh_debug_printf("[PT] SET_REPORT done dev=%d idx=%d rid=0x%02X len=%d %s\n",
+                    dev_addr, idx, report_id, len, len ? "OK" : "FAIL");
+}
+
 /* ================================================== *
  * ===============  USB HOST Section  =============== *
  * ================================================== */
@@ -193,6 +212,15 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
         tuh_vid_pid_get(dev_addr, &pt->upstream_vid, &pt->upstream_pid);
         dh_debug_printf("[PT] Upstream device VID=%04X PID=%04X\n",
                         pt->upstream_vid, pt->upstream_pid);
+    }
+
+    /* Check if this interface has an interrupt OUT endpoint */
+    {
+        uint8_t dummy[1] = {0};
+        bool has_epout = tuh_hid_send_report(dev_addr, instance, 0, dummy, 1);
+        dh_debug_printf("[PT] Mount dev=%d inst=%d proto=%d epout=%s\n",
+                        dev_addr, instance, itf_protocol,
+                        has_epout ? "YES" : "NO");
     }
 
     /* Parse the report descriptor into our internal structure. */
@@ -272,16 +300,24 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
             bool forward = CURRENT_BOARD_IS_ACTIVE_OUTPUT || pt->ifaces[idx].always_passthrough;
 
             /* Only log HID++ vendor reports, not high-frequency mouse */
-            if (pt->ifaces[idx].always_passthrough)
-                dh_debug_printf("[PT] IN dev=%d inst=%d len=%d fwd=%d\n",
-                                dev_addr, instance, len, forward);
-            if (forward)
-                tud_hid_n_report(dev_inst, 0, report, len);
+            if (pt->ifaces[idx].always_passthrough) {
+                char hex[32] = {0};
+                int pos = 0;
+                for (uint16_t i = 0; i < len && i < 8 && pos < 30; i++)
+                    pos += snprintf(hex + pos, sizeof(hex) - pos, "%02X ", report[i]);
+                dh_debug_printf("[PT] IN len=%d fwd=%d [%s]\n", len, forward, hex);
+            }
+            if (forward) {
+                bool ok = tud_hid_n_report(dev_inst, 0, report, len);
+                if (pt->ifaces[idx].always_passthrough && !ok)
+                    dh_debug_printf("[PT] IN fwd FAILED\n");
+            }
 
-            if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
-                /* Raw passthrough fully handles this report */
+            /* always_passthrough interfaces must keep receiving regardless of output */
+            if (CURRENT_BOARD_IS_ACTIVE_OUTPUT || pt->ifaces[idx].always_passthrough) {
                 tuh_hid_receive_report(dev_addr, instance);
-                return;
+                if (CURRENT_BOARD_IS_ACTIVE_OUTPUT)
+                    return;
             }
             /* Not active output: fall through to DeskHop processing */
         }
