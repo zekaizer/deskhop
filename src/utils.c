@@ -254,10 +254,14 @@ int dh_debug_printf(const char *format, ...) {
     char raw[256];
     char buffer[512];
 
+    /* Prepend millisecond timestamp */
+    uint32_t ms = (uint32_t)(time_us_64() / 1000);
+    int prefix_len = snprintf(buffer, sizeof(buffer), "[%7lu] ", (unsigned long)ms);
+
     vsnprintf(raw, sizeof(raw), format, args);
 
     /* Convert bare \n to \r\n for CDC serial terminals */
-    int j = 0;
+    int j = prefix_len;
     for (int i = 0; raw[i] && j < (int)sizeof(buffer) - 2; i++) {
         if (raw[i] == '\n' && (i == 0 || raw[i - 1] != '\r'))
             buffer[j++] = '\r';

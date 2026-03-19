@@ -56,15 +56,20 @@ void passthrough_task(device_t *state) {
     /* Phase 1: Activate after captures stabilize (500ms since last capture) */
     if (!pt->active && pt->iface_count > 0 && pt->last_capture_us > 0) {
         if (time_us_64() - pt->last_capture_us > _MS(500)) {
+            dh_debug_printf("[PT] Activating passthrough (%d ifaces)\n", pt->iface_count);
             if (passthrough_activate(pt)) {
+                dh_debug_printf("[PT] Disconnect for re-enumeration\n");
                 tud_disconnect();
                 pt->reconnect_at_us = time_us_64() + _MS(200);
+            } else {
+                dh_debug_printf("[PT] Activation failed\n");
             }
         }
     }
 
     /* Phase 2: Reconnect after 200ms disconnect delay (USB spec minimum) */
     if (pt->reconnect_at_us > 0 && time_us_64() >= pt->reconnect_at_us) {
+        dh_debug_printf("[PT] Reconnect with new descriptors\n");
         tud_connect();
         pt->reconnect_at_us = 0;
     }

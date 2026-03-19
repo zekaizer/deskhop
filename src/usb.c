@@ -46,6 +46,8 @@ void tud_hid_set_report_cb(uint8_t instance,
     passthrough_state_t *pt = passthrough_get_state();
     if (pt->active && instance >= ITF_NUM_PT_BASE) {
         int8_t idx = passthrough_device_to_host_index(pt, instance);
+        dh_debug_printf("[PT] OUT inst=%d rid=0x%02X len=%d idx=%d\n",
+                        instance, report_id, bufsize, idx);
         if (idx >= 0) {
             tuh_hid_set_report(pt->ifaces[idx].dev_addr,
                                pt->ifaces[idx].instance,
@@ -250,6 +252,10 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
             int8_t idx = dev_inst - ITF_NUM_PT_BASE;
             bool forward = CURRENT_BOARD_IS_ACTIVE_OUTPUT || pt->ifaces[idx].always_passthrough;
 
+            /* Only log HID++ vendor reports, not high-frequency mouse */
+            if (pt->ifaces[idx].always_passthrough)
+                dh_debug_printf("[PT] IN dev=%d inst=%d len=%d fwd=%d\n",
+                                dev_addr, instance, len, forward);
             if (forward)
                 tud_hid_n_report(dev_inst, 0, report, len);
 
