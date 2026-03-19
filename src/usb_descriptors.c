@@ -25,11 +25,20 @@ tusb_desc_device_t const desc_device = DEVICE_DESCRIPTOR(0x1209, 0xc000);
 
 // Invoked when received GET DEVICE DESCRIPTOR
 // Application return pointer to descriptor
+static tusb_desc_device_t desc_device_passthrough;
+
 uint8_t const *tud_descriptor_device_cb(void) {
     if (global_state.config_mode_active)
         return (uint8_t const *)&desc_device_config;
-    else
-        return (uint8_t const *)&desc_device;
+
+    passthrough_state_t *pt = passthrough_get_state();
+    if (pt->active && pt->upstream_vid != 0) {
+        desc_device_passthrough = (tusb_desc_device_t)DEVICE_DESCRIPTOR(
+            pt->upstream_vid, pt->upstream_pid);
+        return (uint8_t const *)&desc_device_passthrough;
+    }
+
+    return (uint8_t const *)&desc_device;
 }
 
 //--------------------------------------------------------------------+
@@ -141,13 +150,20 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
         memcpy(&_desc_str[1], string_desc_arr[0], 2);
         chr_count = 1;
     } else {
-        // Note: the 0xEE index string is a Microsoft OS 1.0 Descriptors.
-        // https://docs.microsoft.com/en-us/windows-hardware/drivers/usbcon/microsoft-defined-usb-descriptors
+        const char *str = NULL;
 
-        if (!(index < sizeof(string_desc_arr) / sizeof(string_desc_arr[0])))
-            return NULL;
+        /* Override manufacturer/product strings for Logitech passthrough (FR-PT-009) */
+        passthrough_state_t *pt = passthrough_get_state();
+        if (!global_state.config_mode_active && pt->active && pt->upstream_vid == 0x046D) {
+            if (index == STRID_MANUFACTURER) str = "Logitech";
+            else if (index == STRID_PRODUCT)  str = "USB Receiver";
+        }
 
-        const char *str = (index == STRID_SERIAL) ? serial_number : string_desc_arr[index];
+        if (!str) {
+            if (!(index < sizeof(string_desc_arr) / sizeof(string_desc_arr[0])))
+                return NULL;
+            str = (index == STRID_SERIAL) ? serial_number : string_desc_arr[index];
+        }
 
         // Cap at max char
         chr_count = strlen(str);

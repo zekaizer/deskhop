@@ -256,6 +256,48 @@ void test_activate_then_remove_deactivates(void) {
     TEST_ASSERT_EQUAL_INT8(-1, passthrough_host_to_device_instance(&state, 1, 0));
 }
 
+/* ================================================== *
+ * ========  VID/PID Switching Tests (FR-PT-009) ===== *
+ * ================================================== */
+
+void test_init_clears_vid_pid(void) {
+    TEST_ASSERT_EQUAL_UINT16(0, state.upstream_vid);
+    TEST_ASSERT_EQUAL_UINT16(0, state.upstream_pid);
+}
+
+void test_vid_pid_stored_directly(void) {
+    state.upstream_vid = 0x046D;
+    state.upstream_pid = 0xC548;
+    TEST_ASSERT_EQUAL_UINT16(0x046D, state.upstream_vid);
+    TEST_ASSERT_EQUAL_UINT16(0xC548, state.upstream_pid);
+}
+
+void test_vid_pid_cleared_on_last_remove(void) {
+    capture_bolt_interfaces(&state);
+    state.upstream_vid = 0x046D;
+    state.upstream_pid = 0xC548;
+
+    passthrough_remove_device(&state, 1);
+    TEST_ASSERT_EQUAL_UINT8(0, state.iface_count);
+    TEST_ASSERT_EQUAL_UINT16(0, state.upstream_vid);
+    TEST_ASSERT_EQUAL_UINT16(0, state.upstream_pid);
+}
+
+void test_vid_pid_retained_with_remaining_ifaces(void) {
+    /* Capture from two different devices */
+    uint8_t desc[8] = {0};
+    passthrough_capture_descriptor(&state, 1, 0, 1, desc, sizeof(desc));
+    passthrough_capture_descriptor(&state, 2, 0, 2, desc, sizeof(desc));
+    state.upstream_vid = 0x046D;
+    state.upstream_pid = 0xC548;
+
+    /* Remove only device 1 — device 2 remains */
+    passthrough_remove_device(&state, 1);
+    TEST_ASSERT_EQUAL_UINT8(1, state.iface_count);
+    TEST_ASSERT_EQUAL_UINT16(0x046D, state.upstream_vid);
+    TEST_ASSERT_EQUAL_UINT16(0xC548, state.upstream_pid);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_init_zeros_state);
@@ -278,5 +320,10 @@ int main(void) {
     RUN_TEST(test_host_to_device_instance);
     RUN_TEST(test_device_to_host_index);
     RUN_TEST(test_activate_then_remove_deactivates);
+    /* VID/PID switching tests */
+    RUN_TEST(test_init_clears_vid_pid);
+    RUN_TEST(test_vid_pid_stored_directly);
+    RUN_TEST(test_vid_pid_cleared_on_last_remove);
+    RUN_TEST(test_vid_pid_retained_with_remaining_ifaces);
     return UNITY_END();
 }

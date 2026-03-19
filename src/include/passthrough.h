@@ -36,6 +36,10 @@ typedef struct {
     uint16_t             config_desc_len;
     uint64_t             last_capture_us;   /* Timestamp of most recent capture */
     uint64_t             reconnect_at_us;   /* Scheduled tud_connect() time (0=none) */
+
+    /* Upstream device identity for VID/PID switching (FR-PT-009) */
+    uint16_t             upstream_vid;
+    uint16_t             upstream_pid;
 } passthrough_state_t;
 
 passthrough_state_t *passthrough_get_state(void);

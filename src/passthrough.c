@@ -144,6 +144,12 @@ void passthrough_remove_device(passthrough_state_t *state, uint8_t dev_addr) {
         memset(&state->ifaces[i], 0, sizeof(passthrough_iface_t));
 
     state->iface_count = write;
+
+    /* Clear upstream identity when no interfaces remain */
+    if (state->iface_count == 0) {
+        state->upstream_vid = 0;
+        state->upstream_pid = 0;
+    }
 }
 
 void passthrough_dump_descriptors(const passthrough_state_t *state) {

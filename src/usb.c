@@ -157,7 +157,19 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
     memset(iface, 0, sizeof(hid_interface_t));
 
     /* Clean up passthrough state for this device */
-    passthrough_remove_device(passthrough_get_state(), dev_addr);
+    passthrough_state_t *pt = passthrough_get_state();
+    passthrough_remove_device(pt, dev_addr);
+
+    /* Re-enumerate as DeskHop when all passthrough interfaces are gone (FR-PT-010) */
+    if (pt->active && pt->iface_count == 0) {
+        dh_debug_printf("[PT] All interfaces removed, reverting to DeskHop identity\n");
+        pt->active = false;
+        pt->config_desc_len = 0;
+        pt->upstream_vid = 0;
+        pt->upstream_pid = 0;
+        tud_disconnect();
+        pt->reconnect_at_us = time_us_64() + _MS(200);
+    }
 }
 
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_report, uint16_t desc_len) {
@@ -175,6 +187,13 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
     passthrough_state_t *pt = passthrough_get_state();
     passthrough_capture_descriptor(pt, dev_addr, instance, itf_protocol, desc_report, desc_len);
     pt->last_capture_us = time_us_64();
+
+    /* Capture upstream VID/PID once per device (FR-PT-009) */
+    if (pt->upstream_vid == 0) {
+        tuh_vid_pid_get(dev_addr, &pt->upstream_vid, &pt->upstream_pid);
+        dh_debug_printf("[PT] Upstream device VID=%04X PID=%04X\n",
+                        pt->upstream_vid, pt->upstream_pid);
+    }
 
     /* Parse the report descriptor into our internal structure. */
     parse_report_descriptor(iface, desc_report, desc_len);
