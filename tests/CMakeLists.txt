@@ -45,3 +45,16 @@ target_include_directories(test_passthrough PRIVATE
 )
 target_link_libraries(test_passthrough unity)
 add_test(NAME passthrough COMMAND test_passthrough)
+
+# Key remap engine test
+add_executable(test_key_remap
+    test_key_remap.c
+    ${SRC_DIR}/key_remap.c
+)
+target_compile_definitions(test_key_remap PRIVATE UNIT_TEST)
+target_include_directories(test_key_remap PRIVATE
+    ${SRC_DIR}/include
+    ${STUB_INCLUDES}
+)
+target_link_libraries(test_key_remap unity)
+add_test(NAME key_remap COMMAND test_key_remap)
