@@ -297,29 +297,33 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
         int8_t dev_inst = passthrough_host_to_device_instance(pt, dev_addr, instance);
         if (dev_inst >= 0) {
             int8_t idx = dev_inst - ITF_NUM_PT_BASE;
-            bool forward = CURRENT_BOARD_IS_ACTIVE_OUTPUT || pt->ifaces[idx].always_passthrough;
 
-            /* Only log HID++ vendor reports, not high-frequency mouse */
+            /* HID++ vendor interfaces: route by message type (sw_id classification).
+             * Protocol responses (sw_id!=0) always go to A for Options+ etc.
+             * Input events (sw_id==0) only go to active output; dropped on inactive
+             * (P3 will convert these to standard mouse reports via UART). */
             if (pt->ifaces[idx].always_passthrough) {
-                char hex[32] = {0};
-                int pos = 0;
-                for (uint16_t i = 0; i < len && i < 8 && pos < 30; i++)
-                    pos += snprintf(hex + pos, sizeof(hex) - pos, "%02X ", report[i]);
-                dh_debug_printf("[PT] IN len=%d fwd=%d [%s]\n", len, forward, hex);
-            }
-            if (forward) {
-                bool ok = tud_hid_n_report(dev_inst, 0, report, len);
-                if (pt->ifaces[idx].always_passthrough && !ok)
-                    dh_debug_printf("[PT] IN fwd FAILED\n");
+                bool is_input = passthrough_is_hidpp_input_event(report, len);
+                bool forward  = !is_input || CURRENT_BOARD_IS_ACTIVE_OUTPUT;
+
+                if (forward) {
+                    bool ok = tud_hid_n_report(dev_inst, 0, report, len);
+                    if (!ok)
+                        dh_debug_printf("[PT] IN fwd FAILED\n");
+                }
+
+                tuh_hid_receive_report(dev_addr, instance);
+                return;
             }
 
-            /* always_passthrough interfaces must keep receiving regardless of output */
-            if (CURRENT_BOARD_IS_ACTIVE_OUTPUT || pt->ifaces[idx].always_passthrough) {
+            /* Non-vendor passthrough: forward when active output */
+            if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
+                tud_hid_n_report(dev_inst, 0, report, len);
                 tuh_hid_receive_report(dev_addr, instance);
-                if (CURRENT_BOARD_IS_ACTIVE_OUTPUT)
-                    return;
+                return;
             }
             /* Not active output: fall through to DeskHop processing */
+            tuh_hid_receive_report(dev_addr, instance);
         }
     }
 

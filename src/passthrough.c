@@ -152,6 +152,16 @@ void passthrough_remove_device(passthrough_state_t *state, uint8_t dev_addr) {
     }
 }
 
+bool passthrough_is_hidpp_input_event(const uint8_t *report, uint16_t len) {
+    if (len < 4)
+        return false;
+    /* HID++ 2.0 short (0x10) or long (0x11) report */
+    if (report[0] != 0x10 && report[0] != 0x11)
+        return false;
+    /* sw_id == 0 → unsolicited event (device-initiated input) */
+    return (report[3] & 0x0F) == 0;
+}
+
 void passthrough_dump_descriptors(const passthrough_state_t *state) {
     if (!state)
         return;

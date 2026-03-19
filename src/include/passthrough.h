@@ -78,3 +78,4 @@ int8_t passthrough_host_to_device_instance(const passthrough_state_t *state,
                                            uint8_t instance);
 int8_t passthrough_device_to_host_index(const passthrough_state_t *state,
                                         uint8_t device_instance);
+bool passthrough_is_hidpp_input_event(const uint8_t *report, uint16_t len);
