@@ -9,7 +9,7 @@
 
 #define MAX_PASSTHROUGH_IFACES 6
 #define MAX_HID_DESC_SIZE      512
-#define MAX_CONFIG_DESC_SIZE   256
+#define MAX_CONFIG_DESC_SIZE   280
 
 /* Device-side passthrough interface base (after DeskHop's ITF 0, 1) */
 #define ITF_NUM_PT_BASE        2

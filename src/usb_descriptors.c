@@ -186,42 +186,16 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
 // Passthrough Configuration Descriptor Builder (P2)
 //--------------------------------------------------------------------+
 
-/* Append one HID interface descriptor block (25 bytes) to buffer */
+/* Append one HID interface descriptor block to buffer using TinyUSB macro */
 static uint16_t append_hid_itf(uint8_t *buf, uint8_t itf_num, uint8_t str_idx,
                                 uint8_t protocol, uint16_t report_desc_len,
                                 uint8_t ep_addr, uint16_t ep_size, uint8_t ep_interval) {
-    /* Interface descriptor (9 bytes) */
-    buf[0] = 9;
-    buf[1] = TUSB_DESC_INTERFACE;
-    buf[2] = itf_num;
-    buf[3] = 0;                                            /* bAlternateSetting */
-    buf[4] = 1;                                            /* bNumEndpoints */
-    buf[5] = TUSB_CLASS_HID;
-    buf[6] = (protocol != 0) ? HID_SUBCLASS_BOOT : 0;     /* bInterfaceSubClass */
-    buf[7] = protocol;                                     /* bInterfaceProtocol */
-    buf[8] = str_idx;
-
-    /* HID class descriptor (9 bytes) */
-    buf[9]  = 9;
-    buf[10] = HID_DESC_TYPE_HID;
-    buf[11] = 0x11;                                        /* bcdHID 1.11 lo */
-    buf[12] = 0x01;                                        /* bcdHID 1.11 hi */
-    buf[13] = 0;                                           /* bCountryCode */
-    buf[14] = 1;                                           /* bNumDescriptors */
-    buf[15] = HID_DESC_TYPE_REPORT;
-    buf[16] = (uint8_t)(report_desc_len);                  /* wDescriptorLength lo */
-    buf[17] = (uint8_t)(report_desc_len >> 8);             /* wDescriptorLength hi */
-
-    /* Endpoint descriptor (7 bytes) */
-    buf[18] = 7;
-    buf[19] = TUSB_DESC_ENDPOINT;
-    buf[20] = ep_addr;
-    buf[21] = TUSB_XFER_INTERRUPT;
-    buf[22] = (uint8_t)(ep_size);                          /* wMaxPacketSize lo */
-    buf[23] = (uint8_t)(ep_size >> 8);                     /* wMaxPacketSize hi */
-    buf[24] = ep_interval;
-
-    return 25; /* TUD_HID_DESC_LEN */
+    const uint8_t desc[] = {
+        TUD_HID_DESCRIPTOR(itf_num, str_idx, protocol, report_desc_len,
+                           ep_addr, ep_size, ep_interval)
+    };
+    memcpy(buf, desc, sizeof(desc));
+    return sizeof(desc);
 }
 
 /* Build full configuration descriptor: DeskHop interfaces + passthrough interfaces.
@@ -267,71 +241,24 @@ void passthrough_build_config_desc(passthrough_state_t *state) {
 
 #ifdef DH_DEBUG
     {
-        /* CDC descriptor (66 bytes): dynamically assigned after passthrough EPs */
-        uint8_t cdc_itf   = ITF_NUM_PT_BASE + num_pt;
-        uint8_t ep_notif   = 0x80 | (3 + num_pt);     /* IN */
-        uint8_t ep_out     = (uint8_t)(3 + num_pt + 1);
-        uint8_t ep_in      = 0x80 | (3 + num_pt + 1); /* IN */
+        uint8_t cdc_itf  = ITF_NUM_PT_BASE + num_pt;
+        uint8_t ep_notif = 0x80 | (3 + num_pt);
+        uint8_t ep_out   = (uint8_t)(3 + num_pt + 1);
+        uint8_t ep_in    = 0x80 | (3 + num_pt + 1);
 
-        /* Interface Association (8) */
-        buf[off++] = 8;  buf[off++] = TUSB_DESC_INTERFACE_ASSOCIATION;
-        buf[off++] = cdc_itf; buf[off++] = 2;
-        buf[off++] = TUSB_CLASS_CDC;
-        buf[off++] = CDC_COMM_SUBCLASS_ABSTRACT_CONTROL_MODEL;
-        buf[off++] = CDC_COMM_PROTOCOL_NONE; buf[off++] = 0;
-
-        /* CDC Control Interface (9) */
-        buf[off++] = 9;  buf[off++] = TUSB_DESC_INTERFACE;
-        buf[off++] = cdc_itf; buf[off++] = 0; buf[off++] = 1;
-        buf[off++] = TUSB_CLASS_CDC;
-        buf[off++] = CDC_COMM_SUBCLASS_ABSTRACT_CONTROL_MODEL;
-        buf[off++] = CDC_COMM_PROTOCOL_NONE; buf[off++] = STRID_DEBUG;
-
-        /* Header Functional Descriptor (5) */
-        buf[off++] = 5;  buf[off++] = 0x24; /* CS_INTERFACE */
-        buf[off++] = 0x00; /* Header */
-        buf[off++] = 0x20; buf[off++] = 0x01; /* bcdCDC 1.20 */
-
-        /* Call Management (5) */
-        buf[off++] = 5;  buf[off++] = 0x24;
-        buf[off++] = 0x01; /* Call Management */
-        buf[off++] = 0;  buf[off++] = (uint8_t)(cdc_itf + 1);
-
-        /* ACM (4) */
-        buf[off++] = 4;  buf[off++] = 0x24;
-        buf[off++] = 0x02; /* ACM */ buf[off++] = 0x02;
-
-        /* Union (5) */
-        buf[off++] = 5;  buf[off++] = 0x24;
-        buf[off++] = 0x06; /* Union */
-        buf[off++] = cdc_itf; buf[off++] = (uint8_t)(cdc_itf + 1);
-
-        /* Notification EP (7) */
-        buf[off++] = 7;  buf[off++] = TUSB_DESC_ENDPOINT;
-        buf[off++] = ep_notif; buf[off++] = TUSB_XFER_INTERRUPT;
-        buf[off++] = 8;  buf[off++] = 0;  /* wMaxPacketSize */
-        buf[off++] = 16; /* bInterval */
-
-        /* CDC Data Interface (9) */
-        buf[off++] = 9;  buf[off++] = TUSB_DESC_INTERFACE;
-        buf[off++] = (uint8_t)(cdc_itf + 1);
-        buf[off++] = 0; buf[off++] = 2;
-        buf[off++] = TUSB_CLASS_CDC_DATA;
-        buf[off++] = 0; buf[off++] = 0; buf[off++] = 0;
-
-        /* Data EP OUT (7) */
-        buf[off++] = 7;  buf[off++] = TUSB_DESC_ENDPOINT;
-        buf[off++] = ep_out; buf[off++] = TUSB_XFER_BULK;
-        buf[off++] = 64; buf[off++] = 0;  /* wMaxPacketSize */
-        buf[off++] = 0;
-
-        /* Data EP IN (7) */
-        buf[off++] = 7;  buf[off++] = TUSB_DESC_ENDPOINT;
-        buf[off++] = ep_in; buf[off++] = TUSB_XFER_BULK;
-        buf[off++] = 64; buf[off++] = 0;
-        buf[off++] = 0;
+        const uint8_t cdc[] = {
+            TUD_CDC_DESCRIPTOR(cdc_itf, STRID_DEBUG, ep_notif, 8,
+                               ep_out, ep_in, 64)
+        };
+        memcpy(buf + off, cdc, sizeof(cdc));
+        off += sizeof(cdc);
     }
 #endif
+
+    if (off > MAX_CONFIG_DESC_SIZE) {
+        state->config_desc_len = 0;
+        return;
+    }
 
     /* Fill wTotalLength (bytes 2-3 of config header) */
     buf[2] = (uint8_t)(off);

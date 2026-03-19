@@ -46,6 +46,7 @@ void tud_hid_set_report_cb(uint8_t instance,
     passthrough_state_t *pt = passthrough_get_state();
     if (pt->active && instance >= ITF_NUM_PT_BASE) {
         int8_t idx = passthrough_device_to_host_index(pt, instance);
+#ifdef DH_DEBUG
         {
             char hex[32] = {0};
             int pos = 0;
@@ -54,6 +55,7 @@ void tud_hid_set_report_cb(uint8_t instance,
             dh_debug_printf("[PT] OUT rid=0x%02X type=%d len=%d idx=%d [%s]\n",
                             report_id, report_type, bufsize, idx, hex);
         }
+#endif
         if (idx >= 0 && bufsize <= sizeof(pt->out_queue.data)) {
             /* Queue for deferred send from main loop — SET_REPORT control
              * transfers fail when called from TinyUSB device callbacks. */
@@ -184,8 +186,6 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
         dh_debug_printf("[PT] All interfaces removed, reverting to DeskHop identity\n");
         pt->active = false;
         pt->config_desc_len = 0;
-        pt->upstream_vid = 0;
-        pt->upstream_pid = 0;
         tud_disconnect();
         pt->reconnect_at_us = time_us_64() + _MS(200);
     }
@@ -214,14 +214,8 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
                         pt->upstream_vid, pt->upstream_pid);
     }
 
-    /* Check if this interface has an interrupt OUT endpoint */
-    {
-        uint8_t dummy[1] = {0};
-        bool has_epout = tuh_hid_send_report(dev_addr, instance, 0, dummy, 1);
-        dh_debug_printf("[PT] Mount dev=%d inst=%d proto=%d epout=%s\n",
-                        dev_addr, instance, itf_protocol,
-                        has_epout ? "YES" : "NO");
-    }
+    dh_debug_printf("[PT] Mount dev=%d inst=%d proto=%d\n",
+                    dev_addr, instance, itf_protocol);
 
     /* Parse the report descriptor into our internal structure. */
     parse_report_descriptor(iface, desc_report, desc_len);
@@ -302,6 +296,8 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
              * Protocol responses (sw_id!=0) always go to A for Options+ etc.
              * Input events (sw_id==0) only go to active output; dropped on inactive
              * (P3 will convert these to standard mouse reports via UART). */
+            bool handled = false;
+
             if (pt->ifaces[idx].always_passthrough) {
                 bool is_input = passthrough_is_hidpp_input_event(report, len);
                 bool forward  = !is_input || CURRENT_BOARD_IS_ACTIVE_OUTPUT;
@@ -311,19 +307,16 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
                     if (!ok)
                         dh_debug_printf("[PT] IN fwd FAILED\n");
                 }
-
-                tuh_hid_receive_report(dev_addr, instance);
-                return;
-            }
-
-            /* Non-vendor passthrough: forward when active output */
-            if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
+                handled = true;
+            } else if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
                 tud_hid_n_report(dev_inst, 0, report, len);
-                tuh_hid_receive_report(dev_addr, instance);
-                return;
+                handled = true;
             }
-            /* Not active output: fall through to DeskHop processing */
+
             tuh_hid_receive_report(dev_addr, instance);
+            if (handled)
+                return;
+            /* Not active output: fall through to DeskHop processing */
         }
     }
 

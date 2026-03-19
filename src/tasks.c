@@ -98,7 +98,7 @@ void passthrough_task(device_t *state) {
                 .type      = TUSB_REQ_TYPE_CLASS,
                 .direction = TUSB_DIR_OUT
             },
-            .bRequest = 0x09, /* HID_REQ_CONTROL_SET_REPORT */
+            .bRequest = HID_REQ_CONTROL_SET_REPORT,
             .wValue   = tu_htole16((uint16_t)((type << 8) | rid)),
             .wIndex   = tu_htole16((uint16_t)itf_num),
             .wLength  = tu_htole16(full_len)
