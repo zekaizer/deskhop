@@ -251,15 +251,25 @@ static void cdc_write_str(const char *str) {
 int dh_debug_printf(const char *format, ...) {
     va_list args;
     va_start(args, format);
+    char raw[256];
     char buffer[512];
 
-    int string_len = vsnprintf(buffer, 512, format, args);
+    vsnprintf(raw, sizeof(raw), format, args);
+
+    /* Convert bare \n to \r\n for CDC serial terminals */
+    int j = 0;
+    for (int i = 0; raw[i] && j < (int)sizeof(buffer) - 2; i++) {
+        if (raw[i] == '\n' && (i == 0 || raw[i - 1] != '\r'))
+            buffer[j++] = '\r';
+        buffer[j++] = raw[i];
+    }
+    buffer[j] = '\0';
 
     cdc_write_str(buffer);
     tud_cdc_write_flush();
 
     va_end(args);
-    return string_len;
+    return j;
 }
 #else
 
