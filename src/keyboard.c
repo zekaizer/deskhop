@@ -322,6 +322,20 @@ void process_keyboard_report(uint8_t *raw_report, int length, uint8_t itf, hid_i
     /* Update the keyboard state for this device */
     update_kbd_state(state, &new_report, itf);
 
+    /* Key remap engine: transform report before hotkey evaluation */
+    remap_result_t remap = remap_engine_process(&state->remap_engine,
+                                                &new_report,
+                                                state->active_output);
+    if (remap == REMAP_CONSUMED)
+        return;
+
+    /* Emit any pending tap actions from remap engine */
+    {
+        hid_keyboard_report_t pending = {0};
+        if (remap_engine_get_pending(&state->remap_engine, &pending))
+            send_key(&pending, state);
+    }
+
     /* Check if any hotkey was pressed */
     hotkey = check_all_hotkeys(&new_report, state);
 

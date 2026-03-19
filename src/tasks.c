@@ -48,6 +48,16 @@ void usb_device_task(device_t *state) {
     tud_task();
 }
 
+/* Key remap engine periodic tick — check tap-hold timeouts */
+void remap_engine_tick_task(device_t *state) {
+    remap_engine_tick(&state->remap_engine, time_us_64());
+
+    /* If tick generated a pending tap report, queue it */
+    hid_keyboard_report_t pending = {0};
+    if (remap_engine_get_pending(&state->remap_engine, &pending))
+        send_key(&pending, state);
+}
+
 /* Check if passthrough needs activation and handle re-enumeration sequence.
  * Runs on core0 since tud_disconnect/tud_connect are device-side operations. */
 void passthrough_task(device_t *state) {
