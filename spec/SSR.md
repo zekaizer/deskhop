@@ -206,14 +206,14 @@
 
 ### 3.2 HID++ Always-On 양방향 통신
 
-#### FR-AO-001: HID++ Input Report 상시 전달
+#### FR-AO-001: HID++ 프로토콜 메시지 상시 전달
 
 | 항목 | 내용 |
 |------|------|
 | ID | FR-AO-001 |
 | 우선순위 | 필수 |
-| 설명 | Bolt 수신기의 HID++ vendor interface (Interface 2)에서 수신된 input report (Report ID 0x10, 0x11)는 active output과 **무관하게** 항상 Win11에 전달해야 한다. |
-| 수용 조건 | Android active 상태에서 Options+가 수신기를 "connected"로 표시한다. |
+| 설명 | HID++ **프로토콜 메시지**(Options+ query/response)는 active output과 **무관하게** 항상 Win11 ↔ 수신기 간 전달해야 한다. 프로토콜 메시지와 입력 이벤트는 HID++ 2.0의 sw_id 필드(byte[3] 하위 4비트)로 구분한다: sw_id≠0은 프로토콜 응답, sw_id=0은 입력 이벤트. |
+| 수용 조건 | Android active 상태에서 Options+가 수신기를 "connected"로 표시하고 설정 변경이 가능하다. |
 
 #### FR-AO-002: HID++ Output Report 상시 전달
 
@@ -221,9 +221,20 @@
 |------|------|
 | ID | FR-AO-002 |
 | 우선순위 | 필수 |
-| 설명 | Win11(Options+)이 HID++ vendor interface로 보내는 output report (SET_REPORT)는 active output과 **무관하게** 항상 Bolt 수신기에 전달해야 한다. |
-| 구현 | `tud_hid_set_report_cb()`에서 `always_passthrough == true`인 instance → `tuh_hid_set_report()` |
+| 설명 | Win11(Options+)이 HID++ vendor interface로 보내는 output report는 active output과 **무관하게** 항상 Bolt 수신기에 전달해야 한다. |
+| 구현 | `tud_hid_set_report_cb()`에서 큐잉 → `passthrough_task()`에서 `tuh_control_xfer()`로 전송. wLength는 full report 크기(report_id 포함). |
 | 수용 조건 | Android active 상태에서 Options+ DPI 변경, 버튼 리매핑, 배터리 잔량 조회가 정상 동작한다. |
+
+#### FR-AO-005: HID++ 입력 이벤트의 Active Output 라우팅
+
+| 항목 | 내용 |
+|------|------|
+| ID | FR-AO-005 |
+| 우선순위 | 필수 |
+| 설명 | Logitech MX 시리즈 마우스의 고급 입력(HiRes Scroll, 사이드/썸/제스처 버튼)은 HID++ vendor interface를 통해 전달된다. 이러한 **입력 이벤트**는 active output에만 전달되어야 하며, 비활성 output에 입력이 누출되어서는 안 된다. |
+| 근거 | 실기 테스트에서 확인: Feature 0x0E (HiRes Scroll), Feature 0x09 (Reprog Controls) 등의 HID++ 입력 이벤트가 `always_passthrough=true`로 인해 항상 Win11에 전달되어, Android active 시 휠/특수 버튼이 Win11에서 동작하는 문제 발생. |
+| 구분 기준 | HID++ 2.0 report에서 sw_id (byte[3]의 하위 4비트): sw_id=0 → unsolicited 입력 이벤트, sw_id≠0 → 프로토콜 응답. |
+| 수용 조건 | Android active 시 휠 스크롤, 사이드 버튼, 썸 버튼, 제스처 버튼이 Win11에서 동작하지 않는다. Win11 active 시에는 모든 입력이 정상 동작한다. |
 
 #### FR-AO-003: HID++ 세션 연속성
 
