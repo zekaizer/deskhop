@@ -74,6 +74,15 @@ void passthrough_task(device_t *state) {
         pt->reconnect_at_us = 0;
     }
 
+    /* Phase 2.5: IRoot feature discovery (P3) — runs after activation,
+     * uses out_queue to send IRoot queries one at a time. */
+    if (pt->active && !pt->hidpp_disc.done) {
+        /* Start discovery after activation */
+        if (pt->hidpp_disc.state == DISC_IDLE)
+            pt->hidpp_disc.state = DISC_DETECT_DEVICE;
+        passthrough_discovery_step(pt);
+    }
+
     /* Phase 3: Send HID++ output via raw control transfer.
      * Logitech receivers expect full report (rid + data) in the DATA phase,
      * with rid also in wValue — matching Linux hid-logitech-hidpp behavior. */

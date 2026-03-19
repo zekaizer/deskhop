@@ -16,6 +16,29 @@
 /* Device-side passthrough endpoint base (IN direction) */
 #define EPNUM_PT_BASE          0x83
 
+/* HID++ IRoot feature discovery (P3) */
+#define HIDPP_SWID_DESKHOP     0x0F
+#define HIDPP_REPORT_ID_SHORT  0x10
+#define HIDPP_REPORT_ID_LONG   0x11
+#define HIDPP_DISC_TIMEOUT_US  2000000  /* 2 seconds */
+
+enum hidpp_disc_state {
+    DISC_IDLE = 0,
+    DISC_DETECT_DEVICE,
+    DISC_QUERY_HIRES_SCROLL,
+    DISC_QUERY_THUMBWHEEL,
+    DISC_DONE
+};
+
+typedef struct {
+    uint8_t  state;           /* enum hidpp_disc_state */
+    uint8_t  device_idx;      /* HID++ device index (byte[1]), 0=undetected */
+    uint8_t  fi_hires_scroll; /* Feature ID 0x2121 → feature index (0=not found) */
+    uint8_t  fi_thumbwheel;   /* Feature ID 0x2150 → feature index */
+    bool     done;
+    uint64_t query_sent_us;   /* timeout detection */
+} hidpp_discovery_t;
+
 typedef struct {
     uint8_t  dev_addr;
     uint8_t  instance;
@@ -51,6 +74,9 @@ typedef struct {
         uint16_t len;
         bool     pending;
     } out_queue;
+
+    /* P3: IRoot feature discovery */
+    hidpp_discovery_t    hidpp_disc;
 } passthrough_state_t;
 
 passthrough_state_t *passthrough_get_state(void);
@@ -79,3 +105,13 @@ int8_t passthrough_host_to_device_instance(const passthrough_state_t *state,
 int8_t passthrough_device_to_host_index(const passthrough_state_t *state,
                                         uint8_t device_instance);
 bool passthrough_is_hidpp_input_event(const uint8_t *report, uint16_t len);
+
+/* P3: IRoot discovery and HID++ conversion */
+bool passthrough_send_iroot_query(passthrough_state_t *state,
+                                  uint8_t device_idx, uint16_t feature_id);
+void passthrough_handle_iroot_response(passthrough_state_t *state,
+                                       const uint8_t *report, uint16_t len);
+void passthrough_discovery_step(passthrough_state_t *state);
+bool passthrough_convert_hidpp_to_mouse(const passthrough_state_t *state,
+                                        const uint8_t *report, uint16_t len,
+                                        void *out_mouse);

@@ -299,13 +299,33 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
             bool handled = false;
 
             if (pt->ifaces[idx].always_passthrough) {
-                bool is_input = passthrough_is_hidpp_input_event(report, len);
-                bool forward  = !is_input || CURRENT_BOARD_IS_ACTIVE_OUTPUT;
+                /* Detect HID++ device index for IRoot discovery */
+                if (pt->hidpp_disc.state == DISC_DETECT_DEVICE &&
+                    pt->hidpp_disc.device_idx == 0 && len >= 2) {
+                    pt->hidpp_disc.device_idx = report[1];
+                    pt->hidpp_disc.state = DISC_QUERY_HIRES_SCROLL;
+                    dh_debug_printf("[DISC] Detected device idx=0x%02X\n", report[1]);
+                }
 
-                if (forward) {
+                /* Intercept IRoot responses (sw_id == HIDPP_SWID_DESKHOP) */
+                if (!pt->hidpp_disc.done && len >= 7 &&
+                    (report[3] & 0x0F) == HIDPP_SWID_DESKHOP) {
+                    passthrough_handle_iroot_response(pt, report, len);
+                    tuh_hid_receive_report(dev_addr, instance);
+                    return;
+                }
+
+                bool is_input = passthrough_is_hidpp_input_event(report, len);
+
+                if (!is_input || CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
                     bool ok = tud_hid_n_report(dev_inst, 0, report, len);
                     if (!ok)
                         dh_debug_printf("[PT] IN fwd FAILED\n");
+                } else {
+                    /* B active: convert HID++ input event to mouse report */
+                    mouse_report_t mouse = {0};
+                    if (passthrough_convert_hidpp_to_mouse(pt, report, len, &mouse))
+                        output_mouse_report(&mouse, &global_state);
                 }
                 handled = true;
             } else if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
