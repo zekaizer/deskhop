@@ -71,12 +71,14 @@ void tud_hid_set_report_cb(uint8_t instance,
                 uint8_t fn  = (buffer[2] >> 4) & 0x0F;
                 uint8_t p0  = bufsize > 3 ? buffer[3] : 0;
 
-                /* HiResScroll setWheelMode(fn=2, param=0x03) */
+                /* HiResScroll setWheelMode(fn=2, param=0x03).
+                 * This signature is unique to HiResScroll — always update
+                 * device_idx since it definitively identifies the mouse. */
                 if (fn == 2 && p0 == 0x03 && d->fi_hires_scroll == 0) {
                     d->fi_hires_scroll = fi;
-                    if (d->device_idx == 0)
-                        d->device_idx = buffer[0];
-                    dh_debug_printf("[SNIFF] HiResScroll → fi=0x%02X (setWheelMode)\n", fi);
+                    d->device_idx = buffer[0];
+                    dh_debug_printf("[SNIFF] HiResScroll → fi=0x%02X dev=%d (setWheelMode)\n",
+                                    fi, buffer[0]);
                 }
                 /* Thumbwheel setReporting(fn=2, param=0x01).
                  * Requires HiResScroll already known + same device to avoid
