@@ -40,6 +40,8 @@ typedef struct {
     uint8_t  button_state;       /* Accumulated mouse button bitmap */
     bool     done;
     uint64_t query_sent_us;      /* timeout detection */
+
+    /* Passive sniffing: learn feature indices from host setup commands */
 } hidpp_discovery_t;
 
 typedef struct {

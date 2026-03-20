@@ -56,6 +56,39 @@ void tud_hid_set_report_cb(uint8_t instance,
             pt->out_queue.len         = bufsize;
             memcpy(pt->out_queue.data, buffer, bufsize);
             pt->out_queue.pending     = true;
+
+            /* Passive sniffing: learn feature indices from host software commands.
+             * Options+ uses FeatureSet (not IRoot) for discovery, then sends
+             * characteristic setup commands to each feature. We detect these:
+             *   - FeatureSet fn=1 queries: track index → match response for fid
+             *   - setWheelMode(fn=2, param=0x03): identifies HiResScroll fi
+             *   - setThumbwheelReporting(fn=2, param=0x01): identifies Thumbwheel fi */
+            if (report_id == HIDPP_REPORT_ID_SHORT && bufsize >= 4
+                && buffer[0] >= 1 && buffer[0] <= 6
+                && (buffer[2] & 0x0F) != 0) {
+                hidpp_discovery_t *d = &pt->hidpp_disc;
+                uint8_t fi  = buffer[1];
+                uint8_t fn  = (buffer[2] >> 4) & 0x0F;
+                uint8_t p0  = bufsize > 3 ? buffer[3] : 0;
+
+                /* HiResScroll setWheelMode(fn=2, param=0x03) */
+                if (fn == 2 && p0 == 0x03 && d->fi_hires_scroll == 0) {
+                    d->fi_hires_scroll = fi;
+                    if (d->device_idx == 0)
+                        d->device_idx = buffer[0];
+                    dh_debug_printf("[SNIFF] HiResScroll → fi=0x%02X (setWheelMode)\n", fi);
+                }
+                /* Thumbwheel setReporting(fn=2, param=0x01).
+                 * Requires HiResScroll already known + same device to avoid
+                 * false positives from other features using fn=2 param=0x01. */
+                if (fn == 2 && p0 == 0x01
+                    && d->fi_thumbwheel == 0 && d->fi_hires_scroll != 0
+                    && fi != d->fi_hires_scroll
+                    && buffer[0] == d->device_idx) {
+                    d->fi_thumbwheel = fi;
+                    dh_debug_printf("[SNIFF] Thumbwheel → fi=0x%02X (setReporting)\n", fi);
+                }
+            }
         }
         return;
     }
