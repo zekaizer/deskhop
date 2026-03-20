@@ -319,10 +319,19 @@ void process_keyboard_report(uint8_t *raw_report, int length, uint8_t itf, hid_i
 
     extract_kbd_data(raw_report, length, itf, iface, &new_report);
 
-    /* Update the keyboard state for this device */
+    /* Update state with ORIGINAL keys for hotkey matching */
     update_kbd_state(state, &new_report, itf);
 
-    /* Key remap engine: transform report before hotkey evaluation */
+    /* Check hotkeys on ORIGINAL (physical) keys */
+    hotkey = check_all_hotkeys(&new_report, state);
+    if (hotkey != NULL) {
+        if (hotkey->acknowledge)
+            blink_led(state);
+        hotkey->action_handler(state, &new_report);
+        if (!hotkey->pass_to_os)
+            return;
+    }
+
     remap_result_t remap = remap_engine_process(&state->remap_engine,
                                                 &new_report,
                                                 state->active_output);
@@ -336,22 +345,10 @@ void process_keyboard_report(uint8_t *raw_report, int length, uint8_t itf, hid_i
             send_key(&pending, state);
     }
 
-    /* Check if any hotkey was pressed */
-    hotkey = check_all_hotkeys(&new_report, state);
-
-    /* ... and take appropriate action */
-    if (hotkey != NULL) {
-        /* Provide visual feedback we received the action */
-        if (hotkey->acknowledge)
-            blink_led(state);
-
-        /* Execute the corresponding handler */
-        hotkey->action_handler(state, &new_report);
-
-        /* And pass the key to the output PC if configured to do so. */
-        if (!hotkey->pass_to_os)
-            return;
-    }
+    /* Re-update state with REMAPPED keys so send_key's combine_kbd_states
+     * sends the remapped version, not the original physical keys. */
+    if (remap == REMAP_MODIFIED)
+        update_kbd_state(state, &new_report, itf);
 
     /* This method will decide if the key gets queued locally or sent through UART */
     send_key(&new_report, state);
