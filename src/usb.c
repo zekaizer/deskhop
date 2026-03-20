@@ -65,7 +65,9 @@ void tud_hid_set_report_cb(uint8_t instance,
              *   - setThumbwheelReporting(fn=2, param=0x01): identifies Thumbwheel fi */
             if (report_id == HIDPP_REPORT_ID_SHORT && bufsize >= 4
                 && buffer[0] >= 1 && buffer[0] <= 6
-                && (buffer[2] & 0x0F) != 0) {
+                && (buffer[2] & 0x0F) != 0
+                && (pt->hidpp_disc.fi_hires_scroll == 0
+                    || pt->hidpp_disc.fi_thumbwheel == 0)) {
                 hidpp_discovery_t *d = &pt->hidpp_disc;
                 uint8_t fi  = buffer[1];
                 uint8_t fn  = (buffer[2] >> 4) & 0x0F;

@@ -149,11 +149,11 @@ typedef struct {
     /* Onboard LED blinky (provide feedback when e.g. mouse connected) */
     int32_t blinks_left;     // How many blink transitions are left
     int32_t last_led_change; // Timestamp of the last time led state transitioned
-
-    #define LED_BLINK_NONE     0
-    #define LED_BLINK_PT_WAIT  1  // Slow pulse: 50ms on, 450ms off
     uint8_t led_blink_mode;
 } device_t;
+
+#define LED_BLINK_NONE     0
+#define LED_BLINK_PT_WAIT  1  /* Slow pulse: 50ms on, 450ms off */
 /*==============================================================================*/
 
 

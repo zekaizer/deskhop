@@ -3,6 +3,7 @@
  */
 
 #ifdef UNIT_TEST
+#include "pico_stub.h"
 #include "passthrough.h"
 #include <string.h>
 #define HID_ITF_PROTOCOL_NONE 0
@@ -150,10 +151,7 @@ void passthrough_remove_device(passthrough_state_t *state, uint8_t dev_addr) {
         state->upstream_vid = 0;
         state->upstream_pid = 0;
         state->active = false;
-        state->hidpp_disc.button_state = 0;
-        state->hidpp_disc.fi_reprog_controls = 0;
-        state->hidpp_disc.done = false;
-        state->hidpp_disc.state = DISC_IDLE;
+        memset(&state->hidpp_disc, 0, sizeof(state->hidpp_disc));
     }
 }
 
@@ -166,141 +164,9 @@ bool passthrough_is_hidpp_input_event(const uint8_t *report, uint16_t len) {
 }
 
 /* ================================================== *
- * =========  P3: IRoot Feature Discovery  ========== *
- * ================================================== */
-
-bool passthrough_send_iroot_query(passthrough_state_t *state,
-                                  uint8_t device_idx, uint16_t feature_id) {
-    if (!state || state->out_queue.pending)
-        return false;
-
-    /* IRoot is always feature index 0, function 0 */
-    state->out_queue.dev_addr    = state->ifaces[0].dev_addr;
-    state->out_queue.instance    = 0; /* find vendor interface instance */
-    for (uint8_t i = 0; i < state->iface_count; i++) {
-        if (state->ifaces[i].always_passthrough) {
-            state->out_queue.dev_addr = state->ifaces[i].dev_addr;
-            state->out_queue.instance = state->ifaces[i].instance;
-            break;
-        }
-    }
-    state->out_queue.report_id   = HIDPP_REPORT_ID_SHORT;
-    state->out_queue.report_type = 2; /* HID_REPORT_TYPE_OUTPUT */
-    state->out_queue.data[0]     = device_idx;
-    state->out_queue.data[1]     = 0x00; /* feature index 0 = IRoot */
-    state->out_queue.data[2]     = (0x00 << 4) | HIDPP_SWID_DESKHOP; /* fn=0 | sw_id */
-    state->out_queue.data[3]     = (uint8_t)(feature_id >> 8);
-    state->out_queue.data[4]     = (uint8_t)(feature_id & 0xFF);
-    state->out_queue.data[5]     = 0x00;
-    state->out_queue.len         = 6;
-    state->out_queue.pending     = true;
-
-    return true;
-}
-
-void passthrough_handle_iroot_response(passthrough_state_t *state,
-                                       const uint8_t *report, uint16_t len) {
-    if (!state || len < 7)
-        return;
-
-    uint8_t feature_index = report[4];
-    hidpp_discovery_t *d = &state->hidpp_disc;
-
-    switch (d->state) {
-    case DISC_QUERY_REPROG_CONTROLS:
-        d->fi_reprog_controls = feature_index;
-        dh_debug_printf("[DISC] ReprogControls → index 0x%02X\n", feature_index);
-        d->state = DISC_QUERY_HIRES_SCROLL;
-        d->query_sent_us = 0;
-        break;
-    case DISC_QUERY_HIRES_SCROLL:
-        d->fi_hires_scroll = feature_index;
-        dh_debug_printf("[DISC] HiResScroll → index 0x%02X\n", feature_index);
-        d->state = DISC_QUERY_THUMBWHEEL;
-        d->query_sent_us = 0;
-        break;
-    case DISC_QUERY_THUMBWHEEL:
-        d->fi_thumbwheel = feature_index;
-        dh_debug_printf("[DISC] Thumbwheel → index 0x%02X\n", feature_index);
-        d->state = DISC_DONE;
-        d->done = true;
-        dh_debug_printf("[DISC] Discovery complete: reprog=0x%02X scroll=0x%02X thumb=0x%02X\n",
-                        d->fi_reprog_controls, d->fi_hires_scroll, d->fi_thumbwheel);
-        break;
-    default:
-        break;
-    }
-}
-
-#ifndef UNIT_TEST
-#include "pico/time.h"
-#endif
-
-void passthrough_discovery_step(passthrough_state_t *state) {
-    if (!state || !state->active)
-        return;
-
-    hidpp_discovery_t *d = &state->hidpp_disc;
-    if (d->done || d->state == DISC_IDLE)
-        return;
-
-#ifdef UNIT_TEST
-    uint64_t now = 0;
-#else
-    uint64_t now = time_us_64();
-#endif
-
-    /* Timeout: skip current query after 2s */
-    if (d->query_sent_us > 0 && (now - d->query_sent_us) > HIDPP_DISC_TIMEOUT_US) {
-        dh_debug_printf("[DISC] Timeout in state %d, advancing\n", d->state);
-        switch (d->state) {
-        case DISC_QUERY_REPROG_CONTROLS: d->state = DISC_QUERY_HIRES_SCROLL; break;
-        case DISC_QUERY_HIRES_SCROLL:    d->state = DISC_QUERY_THUMBWHEEL;   break;
-        default:
-            d->state = DISC_DONE;
-            d->done = true;
-            break;
-        }
-        d->query_sent_us = 0;
-        return;
-    }
-
-    /* Wait for device detection */
-    if (d->state == DISC_DETECT_DEVICE)
-        return;
-
-    /* Send queries when out_queue is free */
-    if (d->query_sent_us > 0)
-        return; /* waiting for response */
-
-    uint16_t feature_id = 0;
-    if (d->state == DISC_QUERY_REPROG_CONTROLS)
-        feature_id = 0x1B04;
-    else if (d->state == DISC_QUERY_HIRES_SCROLL)
-        feature_id = 0x2121;
-    else if (d->state == DISC_QUERY_THUMBWHEEL)
-        feature_id = 0x2150;
-
-    if (feature_id && passthrough_send_iroot_query(state, d->device_idx, feature_id)) {
-        d->query_sent_us = now ? now : 1; /* avoid 0 which means "not sent" */
-        dh_debug_printf("[DISC] Sent IRoot query for 0x%04X\n", feature_id);
-    }
-}
-
-/* ================================================== *
  * =====  P3: HID++ → Mouse Report Conversion  ===== *
  * ================================================== */
 
-/* Minimal mouse report layout for conversion.
- * MUST match structs.h mouse_report_t layout exactly (TU_ATTR_PACKED). */
-typedef struct TU_ATTR_PACKED {
-    uint8_t buttons;
-    int16_t x;
-    int16_t y;
-    int8_t  wheel;
-    int8_t  pan;
-    uint8_t mode;
-} passthrough_mouse_report_t;
 
 static int8_t clamp_i8(int16_t val) {
     if (val > 127) return 127;
@@ -320,10 +186,8 @@ static uint8_t cid_to_button_bit(uint8_t cid_lo) {
     }
 }
 
-/* Auto-learn feature indices from observed events instead of IRoot.
- * Called on each sw_id=0 event; updates discovery if pattern matches. */
-/* Auto-learn ReprogControls feature index from observed button events.
- * HiResScroll/Thumbwheel are NOT auto-learned — they work via interface 1. */
+/* Auto-learn ReprogControls feature index from observed button events (sw_id=0).
+ * HiResScroll/Thumbwheel are learned via passive sniffing of host commands. */
 static void autolearn_feature(hidpp_discovery_t *d, uint8_t fi, uint8_t fn,
                               const uint8_t *params, uint16_t params_len) {
     if (fn == 2 && params_len >= 3 && params[0] == 0x00 && cid_to_button_bit(params[1])) {
@@ -334,23 +198,23 @@ static void autolearn_feature(hidpp_discovery_t *d, uint8_t fi, uint8_t fn,
     }
 }
 
-bool passthrough_convert_hidpp_to_mouse(const passthrough_state_t *state,
+bool passthrough_convert_hidpp_to_mouse(passthrough_state_t *state,
                                         const uint8_t *report, uint16_t len,
                                         void *out_mouse) {
     if (!state || !report || !out_mouse || len < 7)
         return false;
 
-    /* Allow non-const access for auto-learn and button state */
-    hidpp_discovery_t *d = (hidpp_discovery_t *)&state->hidpp_disc;
+    hidpp_discovery_t *d = &state->hidpp_disc;
 
     uint8_t feature_idx = report[2];
     uint8_t fn = (report[3] >> 4) & 0x0F;
     const uint8_t *params = &report[4];
     uint16_t params_len = len - 4;
-    passthrough_mouse_report_t *m = (passthrough_mouse_report_t *)out_mouse;
+    mouse_report_t *m = (mouse_report_t *)out_mouse;
 
-    /* Auto-learn feature indices from event patterns */
-    autolearn_feature(d, feature_idx, fn, params, params_len);
+    /* Auto-learn ReprogControls from event patterns (skip if already known) */
+    if (d->fi_reprog_controls == 0)
+        autolearn_feature(d, feature_idx, fn, params, params_len);
 
     /* ReprogControls V4 analyticsKeyEvent (fn=2):
      * [rid, dev, fi, fn|sw, 0x00, cid_lo, action, 0x00, ...]

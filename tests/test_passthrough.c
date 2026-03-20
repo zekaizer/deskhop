@@ -1,4 +1,5 @@
 #include "unity.h"
+#include "pico_stub.h"
 #include "passthrough.h"
 #include <string.h>
 
@@ -302,15 +303,7 @@ void test_vid_pid_retained_with_remaining_ifaces(void) {
  * ====  P3: HID++ Classification & Conversion  ===== *
  * ================================================== */
 
-/* Helper: create a mock passthrough_mouse_report_t (matches mouse_report_t layout) */
-typedef struct {
-    uint8_t buttons;
-    int16_t x;
-    int16_t y;
-    int8_t  wheel;
-    int8_t  pan;
-    uint8_t mode;
-} test_mouse_report_t;
+/* Use mouse_report_t from pico_stub.h directly */
 
 void test_hidpp_input_event_classification(void) {
     /* Short report, sw_id=0 → input event */
@@ -337,35 +330,15 @@ void test_hidpp_input_event_classification(void) {
     TEST_ASSERT_FALSE(passthrough_is_hidpp_input_event(not_hidpp, 7));
 }
 
-void test_iroot_response_parsing(void) {
-    state.active = true;
-    state.hidpp_disc.state = DISC_QUERY_HIRES_SCROLL;
-    state.hidpp_disc.query_sent_us = 1;
-
-    /* IRoot response: feature index = 0x0E for HiResScroll */
-    uint8_t resp[] = {0x10, 0x01, 0x00, 0x0F, 0x0E, 0x00, 0x00};
-    passthrough_handle_iroot_response(&state, resp, 7);
-
-    TEST_ASSERT_EQUAL_UINT8(0x0E, state.hidpp_disc.fi_hires_scroll);
-    TEST_ASSERT_EQUAL_UINT8(DISC_QUERY_THUMBWHEEL, state.hidpp_disc.state);
-
-    /* Now thumbwheel response: feature index = 0x0F */
-    state.hidpp_disc.query_sent_us = 1;
-    uint8_t resp2[] = {0x10, 0x01, 0x00, 0x0F, 0x0F, 0x00, 0x00};
-    passthrough_handle_iroot_response(&state, resp2, 7);
-
-    TEST_ASSERT_EQUAL_UINT8(0x0F, state.hidpp_disc.fi_thumbwheel);
-    TEST_ASSERT_TRUE(state.hidpp_disc.done);
-    TEST_ASSERT_EQUAL_UINT8(DISC_DONE, state.hidpp_disc.state);
-}
+/* IRoot response parsing test removed — active IRoot discovery replaced
+ * by passive sniffing of host setup commands. */
 
 void test_convert_hires_scroll(void) {
     state.active = true;
-    state.hidpp_disc.done = true;
     state.hidpp_disc.fi_hires_scroll = 0x0E;
     state.hidpp_disc.fi_thumbwheel = 0x0F;
 
-    test_mouse_report_t mouse = {0};
+    mouse_report_t mouse = {0};
 
     /* HiRes Scroll event: feature_idx=0x0E, deltaV=+3 (big endian) */
     uint8_t scroll_up[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0x00, 0x03};
@@ -389,11 +362,10 @@ void test_convert_hires_scroll(void) {
 
 void test_convert_thumbwheel(void) {
     state.active = true;
-    state.hidpp_disc.done = true;
     state.hidpp_disc.fi_hires_scroll = 0x0E;
     state.hidpp_disc.fi_thumbwheel = 0x0F;
 
-    test_mouse_report_t mouse = {0};
+    mouse_report_t mouse = {0};
 
     /* Thumbwheel event: feature_idx=0x0F, delta=+2 */
     uint8_t pan_right[] = {0x10, 0x01, 0x0F, 0x00, 0x00, 0x00, 0x02};
@@ -404,11 +376,10 @@ void test_convert_thumbwheel(void) {
 
 void test_convert_unknown_feature(void) {
     state.active = true;
-    state.hidpp_disc.done = true;
     state.hidpp_disc.fi_hires_scroll = 0x0E;
     state.hidpp_disc.fi_thumbwheel = 0x0F;
 
-    test_mouse_report_t mouse = {0};
+    mouse_report_t mouse = {0};
 
     /* Unknown feature index 0x09 → not converted */
     uint8_t unknown[] = {0x10, 0x01, 0x09, 0x00, 0x00, 0x01, 0x00};
@@ -417,9 +388,9 @@ void test_convert_unknown_feature(void) {
 
 void test_convert_before_discovery(void) {
     state.active = true;
-    state.hidpp_disc.done = false;
+    /* fi_hires_scroll == 0 → feature not yet discovered → no conversion */
 
-    test_mouse_report_t mouse = {0};
+    mouse_report_t mouse = {0};
     uint8_t event[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0x00, 0x03};
     TEST_ASSERT_FALSE(passthrough_convert_hidpp_to_mouse(&state, event, 7, &mouse));
 }
@@ -453,7 +424,6 @@ int main(void) {
     RUN_TEST(test_vid_pid_retained_with_remaining_ifaces);
     /* P3: HID++ classification and conversion tests */
     RUN_TEST(test_hidpp_input_event_classification);
-    RUN_TEST(test_iroot_response_parsing);
     RUN_TEST(test_convert_hires_scroll);
     RUN_TEST(test_convert_thumbwheel);
     RUN_TEST(test_convert_unknown_feature);

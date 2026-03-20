@@ -58,13 +58,14 @@ void led_blinking_task(device_t *state) {
     /* Passthrough wait: slow single pulse (50ms on, 450ms off).
      * Distinct from config mode's fast burst (80ms × 5 toggles). */
     if (state->led_blink_mode == LED_BLINK_PT_WAIT) {
-        uint32_t elapsed = (uint32_t)(time_us_32() - state->last_led_change);
+        uint32_t now = time_us_32();
+        uint32_t elapsed = now - (uint32_t)state->last_led_change;
         if (elapsed < 50000)
             gpio_put(GPIO_LED_PIN, 1);
         else if (elapsed < 500000)
             gpio_put(GPIO_LED_PIN, 0);
         else
-            state->last_led_change = time_us_32();
+            state->last_led_change = (int32_t)now;
         return;
     }
 

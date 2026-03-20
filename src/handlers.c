@@ -158,6 +158,7 @@ void config_enable_hotkey_handler(device_t *state, hid_keyboard_report_t *report
 /* HID++ protocol scan — dump full feature table for all devices */
 void hidpp_scan_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
     passthrough_state_t *pt = passthrough_get_state();
+    if (!pt) return;
     passthrough_start_hidpp_scan(pt);
 }
 
