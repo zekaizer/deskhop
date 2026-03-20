@@ -2,3 +2,5 @@ build
 build-test
 
 .idea/
+compile_commands.json
+.cache
