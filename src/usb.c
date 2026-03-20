@@ -44,7 +44,7 @@ void tud_hid_set_report_cb(uint8_t instance,
 
     /* Passthrough: forward output reports from host (Win11/Options+) to receiver */
     passthrough_state_t *pt = passthrough_get_state();
-    if (pt->active && instance >= ITF_NUM_PT_BASE) {
+    if (pt->active && !global_state.config_mode_active && instance >= ITF_NUM_PT_BASE) {
         int8_t idx = passthrough_device_to_host_index(pt, instance);
         if (idx >= 0 && bufsize <= sizeof(pt->out_queue.data)) {
             /* Queue for deferred send from main loop — SET_REPORT control
@@ -310,7 +310,8 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
      * When active output: raw passthrough replaces DeskHop mouse processing.
      * When not active: fall through to DeskHop processing (mouse → UART → other board). */
     passthrough_state_t *pt = passthrough_get_state();
-    if (pt->active && itf_protocol != HID_ITF_PROTOCOL_KEYBOARD) {
+    if (pt->active && !global_state.config_mode_active
+        && itf_protocol != HID_ITF_PROTOCOL_KEYBOARD) {
         int8_t dev_inst = passthrough_host_to_device_instance(pt, dev_addr, instance);
         if (dev_inst >= 0) {
             int8_t idx = dev_inst - ITF_NUM_PT_BASE;

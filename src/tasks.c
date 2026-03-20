@@ -59,6 +59,11 @@ void passthrough_task(device_t *state) {
         set_active_output(state, BOARD_ROLE);
     }
 
+    /* Config mode uses vendor HID at ITF_NUM_HID_VENDOR (== ITF_NUM_PT_BASE).
+     * Skip passthrough entirely to avoid interface number collision. */
+    if (state->config_mode_active)
+        return;
+
     passthrough_state_t *pt = passthrough_get_state();
 
     /* LED: slow pulse while waiting for host connect */
