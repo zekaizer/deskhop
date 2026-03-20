@@ -322,20 +322,8 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
             bool handled = false;
 
             if (pt->ifaces[idx].always_passthrough) {
-                /* Detect HID++ device index for IRoot discovery */
-                if (pt->hidpp_disc.state == DISC_DETECT_DEVICE &&
-                    pt->hidpp_disc.device_idx == 0 && len >= 2 &&
-                    report[1] != 0xFF && report[1] != 0x00) {
-                    /* Only accept actual device indices (1-6), skip receiver (0xFF) */
-                    pt->hidpp_disc.device_idx = report[1];
-                    pt->hidpp_disc.state = DISC_QUERY_REPROG_CONTROLS;
-                    dh_debug_printf("[DISC] Detected device idx=0x%02X\n", report[1]);
-                }
-
-                /* Intercept DeskHop sw_id responses (discovery + scan) */
+                /* Intercept DeskHop sw_id responses (scan only) */
                 if (len >= 7 && (report[3] & 0x0F) == HIDPP_SWID_DESKHOP) {
-                    if (!pt->hidpp_disc.done)
-                        passthrough_handle_iroot_response(pt, report, len);
                     if (pt->hidpp_scan.state == SCAN_QUERY_IROOT)
                         passthrough_handle_scan_response(pt, report, len);
                     tuh_hid_receive_report(dev_addr, instance);

@@ -94,14 +94,10 @@ void passthrough_task(device_t *state) {
         restore_leds(state);
     }
 
-    /* Phase 2: IRoot feature discovery — runs after activation,
-     * uses out_queue to send IRoot queries one at a time. */
-    if (pt->active && !pt->hidpp_disc.done) {
-        if (pt->hidpp_disc.state == DISC_IDLE)
-            pt->hidpp_disc.state = DISC_DETECT_DEVICE;
-        passthrough_discovery_step(pt);
-        passthrough_scan_step(pt);
-    }
+    /* Feature discovery is handled passively by sniffing host software
+     * commands in tud_hid_set_report_cb (setWheelMode, setReporting).
+     * Active IRoot queries removed — they compete with Options+ for
+     * out_queue and set device_idx to the wrong device. */
 
     /* Phase 2 fallback: device removal → disconnect/reconnect with defaults */
     if (pt->reconnect_at_us > 0 && time_us_64() >= pt->reconnect_at_us) {
