@@ -66,3 +66,71 @@ Logitech HID++ protocol (Usage Page 0xFF00):
 
 All reports are bidirectional (Input + Output), enabling host ↔ device communication.
 This interface is marked `always_passthrough = true` for Semi-DDM forwarding.
+
+## HID++ Protocol Analysis (Device 1 — MX Mouse)
+
+Captured via DeskHop `[OUT→RX]` and `[CVT]` debug logs on 2026-03-20.
+Device index 0x01 = mouse, 0x02 = second paired device, 0xFF = receiver.
+
+### IRoot Feature Index Map (Device 1)
+
+Determined via autolearn from observed input events and Options+ output reports.
+
+| Feature Index | Feature ID | Name               | Confirmed By                      |
+|---------------|------------|--------------------|-----------------------------------|
+| 0x02          | ?          | Unknown            | Options+ queries (fn=0,1,2)       |
+| 0x05          | 0x0003?    | DeviceInfo?        | Options+ reads (fn=0,1)           |
+| 0x09          | 0x1B04     | ReprogControls V4  | Autolearn from analyticsKeyEvent  |
+| 0x0A          | ?          | Unknown            | Options+ configures (fn=0,1,3,7,8)|
+| 0x0E          | 0x2121     | HiResScroll        | Autolearn from wheel events       |
+| 0x0F          | 0x2150     | Thumbwheel         | Autolearn from thumbwheel events  |
+| 0x10          | ?          | Unknown            | Options+ configures (fn=0,1,2)    |
+
+### ReprogControls V4 (fi=0x09) — Button CIDs
+
+| CID    | Button       | Bit  | Event Type               |
+|--------|-------------|------|--------------------------|
+| 0x0050 | Left Click  | 0x01 | fn=2 analyticsKeyEvent   |
+| 0x0051 | Right Click | 0x02 | fn=2 analyticsKeyEvent   |
+| 0x0052 | Middle Click| 0x04 | fn=2 analyticsKeyEvent   |
+| 0x0053 | Back        | 0x08 | fn=2 analyticsKeyEvent   |
+| 0x0056 | Forward     | 0x10 | fn=2 analyticsKeyEvent   |
+| 0x00C3 | Gesture     | —    | fn=2 (unmapped in DeskHop)|
+| 0x00C4 | SmartShift? | —    | fn=2 (unmapped in DeskHop)|
+
+Button events use two HID++ event types:
+- **fn=0 (divertedButtonsEvent)**: bitmap of ALL currently pressed CIDs
+- **fn=2 (analyticsKeyEvent)**: individual press/release per CID
+
+### HiResScroll (fi=0x0E) — Vertical Wheel
+
+Event format (fn=0): `[rid, dev, 0x0E, 0x00, flags, deltaV_hi, deltaV_lo]`
+- `flags`: scroll direction and mode bits
+- `deltaV`: signed 16-bit vertical delta (clamped to int8 for standard HID)
+
+**Options+ setWheelMode**: `[01 0E 2B 03]` = fn=2, param=0x03
+- Switches wheel reporting from DJ (Interface 1) → HID++ (Interface 2)
+- Enables high-resolution mode
+- **Root cause of Android wheel loss**: DJ reports stop carrying wheel data
+
+### Thumbwheel (fi=0x0F) — Horizontal Scroll
+
+Event format (fn=0): `[rid, dev, 0x0F, 0x00, flags, deltaH_hi, deltaH_lo]`
+- Same structure as HiResScroll but for horizontal axis
+
+### Options+ Impact on DeskHop
+
+When Logi Options+ detects the mouse (even without switching to Mac output):
+1. Options+ sends `setWheelMode(0x03)` → wheel diverted from DJ to HID++
+2. DJ Interface 1 mouse reports: wheel field becomes 0
+3. HID++ Interface 2: HiResScroll/Thumbwheel events start arriving
+4. DeskHop must convert these HID++ events to standard mouse reports for non-Options+ hosts
+
+### Receiver Notifications
+
+| Pattern                     | Meaning                        |
+|-----------------------------|--------------------------------|
+| `[FF 81 00 00]`            | Receiver keepalive/polling     |
+| `[FF 83 B5 52]`            | Receiver device notification   |
+| `[FF 80 00 00]`            | Receiver status                |
+| device_idx 0xFF, fi=0x81   | Receiver-level event (not mouse — must be filtered from autolearn) |
