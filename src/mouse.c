@@ -123,10 +123,23 @@ enum screen_pos_e update_mouse_position(device_t *state, mouse_values_t *values)
 
 /* If we are active output, queue packet to mouse queue, else send them through UART */
 void output_mouse_report(mouse_report_t *report, device_t *state) {
+    /* Merge HID++ button state only when B is active (not active output board).
+     * On A (active output), buttons come through Options+ passthrough directly. */
+    passthrough_state_t *pt = passthrough_get_state();
+    if (pt && pt->active && !CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
+        if (pt->hidpp_scan.pipe_debug_enabled && pt->hidpp_disc.button_state)
+            dh_debug_printf("[P4] merge btn=0x%02X|0x%02X\n",
+                            report->buttons, pt->hidpp_disc.button_state);
+        report->buttons |= pt->hidpp_disc.button_state;
+    }
+
     if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
         queue_mouse_report(report, state);
         state->last_activity[BOARD_ROLE] = time_us_64();
     } else {
+        if (pt && pt->hidpp_scan.pipe_debug_enabled && report->buttons)
+            dh_debug_printf("[P5] UART btn=0x%02X x=%d y=%d m=%d\n",
+                            report->buttons, report->x, report->y, report->mode);
         queue_packet((uint8_t *)report, MOUSE_REPORT_MSG, MOUSE_REPORT_LENGTH);
     }
 }

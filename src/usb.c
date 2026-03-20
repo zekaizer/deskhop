@@ -44,18 +44,8 @@ void tud_hid_set_report_cb(uint8_t instance,
 
     /* Passthrough: forward output reports from host (Win11/Options+) to receiver */
     passthrough_state_t *pt = passthrough_get_state();
-    if (pt->active && instance >= ITF_NUM_PT_BASE) {
+    if (pt->active && !global_state.config_mode_active && instance >= ITF_NUM_PT_BASE) {
         int8_t idx = passthrough_device_to_host_index(pt, instance);
-#ifdef DH_DEBUG
-        {
-            char hex[32] = {0};
-            int pos = 0;
-            for (uint16_t i = 0; i < bufsize && i < 8 && pos < 30; i++)
-                pos += snprintf(hex + pos, sizeof(hex) - pos, "%02X ", buffer[i]);
-            dh_debug_printf("[PT] OUT rid=0x%02X type=%d len=%d idx=%d [%s]\n",
-                            report_id, report_type, bufsize, idx, hex);
-        }
-#endif
         if (idx >= 0 && bufsize <= sizeof(pt->out_queue.data)) {
             /* Queue for deferred send from main loop — SET_REPORT control
              * transfers fail when called from TinyUSB device callbacks. */
@@ -66,6 +56,39 @@ void tud_hid_set_report_cb(uint8_t instance,
             pt->out_queue.len         = bufsize;
             memcpy(pt->out_queue.data, buffer, bufsize);
             pt->out_queue.pending     = true;
+
+            /* Passive sniffing: learn feature indices from host software commands.
+             * Options+ uses FeatureSet (not IRoot) for discovery, then sends
+             * characteristic setup commands to each feature. We detect these:
+             *   - FeatureSet fn=1 queries: track index → match response for fid
+             *   - setWheelMode(fn=2, param=0x03): identifies HiResScroll fi
+             *   - setThumbwheelReporting(fn=2, param=0x01): identifies Thumbwheel fi */
+            if (report_id == HIDPP_REPORT_ID_SHORT && bufsize >= 4
+                && buffer[0] >= 1 && buffer[0] <= 6
+                && (buffer[2] & 0x0F) != 0) {
+                hidpp_discovery_t *d = &pt->hidpp_disc;
+                uint8_t fi  = buffer[1];
+                uint8_t fn  = (buffer[2] >> 4) & 0x0F;
+                uint8_t p0  = bufsize > 3 ? buffer[3] : 0;
+
+                /* Feature discovery (skip if already known) */
+                if (d->fi_hires_scroll == 0 || d->fi_thumbwheel == 0) {
+                    if (fn == 2 && p0 == 0x03 && d->fi_hires_scroll == 0) {
+                        d->fi_hires_scroll = fi;
+                        d->device_idx = buffer[0];
+                        dh_debug_printf("[SNIFF] HiResScroll → fi=0x%02X dev=%d\n",
+                                        fi, buffer[0]);
+                    }
+                    if (fn == 2 && p0 == 0x01
+                        && d->fi_thumbwheel == 0 && d->fi_hires_scroll != 0
+                        && fi != d->fi_hires_scroll
+                        && buffer[0] == d->device_idx) {
+                        d->fi_thumbwheel = fi;
+                        dh_debug_printf("[SNIFF] Thumbwheel → fi=0x%02X\n", fi);
+                    }
+                }
+
+            }
         }
         return;
     }
@@ -147,8 +170,9 @@ void tud_cdc_rx_cb(uint8_t itf) {
 void tuh_hid_set_report_complete_cb(uint8_t dev_addr, uint8_t idx,
                                      uint8_t report_id, uint8_t report_type,
                                      uint16_t len) {
-    dh_debug_printf("[PT] SET_REPORT done dev=%d idx=%d rid=0x%02X len=%d %s\n",
-                    dev_addr, idx, report_id, len, len ? "OK" : "FAIL");
+    if (!len)
+        dh_debug_printf("[PT] SET_REPORT FAIL dev=%d idx=%d rid=0x%02X\n",
+                        dev_addr, idx, report_id);
 }
 
 /* ================================================== *
@@ -268,9 +292,6 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
     /* Also signal the other board to flash LED, to enable easy verification if serial works */
     send_value(ENABLE, FLASH_LED_MSG);
 
-    /* Dump captured descriptors for debugging */
-    passthrough_dump_descriptors(pt);
-
     /* Kick off the report querying */
     tuh_hid_receive_report(dev_addr, instance);
 }
@@ -287,7 +308,8 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
      * When active output: raw passthrough replaces DeskHop mouse processing.
      * When not active: fall through to DeskHop processing (mouse → UART → other board). */
     passthrough_state_t *pt = passthrough_get_state();
-    if (pt->active && itf_protocol != HID_ITF_PROTOCOL_KEYBOARD) {
+    if (pt->active && !global_state.config_mode_active
+        && itf_protocol != HID_ITF_PROTOCOL_KEYBOARD) {
         int8_t dev_inst = passthrough_host_to_device_instance(pt, dev_addr, instance);
         if (dev_inst >= 0) {
             int8_t idx = dev_inst - ITF_NUM_PT_BASE;
@@ -299,13 +321,75 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
             bool handled = false;
 
             if (pt->ifaces[idx].always_passthrough) {
-                bool is_input = passthrough_is_hidpp_input_event(report, len);
-                bool forward  = !is_input || CURRENT_BOARD_IS_ACTIVE_OUTPUT;
+                /* Intercept DeskHop sw_id responses (scan only) */
+                if (len >= 7 && (report[3] & 0x0F) == HIDPP_SWID_DESKHOP) {
+                    if (pt->hidpp_scan.state == SCAN_QUERY_IROOT)
+                        passthrough_handle_scan_response(pt, report, len);
+                    tuh_hid_receive_report(dev_addr, instance);
+                    return;
+                }
 
-                if (forward) {
+                bool is_input = passthrough_is_hidpp_input_event(report, len);
+
+                /* Intercept SmartShift button (CID 0xC4) for A/B output switch.
+                 * Don't consume — let Options+ see it so it sends SetMode
+                 * (which we rewrite to ratchet if force_ratchet is set). */
+                if (is_input && len >= 7) {
+                    uint8_t fn_chk = (report[3] >> 4) & 0x0F;
+                    if (fn_chk == 2 && report[4] == 0x00 && report[5] == 0xC4 && report[6])
+                        global_state.switch_requested = true;
+                }
+
+                if (pt->hidpp_scan.pipe_debug_enabled && is_input
+                    && report[2] == pt->hidpp_disc.fi_reprog_controls)
+                    dh_debug_printf("[P1] dev=%d fi=0x%02X fn=%d sw=%d\n",
+                                    report[1], report[2], (report[3]>>4)&0xF,
+                                    report[3]&0xF);
+
+                if (!is_input || CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
                     bool ok = tud_hid_n_report(dev_inst, 0, report, len);
                     if (!ok)
                         dh_debug_printf("[PT] IN fwd FAILED\n");
+                } else {
+                    /* B active: raw dump if enabled */
+                    if (pt->hidpp_scan.raw_dump_enabled) {
+                        dh_debug_printf("[RAW] dev=%d fi=0x%02X fn=%d [",
+                                        report[1], report[2], (report[3] >> 4) & 0x0F);
+                        for (uint16_t i = 4; i < len && i < 20; i++)
+                            dh_debug_printf("%02X ", report[i]);
+                        dh_debug_printf("]\n");
+                    }
+
+                    /* HID++ → mouse conversion. Button events only update
+                     * button_state (merged into every output_mouse_report).
+                     * Send immediate report on button change for responsiveness. */
+                    uint8_t prev_btn = pt->hidpp_disc.button_state;
+                    mouse_report_t mouse = {0};
+                    bool converted = passthrough_convert_hidpp_to_mouse(pt, report, len, &mouse);
+
+                    if (pt->hidpp_disc.button_state != prev_btn) {
+                        bool rel = global_state.relative_mouse || global_state.gaming_mode;
+                        mouse_report_t btn_report = {0};
+                        btn_report.mode = rel ? RELATIVE : ABSOLUTE;
+                        if (!rel) {
+                            btn_report.x = global_state.pointer_x;
+                            btn_report.y = global_state.pointer_y;
+                        }
+                        if (pt->hidpp_scan.pipe_debug_enabled)
+                            dh_debug_printf("[P3] btn 0x%02X→0x%02X x=%d y=%d\n",
+                                            prev_btn, pt->hidpp_disc.button_state,
+                                            btn_report.x, btn_report.y);
+                        output_mouse_report(&btn_report, &global_state);
+                    } else if (converted) {
+                        /* Non-button event (scroll etc).
+                         * Set mode to match gaming/relative state — without this,
+                         * wheel reports go to ABSOLUTE interface which hosts like
+                         * Android ignore when gaming_mode is active. */
+                        mouse.mode = (global_state.relative_mouse
+                                      || global_state.gaming_mode)
+                                   ? RELATIVE : ABSOLUTE;
+                        output_mouse_report(&mouse, &global_state);
+                    }
                 }
                 handled = true;
             } else if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {

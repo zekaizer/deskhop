@@ -101,6 +101,20 @@ hotkey_combo_t hotkeys[] = {
      .acknowledge    = true,
      .action_handler = &fw_upgrade_hotkey_handler_A},
 
+    /* HID++ protocol scan (LeftCtrl + RightShift + H + P) */
+    {.modifier       = KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT,
+     .keys           = {HID_KEY_H, HID_KEY_P},
+     .key_count      = 2,
+     .acknowledge    = true,
+     .action_handler = &hidpp_scan_hotkey_handler},
+
+    /* HID++ pipeline debug (LeftCtrl + RightShift + P + D) */
+    {.modifier       = KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT,
+     .keys           = {HID_KEY_P, HID_KEY_D},
+     .key_count      = 2,
+     .acknowledge    = true,
+     .action_handler = &hidpp_pipe_debug_handler},
+
     /* Hold down left shift + right shift + F12 + B ==> firmware upgrade mode for board B (mouse) */
     {.modifier       = KEYBOARD_MODIFIER_RIGHTSHIFT | KEYBOARD_MODIFIER_LEFTSHIFT,
      .keys           = {HID_KEY_B},

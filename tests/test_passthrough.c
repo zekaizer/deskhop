@@ -1,4 +1,5 @@
 #include "unity.h"
+#include "pico_stub.h"
 #include "passthrough.h"
 #include <string.h>
 
@@ -298,6 +299,113 @@ void test_vid_pid_retained_with_remaining_ifaces(void) {
     TEST_ASSERT_EQUAL_UINT16(0xC548, state.upstream_pid);
 }
 
+/* ================================================== *
+ * ====  P3: HID++ Classification & Conversion  ===== *
+ * ================================================== */
+
+/* Use mouse_report_t from pico_stub.h directly */
+
+void test_hidpp_input_event_classification(void) {
+    /* Short report, sw_id=0 → input event */
+    uint8_t input_event[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0x01, 0x00};
+    TEST_ASSERT_TRUE(passthrough_is_hidpp_input_event(input_event, 7));
+
+    /* Short report, sw_id=1 → protocol response */
+    uint8_t proto_resp[] = {0x10, 0x01, 0x0E, 0x01, 0x00, 0x01, 0x00};
+    TEST_ASSERT_FALSE(passthrough_is_hidpp_input_event(proto_resp, 7));
+
+    /* Long report, sw_id=0 → input event */
+    uint8_t long_input[] = {0x11, 0x01, 0x09, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    TEST_ASSERT_TRUE(passthrough_is_hidpp_input_event(long_input, 20));
+
+    /* sw_id=0x0F (DeskHop) → NOT input event */
+    uint8_t deskhop[] = {0x10, 0x01, 0x00, 0x0F, 0x0E, 0x00, 0x00};
+    TEST_ASSERT_FALSE(passthrough_is_hidpp_input_event(deskhop, 7));
+
+    /* Too short → false */
+    TEST_ASSERT_FALSE(passthrough_is_hidpp_input_event(input_event, 3));
+
+    /* Not HID++ report ID → false */
+    uint8_t not_hidpp[] = {0x02, 0x01, 0x0E, 0x00, 0x00, 0x01, 0x00};
+    TEST_ASSERT_FALSE(passthrough_is_hidpp_input_event(not_hidpp, 7));
+}
+
+/* IRoot response parsing test removed — active IRoot discovery replaced
+ * by passive sniffing of host setup commands. */
+
+void test_convert_hires_scroll(void) {
+    state.active = true;
+    state.hidpp_disc.fi_hires_scroll = 0x0E;
+    state.hidpp_disc.fi_thumbwheel = 0x0F;
+    state.hidpp_disc.wheel_acc = 0;
+
+    mouse_report_t mouse = {0};
+
+    /* HiRes delta=12 → accumulator/12 = 1 tick */
+    uint8_t scroll_up[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0x00, 0x0C};
+    TEST_ASSERT_TRUE(passthrough_convert_hidpp_to_mouse(&state, scroll_up, 7, &mouse));
+    TEST_ASSERT_EQUAL_INT8(1, mouse.wheel);
+    TEST_ASSERT_EQUAL_INT16(0, mouse.x);
+    TEST_ASSERT_EQUAL_INT16(0, mouse.y);
+
+    /* delta=3 below threshold → accumulates, returns false */
+    state.hidpp_disc.wheel_acc = 0;
+    memset(&mouse, 0, sizeof(mouse));
+    uint8_t scroll_small[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0x00, 0x03};
+    TEST_ASSERT_FALSE(passthrough_convert_hidpp_to_mouse(&state, scroll_small, 7, &mouse));
+
+    /* Scroll down: deltaV=-24 → tick=-2 */
+    state.hidpp_disc.wheel_acc = 0;
+    memset(&mouse, 0, sizeof(mouse));
+    uint8_t scroll_down[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0xFF, 0xE8};
+    TEST_ASSERT_TRUE(passthrough_convert_hidpp_to_mouse(&state, scroll_down, 7, &mouse));
+    TEST_ASSERT_EQUAL_INT8(-2, mouse.wheel);
+
+    /* Large value: +256 → 256/12=21 */
+    state.hidpp_disc.wheel_acc = 0;
+    memset(&mouse, 0, sizeof(mouse));
+    uint8_t scroll_big[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0x01, 0x00};
+    TEST_ASSERT_TRUE(passthrough_convert_hidpp_to_mouse(&state, scroll_big, 7, &mouse));
+    TEST_ASSERT_EQUAL_INT8(21, mouse.wheel);
+}
+
+void test_convert_thumbwheel(void) {
+    state.active = true;
+    state.hidpp_disc.fi_hires_scroll = 0x0E;
+    state.hidpp_disc.fi_thumbwheel = 0x0F;
+
+    mouse_report_t mouse = {0};
+
+    state.hidpp_disc.pan_acc = 0;
+
+    /* Thumbwheel event: delta=+12 → accumulator/12 = 1 tick */
+    uint8_t pan_right[] = {0x10, 0x01, 0x0F, 0x00, 0x00, 0x00, 0x0C};
+    TEST_ASSERT_TRUE(passthrough_convert_hidpp_to_mouse(&state, pan_right, 7, &mouse));
+    TEST_ASSERT_EQUAL_INT8(1, mouse.pan);
+    TEST_ASSERT_EQUAL_INT8(0, mouse.wheel);
+}
+
+void test_convert_unknown_feature(void) {
+    state.active = true;
+    state.hidpp_disc.fi_hires_scroll = 0x0E;
+    state.hidpp_disc.fi_thumbwheel = 0x0F;
+
+    mouse_report_t mouse = {0};
+
+    /* Unknown feature index 0x09 → not converted */
+    uint8_t unknown[] = {0x10, 0x01, 0x09, 0x00, 0x00, 0x01, 0x00};
+    TEST_ASSERT_FALSE(passthrough_convert_hidpp_to_mouse(&state, unknown, 7, &mouse));
+}
+
+void test_convert_before_discovery(void) {
+    state.active = true;
+    /* fi_hires_scroll == 0 → feature not yet discovered → no conversion */
+
+    mouse_report_t mouse = {0};
+    uint8_t event[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0x00, 0x03};
+    TEST_ASSERT_FALSE(passthrough_convert_hidpp_to_mouse(&state, event, 7, &mouse));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_init_zeros_state);
@@ -325,5 +433,11 @@ int main(void) {
     RUN_TEST(test_vid_pid_stored_directly);
     RUN_TEST(test_vid_pid_cleared_on_last_remove);
     RUN_TEST(test_vid_pid_retained_with_remaining_ifaces);
+    /* P3: HID++ classification and conversion tests */
+    RUN_TEST(test_hidpp_input_event_classification);
+    RUN_TEST(test_convert_hires_scroll);
+    RUN_TEST(test_convert_thumbwheel);
+    RUN_TEST(test_convert_unknown_feature);
+    RUN_TEST(test_convert_before_discovery);
     return UNITY_END();
 }

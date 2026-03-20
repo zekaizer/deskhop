@@ -127,6 +127,8 @@ typedef struct {
     fw_upgrade_state_t fw;           // State of the firmware upgrader
     firmware_metadata_t _running_fw; // RAM copy of running fw metadata
     bool reboot_requested;           // If set, stop updating watchdog
+    volatile bool bootsel_switch_requested; // Set by core1, consumed by core0
+    volatile bool switch_requested;         // HID++ button → output switch (core0)
     uint64_t config_mode_timer;      // Counts how long are we to remain in config mode
 
     uint8_t page_buffer[FLASH_PAGE_SIZE]; // For firmware-over-serial upgrades
@@ -148,7 +150,11 @@ typedef struct {
     /* Onboard LED blinky (provide feedback when e.g. mouse connected) */
     int32_t blinks_left;     // How many blink transitions are left
     int32_t last_led_change; // Timestamp of the last time led state transitioned
+    uint8_t led_blink_mode;
 } device_t;
+
+#define LED_BLINK_NONE     0
+#define LED_BLINK_PT_WAIT  1  /* Slow pulse: 50ms on, 450ms off */
 /*==============================================================================*/
 
 

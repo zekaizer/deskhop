@@ -3,6 +3,7 @@
  */
 
 #ifdef UNIT_TEST
+#include "pico_stub.h"
 #include "passthrough.h"
 #include <string.h>
 #define HID_ITF_PROTOCOL_NONE 0
@@ -145,21 +146,136 @@ void passthrough_remove_device(passthrough_state_t *state, uint8_t dev_addr) {
 
     state->iface_count = write;
 
-    /* Clear upstream identity when no interfaces remain */
+    /* Reset passthrough state when no interfaces remain */
     if (state->iface_count == 0) {
         state->upstream_vid = 0;
         state->upstream_pid = 0;
+        state->active = false;
+        memset(&state->hidpp_disc, 0, sizeof(state->hidpp_disc));
     }
 }
 
 bool passthrough_is_hidpp_input_event(const uint8_t *report, uint16_t len) {
     if (len < 4)
         return false;
-    /* HID++ 2.0 short (0x10) or long (0x11) report */
-    if (report[0] != 0x10 && report[0] != 0x11)
+    if (report[0] != HIDPP_REPORT_ID_SHORT && report[0] != HIDPP_REPORT_ID_LONG)
         return false;
-    /* sw_id == 0 → unsolicited event (device-initiated input) */
     return (report[3] & 0x0F) == 0;
+}
+
+/* ================================================== *
+ * =====  P3: HID++ → Mouse Report Conversion  ===== *
+ * ================================================== */
+
+
+
+/* Map CID to mouse button bit. Returns 0 if not a mouse button. */
+static uint8_t cid_to_button_bit(uint8_t cid_lo) {
+    switch (cid_lo) {
+    case 0x50: return 0x01; /* Left */
+    case 0x51: return 0x02; /* Right */
+    case 0x52: return 0x04; /* Middle */
+    case 0x53: return 0x08; /* Back */
+    case 0x56: return 0x10; /* Forward */
+    default:   return 0;
+    }
+}
+
+/* Auto-learn ReprogControls feature index from observed button events (sw_id=0).
+ * HiResScroll/Thumbwheel are learned via passive sniffing of host commands. */
+static void autolearn_feature(hidpp_discovery_t *d, uint8_t fi, uint8_t fn,
+                              const uint8_t *params, uint16_t params_len) {
+    if (fn == 2 && params_len >= 3 && params[0] == 0x00 && cid_to_button_bit(params[1])) {
+        if (d->fi_reprog_controls != fi) {
+            d->fi_reprog_controls = fi;
+            dh_debug_printf("[AUTO] ReprogControls → 0x%02X\n", fi);
+        }
+    }
+}
+
+bool passthrough_convert_hidpp_to_mouse(passthrough_state_t *state,
+                                        const uint8_t *report, uint16_t len,
+                                        void *out_mouse) {
+    if (!state || !report || !out_mouse || len < 7)
+        return false;
+
+    hidpp_discovery_t *d = &state->hidpp_disc;
+
+    uint8_t feature_idx = report[2];
+    uint8_t fn = (report[3] >> 4) & 0x0F;
+    const uint8_t *params = &report[4];
+    uint16_t params_len = len - 4;
+    mouse_report_t *m = (mouse_report_t *)out_mouse;
+
+    /* Auto-learn ReprogControls from event patterns (skip if already known) */
+    if (d->fi_reprog_controls == 0)
+        autolearn_feature(d, feature_idx, fn, params, params_len);
+
+    /* ReprogControls V4 analyticsKeyEvent (fn=2):
+     * [rid, dev, fi, fn|sw, 0x00, cid_lo, action, 0x00, ...]
+     * action: 0x01=press, 0x00=release.
+     * Only updates button_state; caller handles report generation. */
+    if (feature_idx == d->fi_reprog_controls && fn == 2 && params_len >= 3) {
+        uint8_t cid_lo = params[1];
+        uint8_t action = params[2];
+
+        uint8_t bit = cid_to_button_bit(cid_lo);
+        if (bit) {
+            if (action)
+                d->button_state |= bit;
+            else
+                d->button_state &= ~bit;
+        }
+        if (state->hidpp_scan.pipe_debug_enabled)
+            dh_debug_printf("[P2] fn2 cid=0x%02X act=%d bit=0x%02X → btn=0x%02X\n",
+                            cid_lo, action, bit, d->button_state);
+        return false;
+    }
+
+    /* ReprogControls V4 divertedButtonsEvent (fn=0):
+     * [rid, dev, fi, fn|sw, cid1_hi, cid1_lo, cid2_hi, cid2_lo, ...]
+     * Bitmap of ALL currently pressed CIDs. */
+    if (feature_idx == d->fi_reprog_controls && fn == 0 && params_len >= 2) {
+        uint8_t buttons = 0;
+        int max_cids = (int)(params_len / 2);
+        if (max_cids > 4) max_cids = 4;
+        for (int i = 0; i < max_cids; i++) {
+            uint16_t cid = (uint16_t)((params[i * 2] << 8) | params[i * 2 + 1]);
+            if (cid == 0) continue;
+            buttons |= cid_to_button_bit((uint8_t)(cid & 0xFF));
+        }
+        d->button_state = buttons;
+        return false; /* button_state updated; merged via output_mouse_report */
+    }
+
+    /* HiResScroll event (fn=0): params[0]=flags, params[1-2]=deltaV.
+     * HiRes mode: ~6-7 events/notch × delta~2 = ~12-14 total per notch.
+     * Normal mode: 1 event × delta=1 = 1 per notch.
+     * Divisor 12 normalizes HiRes to ~1 tick per notch. */
+    if (d->fi_hires_scroll && feature_idx == d->fi_hires_scroll && fn == 0) {
+        int16_t delta_v = (int16_t)((params[1] << 8) | params[2]);
+        d->wheel_acc = (int16_t)(d->wheel_acc + delta_v);
+        int16_t raw = (int16_t)(d->wheel_acc / 12);
+        if (raw == 0)
+            return false;
+        d->wheel_acc = (int16_t)(d->wheel_acc - raw * 12);
+        m->wheel = (int8_t)(raw > 127 ? 127 : raw < -128 ? -128 : raw);
+        return true;
+    }
+
+    /* Thumbwheel event (fn=0): horizontal scroll delta */
+    if (d->fi_thumbwheel && feature_idx == d->fi_thumbwheel && fn == 0) {
+        int16_t delta_h = (int16_t)((params[1] << 8) | params[2]);
+        d->pan_acc = (int16_t)(d->pan_acc + delta_h);
+        int16_t raw = (int16_t)(d->pan_acc / 12);
+        if (raw == 0)
+            return false;
+        d->pan_acc = (int16_t)(d->pan_acc - raw * 12);
+        m->pan = (int8_t)(raw > 127 ? 127 : raw < -128 ? -128 : raw);
+        return true;
+    }
+
+    return false;
 }
 
 void passthrough_dump_descriptors(const passthrough_state_t *state) {
@@ -188,4 +304,130 @@ void passthrough_dump_descriptors(const passthrough_state_t *state) {
         }
     }
     dh_debug_printf("=== End descriptor dump ===\n\n");
+}
+
+/* ================================================== *
+ * ======  HID++ Protocol Scan (Debug Hotkey)  ====== *
+ * ================================================== */
+
+/* Send IFeatureSet.getFeatureID(index) — feature index 1, function 1.
+ * Request:  [rid, devIdx, 0x01, (fn=1<<4 | swId), featureIndex, 0, 0]
+ * Response: [rid, devIdx, 0x01, (fn=1<<4 | swId), featureID_hi, featureID_lo, featureType] */
+static bool send_ifeatureset_query(passthrough_state_t *state,
+                                   uint8_t device_idx, uint8_t feature_index) {
+    if (!state || state->out_queue.pending)
+        return false;
+
+    for (uint8_t i = 0; i < state->iface_count; i++) {
+        if (state->ifaces[i].always_passthrough) {
+            state->out_queue.dev_addr = state->ifaces[i].dev_addr;
+            state->out_queue.instance = state->ifaces[i].instance;
+            break;
+        }
+    }
+    state->out_queue.report_id   = HIDPP_REPORT_ID_SHORT;
+    state->out_queue.report_type = 2;
+    state->out_queue.data[0]     = device_idx;
+    state->out_queue.data[1]     = 0x01; /* IFeatureSet is always at index 1 */
+    state->out_queue.data[2]     = (0x01 << 4) | HIDPP_SWID_DESKHOP; /* fn=1 | sw_id */
+    state->out_queue.data[3]     = feature_index;
+    state->out_queue.data[4]     = 0x00;
+    state->out_queue.data[5]     = 0x00;
+    state->out_queue.len         = 6;
+    state->out_queue.pending     = true;
+    return true;
+}
+
+void passthrough_start_hidpp_scan(passthrough_state_t *state) {
+    if (!state || !state->active)
+        return;
+
+    hidpp_scan_t *s = &state->hidpp_scan;
+
+    /* Toggle raw dump mode */
+    s->raw_dump_enabled = !s->raw_dump_enabled;
+    dh_debug_printf("\n[SCAN] Raw HID++ dump: %s\n", s->raw_dump_enabled ? "ON" : "OFF");
+
+    /* Start full feature scan for device 1, then device 2 */
+    s->device_idx    = 1;
+    s->next_device   = 2;
+    s->query_idx     = 0;
+    s->feature_count = HIDPP_SCAN_MAX_FEATURES;
+    s->query_sent_us = 0;
+    s->state         = SCAN_QUERY_IROOT;
+
+    dh_debug_printf("[SCAN] Starting IFeatureSet scan for device %d...\n", s->device_idx);
+    dh_debug_printf("[SCAN]  idx → featureID (type)\n");
+}
+
+void passthrough_scan_step(passthrough_state_t *state) {
+    if (!state)
+        return;
+
+    hidpp_scan_t *s = &state->hidpp_scan;
+    if (s->state == SCAN_IDLE || s->state == SCAN_DONE)
+        return;
+
+#ifndef UNIT_TEST
+    uint64_t now = time_us_64();
+#else
+    uint64_t now = 0;
+#endif
+
+    /* Timeout: skip to next query after 500ms */
+    if (s->query_sent_us > 0 && (now - s->query_sent_us) > 500000) {
+        dh_debug_printf("[SCAN]  %2d → TIMEOUT\n", s->query_idx);
+        s->query_idx++;
+        s->query_sent_us = 0;
+    }
+
+    if (s->query_idx >= s->feature_count) {
+        /* Move to next device or finish */
+        if (s->next_device > 0) {
+            s->device_idx    = s->next_device;
+            s->next_device   = 0;
+            s->query_idx     = 0;
+            s->feature_count = HIDPP_SCAN_MAX_FEATURES;
+            s->query_sent_us = 0;
+            dh_debug_printf("\n[SCAN] Scanning device %d...\n", s->device_idx);
+            dh_debug_printf("[SCAN]  idx → featureID (type)\n");
+            return;
+        }
+        s->state = SCAN_DONE;
+        dh_debug_printf("[SCAN] === Scan complete ===\n\n");
+        return;
+    }
+
+    if (s->query_sent_us > 0)
+        return; /* waiting for response */
+
+    if (send_ifeatureset_query(state, s->device_idx, s->query_idx)) {
+        s->query_sent_us = now ? now : 1;
+    }
+}
+
+void passthrough_handle_scan_response(passthrough_state_t *state,
+                                      const uint8_t *report, uint16_t len) {
+    if (!state || len < 7)
+        return;
+
+    hidpp_scan_t *s = &state->hidpp_scan;
+    if (s->state != SCAN_QUERY_IROOT)
+        return;
+
+    /* Response from IFeatureSet.getFeatureID:
+     * report[4] = featureID high, report[5] = featureID low, report[6] = type */
+    uint16_t feature_id = (uint16_t)((report[4] << 8) | report[5]);
+    uint8_t  ftype      = report[6];
+
+    if (feature_id == 0 && s->query_idx > 0) {
+        /* End of feature table — no more features */
+        dh_debug_printf("[SCAN]  %2d → (end)\n", s->query_idx);
+        s->feature_count = s->query_idx;
+    } else {
+        dh_debug_printf("[SCAN]  %2d → 0x%04X (type=%d)\n", s->query_idx, feature_id, ftype);
+    }
+
+    s->query_idx++;
+    s->query_sent_us = 0;
 }

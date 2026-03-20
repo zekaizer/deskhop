@@ -241,8 +241,11 @@ void initial_setup(device_t *state) {
     multicore_reset_core1();
     multicore_launch_core1(core1_main);
 
-    /* Initialize and configure TinyUSB Device */
+    /* Initialize TinyUSB Device. In normal mode, stay disconnected until
+     * passthrough decision is made. Config mode connects immediately. */
     tud_init(BOARD_TUD_RHPORT);
+    if (!state->config_mode_active)
+        tud_disconnect();
 
     /* Initialize and configure TinyUSB Host */
     pio_usb_host_config(state);

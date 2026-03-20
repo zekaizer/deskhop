@@ -51,23 +51,69 @@ void usb_device_task(device_t *state) {
 /* Check if passthrough needs activation and handle re-enumeration sequence.
  * Runs on core0 since tud_disconnect/tud_connect are device-side operations. */
 void passthrough_task(device_t *state) {
+    /* BOOTSEL switch: flag set by core1, safe to execute on core0 */
+    if (state->bootsel_switch_requested) {
+        state->bootsel_switch_requested = false;
+        dh_debug_printf("[BTN] BOOTSEL → output %s\n",
+                        BOARD_ROLE == OUTPUT_A ? "A" : "B");
+        set_active_output(state, BOARD_ROLE);
+    }
+
+    /* HID++ SmartShift button → toggle A/B output */
+    if (state->switch_requested) {
+        state->switch_requested = false;
+        uint8_t new_output = (state->active_output == OUTPUT_A) ? OUTPUT_B : OUTPUT_A;
+        dh_debug_printf("[BTN] SmartShift → output %s\n",
+                        new_output == OUTPUT_A ? "A" : "B");
+        set_active_output(state, new_output);
+    }
+
+    /* Config mode uses vendor HID at ITF_NUM_HID_VENDOR (== ITF_NUM_PT_BASE).
+     * Skip passthrough entirely to avoid interface number collision. */
+    if (state->config_mode_active)
+        return;
+
     passthrough_state_t *pt = passthrough_get_state();
 
-    /* Phase 1: Activate after captures stabilize (500ms since last capture) */
+    /* LED: slow pulse while waiting for host connect */
+    if (!state->tud_connected && state->led_blink_mode != LED_BLINK_PT_WAIT)
+        state->led_blink_mode = LED_BLINK_PT_WAIT;
+
+    /* Fallback: no receiver detected after 3s → connect with default descriptors.
+     * Skip if captures are in progress (iface_count > 0). */
+    if (!pt->active && !tud_connected() && pt->iface_count == 0
+        && time_us_64() > _MS(3000)) {
+        dh_debug_printf("[PT] No receiver, connecting with defaults\n");
+        tud_connect();
+    }
+
+    /* Phase 1: Activate after captures stabilize (500ms since last capture).
+     * Since we called tud_disconnect() at boot, connect once here — no
+     * disconnect/reconnect cycle needed. */
     if (!pt->active && pt->iface_count > 0 && pt->last_capture_us > 0) {
         if (time_us_64() - pt->last_capture_us > _MS(500)) {
             dh_debug_printf("[PT] Activating passthrough (%d ifaces)\n", pt->iface_count);
             if (passthrough_activate(pt)) {
-                dh_debug_printf("[PT] Disconnect for re-enumeration\n");
-                tud_disconnect();
-                pt->reconnect_at_us = time_us_64() + _MS(200);
+                dh_debug_printf("[PT] Connect with passthrough descriptors\n");
+                tud_connect();
             } else {
                 dh_debug_printf("[PT] Activation failed\n");
             }
         }
     }
 
-    /* Phase 2: Reconnect after 200ms disconnect delay (USB spec minimum) */
+    /* LED: stop blinking once host is connected */
+    if (state->tud_connected && state->led_blink_mode == LED_BLINK_PT_WAIT) {
+        state->led_blink_mode = LED_BLINK_NONE;
+        restore_leds(state);
+    }
+
+    /* Feature discovery is handled passively by sniffing host software
+     * commands in tud_hid_set_report_cb (setWheelMode, setReporting).
+     * Active IRoot queries removed — they compete with Options+ for
+     * out_queue and set device_idx to the wrong device. */
+
+    /* Phase 2 fallback: device removal → disconnect/reconnect with defaults */
     if (pt->reconnect_at_us > 0 && time_us_64() >= pt->reconnect_at_us) {
         dh_debug_printf("[PT] Reconnect with new descriptors\n");
         tud_connect();
@@ -114,8 +160,8 @@ void passthrough_task(device_t *state) {
         };
 
         bool ok = tuh_control_xfer(&xfer);
-        dh_debug_printf("[PT] OUT raw xfer itf=%d rid=0x%02X wLen=%d ok=%d\n",
-                        itf_num, rid, full_len, ok);
+        if (!ok)
+            dh_debug_printf("[PT] OUT raw xfer FAIL itf=%d rid=0x%02X\n", itf_num, rid);
         pt->out_queue.pending = false;
     }
 }
@@ -226,9 +272,19 @@ void heartbeat_output_task(device_t *state) {
     }
 
 #ifdef DH_DEBUG
-    /* Holding the button invokes bootsel firmware upgrade */
-    if (is_bootsel_pressed())
-        reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0);
+    /* BOOTSEL: short press sets flag for core0, long hold = bootsel reset */
+    {
+        static uint32_t press_start = 0;
+        if (is_bootsel_pressed()) {
+            if (press_start == 0)
+                press_start = time_us_32();
+            else if ((time_us_32() - press_start) > 2000000)
+                reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0);
+        } else if (press_start != 0) {
+            state->bootsel_switch_requested = true;
+            press_start = 0;
+        }
+    }
 #endif
 
     uart_packet_t packet = {

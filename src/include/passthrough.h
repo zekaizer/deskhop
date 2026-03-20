@@ -16,6 +16,21 @@
 /* Device-side passthrough endpoint base (IN direction) */
 #define EPNUM_PT_BASE          0x83
 
+/* HID++ IRoot feature discovery (P3) */
+#define HIDPP_SWID_DESKHOP     0x0F
+#define HIDPP_REPORT_ID_SHORT  0x10
+#define HIDPP_REPORT_ID_LONG   0x11
+
+typedef struct {
+    uint8_t  device_idx;         /* HID++ device index (byte[1]), 0=undetected */
+    uint8_t  fi_reprog_controls; /* Feature ID 0x1B04 → feature index (0=not found) */
+    uint8_t  fi_hires_scroll;    /* Feature ID 0x2121 → feature index (0=not found) */
+    uint8_t  fi_thumbwheel;      /* Feature ID 0x2150 → feature index */
+    uint8_t  button_state;       /* Accumulated mouse button bitmap */
+    int16_t  wheel_acc;          /* HiRes scroll accumulator for speed normalization */
+    int16_t  pan_acc;            /* Thumbwheel accumulator for speed normalization */
+} hidpp_discovery_t;
+
 typedef struct {
     uint8_t  dev_addr;
     uint8_t  instance;
@@ -24,6 +39,26 @@ typedef struct {
     uint8_t  desc[MAX_HID_DESC_SIZE];
     bool     always_passthrough;
 } passthrough_iface_t;
+
+/* HID++ protocol analysis (debug hotkey) */
+#define HIDPP_SCAN_MAX_FEATURES 32
+
+enum hidpp_scan_state {
+    SCAN_IDLE = 0,
+    SCAN_QUERY_IROOT,      /* Query IRoot for each feature index */
+    SCAN_DONE
+};
+
+typedef struct {
+    uint8_t  state;                          /* enum hidpp_scan_state */
+    uint8_t  device_idx;                     /* Current device being scanned */
+    uint8_t  next_device;                    /* Next device to scan (0=done) */
+    uint8_t  query_idx;                      /* Current feature index being queried */
+    uint8_t  feature_count;                  /* Total features found */
+    uint64_t query_sent_us;
+    bool     raw_dump_enabled;               /* Toggle for raw event hex dump */
+    bool     pipe_debug_enabled;             /* Toggle for pipeline verification log */
+} hidpp_scan_t;
 
 typedef struct {
     uint8_t              iface_count;
@@ -51,6 +86,12 @@ typedef struct {
         uint16_t len;
         bool     pending;
     } out_queue;
+
+    /* P3: IRoot feature discovery */
+    hidpp_discovery_t    hidpp_disc;
+
+    /* HID++ protocol scan (debug) */
+    hidpp_scan_t         hidpp_scan;
 } passthrough_state_t;
 
 passthrough_state_t *passthrough_get_state(void);
@@ -79,3 +120,13 @@ int8_t passthrough_host_to_device_instance(const passthrough_state_t *state,
 int8_t passthrough_device_to_host_index(const passthrough_state_t *state,
                                         uint8_t device_instance);
 bool passthrough_is_hidpp_input_event(const uint8_t *report, uint16_t len);
+
+/* P3: HID++ conversion */
+bool passthrough_convert_hidpp_to_mouse(passthrough_state_t *state,
+                                        const uint8_t *report, uint16_t len,
+                                        void *out_mouse);
+
+void passthrough_start_hidpp_scan(passthrough_state_t *state);
+void passthrough_scan_step(passthrough_state_t *state);
+void passthrough_handle_scan_response(passthrough_state_t *state,
+                                      const uint8_t *report, uint16_t len);
