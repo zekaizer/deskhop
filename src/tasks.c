@@ -61,35 +61,53 @@ void passthrough_task(device_t *state) {
 
     passthrough_state_t *pt = passthrough_get_state();
 
-    /* Phase 1: Activate after captures stabilize (500ms since last capture) */
+    /* LED: slow pulse while waiting for host connect */
+    if (!state->tud_connected && state->led_blink_mode != LED_BLINK_PT_WAIT)
+        state->led_blink_mode = LED_BLINK_PT_WAIT;
+
+    /* Fallback: no receiver detected after 3s → connect with default descriptors.
+     * Skip if captures are in progress (iface_count > 0). */
+    if (!pt->active && !tud_connected() && pt->iface_count == 0
+        && time_us_64() > _MS(3000)) {
+        dh_debug_printf("[PT] No receiver, connecting with defaults\n");
+        tud_connect();
+    }
+
+    /* Phase 1: Activate after captures stabilize (500ms since last capture).
+     * Since we called tud_disconnect() at boot, connect once here — no
+     * disconnect/reconnect cycle needed. */
     if (!pt->active && pt->iface_count > 0 && pt->last_capture_us > 0) {
         if (time_us_64() - pt->last_capture_us > _MS(500)) {
             dh_debug_printf("[PT] Activating passthrough (%d ifaces)\n", pt->iface_count);
             if (passthrough_activate(pt)) {
-                dh_debug_printf("[PT] Disconnect for re-enumeration\n");
-                tud_disconnect();
-                pt->reconnect_at_us = time_us_64() + _MS(200);
+                dh_debug_printf("[PT] Connect with passthrough descriptors\n");
+                tud_connect();
             } else {
                 dh_debug_printf("[PT] Activation failed\n");
             }
         }
     }
 
-    /* Phase 2: Reconnect after 200ms disconnect delay (USB spec minimum) */
-    if (pt->reconnect_at_us > 0 && time_us_64() >= pt->reconnect_at_us) {
-        dh_debug_printf("[PT] Reconnect with new descriptors\n");
-        tud_connect();
-        pt->reconnect_at_us = 0;
+    /* LED: stop blinking once host is connected */
+    if (state->tud_connected && state->led_blink_mode == LED_BLINK_PT_WAIT) {
+        state->led_blink_mode = LED_BLINK_NONE;
+        restore_leds(state);
     }
 
-    /* Phase 2.5: IRoot feature discovery (P3) — runs after activation,
+    /* Phase 2: IRoot feature discovery — runs after activation,
      * uses out_queue to send IRoot queries one at a time. */
     if (pt->active && !pt->hidpp_disc.done) {
-        /* Start discovery after activation */
         if (pt->hidpp_disc.state == DISC_IDLE)
             pt->hidpp_disc.state = DISC_DETECT_DEVICE;
         passthrough_discovery_step(pt);
         passthrough_scan_step(pt);
+    }
+
+    /* Phase 2 fallback: device removal → disconnect/reconnect with defaults */
+    if (pt->reconnect_at_us > 0 && time_us_64() >= pt->reconnect_at_us) {
+        dh_debug_printf("[PT] Reconnect with new descriptors\n");
+        tud_connect();
+        pt->reconnect_at_us = 0;
     }
 
     /* Phase 3: Send HID++ output via raw control transfer.

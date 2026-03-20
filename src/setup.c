@@ -241,8 +241,10 @@ void initial_setup(device_t *state) {
     multicore_reset_core1();
     multicore_launch_core1(core1_main);
 
-    /* Initialize and configure TinyUSB Device */
+    /* Initialize TinyUSB Device but don't expose to host yet.
+     * Stay disconnected until passthrough decision is made. */
     tud_init(BOARD_TUD_RHPORT);
+    tud_disconnect();
 
     /* Initialize and configure TinyUSB Host */
     pio_usb_host_config(state);
