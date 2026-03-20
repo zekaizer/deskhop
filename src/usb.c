@@ -292,9 +292,6 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
     /* Also signal the other board to flash LED, to enable easy verification if serial works */
     send_value(ENABLE, FLASH_LED_MSG);
 
-    /* Dump captured descriptors for debugging */
-    passthrough_dump_descriptors(pt);
-
     /* Kick off the report querying */
     tuh_hid_receive_report(dev_addr, instance);
 }
