@@ -291,8 +291,9 @@ void passthrough_discovery_step(passthrough_state_t *state) {
  * =====  P3: HID++ → Mouse Report Conversion  ===== *
  * ================================================== */
 
-/* Minimal mouse report layout for conversion (matches structs.h mouse_report_t) */
-typedef struct {
+/* Minimal mouse report layout for conversion.
+ * MUST match structs.h mouse_report_t layout exactly (TU_ATTR_PACKED). */
+typedef struct TU_ATTR_PACKED {
     uint8_t buttons;
     int16_t x;
     int16_t y;

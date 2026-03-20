@@ -353,7 +353,13 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
                                             btn_report.x, btn_report.y);
                         output_mouse_report(&btn_report, &global_state);
                     } else if (converted) {
-                        /* Non-button event (scroll etc) */
+                        /* Non-button event (scroll etc).
+                         * Set mode to match gaming/relative state — without this,
+                         * wheel reports go to ABSOLUTE interface which hosts like
+                         * Android ignore when gaming_mode is active. */
+                        mouse.mode = (global_state.relative_mouse
+                                      || global_state.gaming_mode)
+                                   ? RELATIVE : ABSOLUTE;
                         output_mouse_report(&mouse, &global_state);
                     }
                 }
