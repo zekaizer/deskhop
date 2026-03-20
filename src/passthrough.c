@@ -168,11 +168,6 @@ bool passthrough_is_hidpp_input_event(const uint8_t *report, uint16_t len) {
  * ================================================== */
 
 
-static int8_t clamp_i8(int16_t val) {
-    if (val > 127) return 127;
-    if (val < -128) return -128;
-    return (int8_t)val;
-}
 
 /* Map CID to mouse button bit. Returns 0 if not a mouse button. */
 static uint8_t cid_to_button_bit(uint8_t cid_lo) {
@@ -252,17 +247,30 @@ bool passthrough_convert_hidpp_to_mouse(passthrough_state_t *state,
         return false; /* button_state updated; merged via output_mouse_report */
     }
 
-    /* HiResScroll event (fn=0): params[0]=flags, params[1-2]=deltaV */
+    /* HiResScroll event (fn=0): params[0]=flags, params[1-2]=deltaV.
+     * HiRes mode: ~6-7 events/notch × delta~2 = ~12-14 total per notch.
+     * Normal mode: 1 event × delta=1 = 1 per notch.
+     * Divisor 12 normalizes HiRes to ~1 tick per notch. */
     if (d->fi_hires_scroll && feature_idx == d->fi_hires_scroll && fn == 0) {
         int16_t delta_v = (int16_t)((params[1] << 8) | params[2]);
-        m->wheel = clamp_i8(delta_v);
+        d->wheel_acc = (int16_t)(d->wheel_acc + delta_v);
+        int16_t raw = (int16_t)(d->wheel_acc / 12);
+        if (raw == 0)
+            return false;
+        d->wheel_acc = (int16_t)(d->wheel_acc - raw * 12);
+        m->wheel = (int8_t)(raw > 127 ? 127 : raw < -128 ? -128 : raw);
         return true;
     }
 
     /* Thumbwheel event (fn=0): horizontal scroll delta */
     if (d->fi_thumbwheel && feature_idx == d->fi_thumbwheel && fn == 0) {
         int16_t delta_h = (int16_t)((params[1] << 8) | params[2]);
-        m->pan = clamp_i8(delta_h);
+        d->pan_acc = (int16_t)(d->pan_acc + delta_h);
+        int16_t raw = (int16_t)(d->pan_acc / 12);
+        if (raw == 0)
+            return false;
+        d->pan_acc = (int16_t)(d->pan_acc - raw * 12);
+        m->pan = (int8_t)(raw > 127 ? 127 : raw < -128 ? -128 : raw);
         return true;
     }
 

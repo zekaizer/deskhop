@@ -27,6 +27,8 @@ typedef struct {
     uint8_t  fi_hires_scroll;    /* Feature ID 0x2121 → feature index (0=not found) */
     uint8_t  fi_thumbwheel;      /* Feature ID 0x2150 → feature index */
     uint8_t  button_state;       /* Accumulated mouse button bitmap */
+    int16_t  wheel_acc;          /* HiRes scroll accumulator for speed normalization */
+    int16_t  pan_acc;            /* Thumbwheel accumulator for speed normalization */
 } hidpp_discovery_t;
 
 typedef struct {

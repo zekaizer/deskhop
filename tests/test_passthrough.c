@@ -337,25 +337,34 @@ void test_convert_hires_scroll(void) {
     state.active = true;
     state.hidpp_disc.fi_hires_scroll = 0x0E;
     state.hidpp_disc.fi_thumbwheel = 0x0F;
+    state.hidpp_disc.wheel_acc = 0;
 
     mouse_report_t mouse = {0};
 
-    /* HiRes Scroll event: feature_idx=0x0E, deltaV=+3 (big endian) */
+    /* HiRes delta=3 → accumulator/2 = 1 tick, remainder 1 */
     uint8_t scroll_up[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0x00, 0x03};
     TEST_ASSERT_TRUE(passthrough_convert_hidpp_to_mouse(&state, scroll_up, 7, &mouse));
-    TEST_ASSERT_EQUAL_INT8(3, mouse.wheel);
+    TEST_ASSERT_EQUAL_INT8(1, mouse.wheel);
     TEST_ASSERT_EQUAL_INT16(0, mouse.x);
     TEST_ASSERT_EQUAL_INT16(0, mouse.y);
 
-    /* Scroll down: deltaV=-5 (0xFFFB big endian) */
+    /* delta=1 → accumulator=1+1=2, tick=1 */
     memset(&mouse, 0, sizeof(mouse));
-    uint8_t scroll_down[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0xFF, 0xFB};
-    TEST_ASSERT_TRUE(passthrough_convert_hidpp_to_mouse(&state, scroll_down, 7, &mouse));
-    TEST_ASSERT_EQUAL_INT8(-5, mouse.wheel);
+    uint8_t scroll_one[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0x00, 0x01};
+    TEST_ASSERT_TRUE(passthrough_convert_hidpp_to_mouse(&state, scroll_one, 7, &mouse));
+    TEST_ASSERT_EQUAL_INT8(1, mouse.wheel);
 
-    /* Large value clamped to 127 */
+    /* Scroll down: deltaV=-4 → tick=-2 */
+    state.hidpp_disc.wheel_acc = 0;
     memset(&mouse, 0, sizeof(mouse));
-    uint8_t scroll_big[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0x01, 0x00}; /* +256 */
+    uint8_t scroll_down[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0xFF, 0xFC};
+    TEST_ASSERT_TRUE(passthrough_convert_hidpp_to_mouse(&state, scroll_down, 7, &mouse));
+    TEST_ASSERT_EQUAL_INT8(-2, mouse.wheel);
+
+    /* Large value: +256 → 256/2=128 → clamped to 127 */
+    state.hidpp_disc.wheel_acc = 0;
+    memset(&mouse, 0, sizeof(mouse));
+    uint8_t scroll_big[] = {0x10, 0x01, 0x0E, 0x00, 0x00, 0x01, 0x00};
     TEST_ASSERT_TRUE(passthrough_convert_hidpp_to_mouse(&state, scroll_big, 7, &mouse));
     TEST_ASSERT_EQUAL_INT8(127, mouse.wheel);
 }
@@ -367,10 +376,12 @@ void test_convert_thumbwheel(void) {
 
     mouse_report_t mouse = {0};
 
-    /* Thumbwheel event: feature_idx=0x0F, delta=+2 */
+    state.hidpp_disc.pan_acc = 0;
+
+    /* Thumbwheel event: delta=+2 → accumulator/2 = 1 tick */
     uint8_t pan_right[] = {0x10, 0x01, 0x0F, 0x00, 0x00, 0x00, 0x02};
     TEST_ASSERT_TRUE(passthrough_convert_hidpp_to_mouse(&state, pan_right, 7, &mouse));
-    TEST_ASSERT_EQUAL_INT8(2, mouse.pan);
+    TEST_ASSERT_EQUAL_INT8(1, mouse.pan);
     TEST_ASSERT_EQUAL_INT8(0, mouse.wheel);
 }
 
