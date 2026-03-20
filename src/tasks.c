@@ -132,8 +132,8 @@ void passthrough_task(device_t *state) {
         };
 
         bool ok = tuh_control_xfer(&xfer);
-        dh_debug_printf("[PT] OUT raw xfer itf=%d rid=0x%02X wLen=%d ok=%d\n",
-                        itf_num, rid, full_len, ok);
+        if (!ok)
+            dh_debug_printf("[PT] OUT raw xfer FAIL itf=%d rid=0x%02X\n", itf_num, rid);
         pt->out_queue.pending = false;
     }
 }
