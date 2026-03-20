@@ -59,6 +59,15 @@ void passthrough_task(device_t *state) {
         set_active_output(state, BOARD_ROLE);
     }
 
+    /* HID++ SmartShift button → toggle A/B output */
+    if (state->switch_requested) {
+        state->switch_requested = false;
+        uint8_t new_output = (state->active_output == OUTPUT_A) ? OUTPUT_B : OUTPUT_A;
+        dh_debug_printf("[BTN] SmartShift → output %s\n",
+                        new_output == OUTPUT_A ? "A" : "B");
+        set_active_output(state, new_output);
+    }
+
     /* Config mode uses vendor HID at ITF_NUM_HID_VENDOR (== ITF_NUM_PT_BASE).
      * Skip passthrough entirely to avoid interface number collision. */
     if (state->config_mode_active)

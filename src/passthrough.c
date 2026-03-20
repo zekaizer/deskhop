@@ -218,6 +218,7 @@ bool passthrough_convert_hidpp_to_mouse(passthrough_state_t *state,
     if (feature_idx == d->fi_reprog_controls && fn == 2 && params_len >= 3) {
         uint8_t cid_lo = params[1];
         uint8_t action = params[2];
+
         uint8_t bit = cid_to_button_bit(cid_lo);
         if (bit) {
             if (action)

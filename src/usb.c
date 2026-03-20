@@ -65,33 +65,29 @@ void tud_hid_set_report_cb(uint8_t instance,
              *   - setThumbwheelReporting(fn=2, param=0x01): identifies Thumbwheel fi */
             if (report_id == HIDPP_REPORT_ID_SHORT && bufsize >= 4
                 && buffer[0] >= 1 && buffer[0] <= 6
-                && (buffer[2] & 0x0F) != 0
-                && (pt->hidpp_disc.fi_hires_scroll == 0
-                    || pt->hidpp_disc.fi_thumbwheel == 0)) {
+                && (buffer[2] & 0x0F) != 0) {
                 hidpp_discovery_t *d = &pt->hidpp_disc;
                 uint8_t fi  = buffer[1];
                 uint8_t fn  = (buffer[2] >> 4) & 0x0F;
                 uint8_t p0  = bufsize > 3 ? buffer[3] : 0;
 
-                /* HiResScroll setWheelMode(fn=2, param=0x03).
-                 * This signature is unique to HiResScroll — always update
-                 * device_idx since it definitively identifies the mouse. */
-                if (fn == 2 && p0 == 0x03 && d->fi_hires_scroll == 0) {
-                    d->fi_hires_scroll = fi;
-                    d->device_idx = buffer[0];
-                    dh_debug_printf("[SNIFF] HiResScroll → fi=0x%02X dev=%d (setWheelMode)\n",
-                                    fi, buffer[0]);
+                /* Feature discovery (skip if already known) */
+                if (d->fi_hires_scroll == 0 || d->fi_thumbwheel == 0) {
+                    if (fn == 2 && p0 == 0x03 && d->fi_hires_scroll == 0) {
+                        d->fi_hires_scroll = fi;
+                        d->device_idx = buffer[0];
+                        dh_debug_printf("[SNIFF] HiResScroll → fi=0x%02X dev=%d\n",
+                                        fi, buffer[0]);
+                    }
+                    if (fn == 2 && p0 == 0x01
+                        && d->fi_thumbwheel == 0 && d->fi_hires_scroll != 0
+                        && fi != d->fi_hires_scroll
+                        && buffer[0] == d->device_idx) {
+                        d->fi_thumbwheel = fi;
+                        dh_debug_printf("[SNIFF] Thumbwheel → fi=0x%02X\n", fi);
+                    }
                 }
-                /* Thumbwheel setReporting(fn=2, param=0x01).
-                 * Requires HiResScroll already known + same device to avoid
-                 * false positives from other features using fn=2 param=0x01. */
-                if (fn == 2 && p0 == 0x01
-                    && d->fi_thumbwheel == 0 && d->fi_hires_scroll != 0
-                    && fi != d->fi_hires_scroll
-                    && buffer[0] == d->device_idx) {
-                    d->fi_thumbwheel = fi;
-                    dh_debug_printf("[SNIFF] Thumbwheel → fi=0x%02X (setReporting)\n", fi);
-                }
+
             }
         }
         return;
@@ -334,6 +330,15 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
                 }
 
                 bool is_input = passthrough_is_hidpp_input_event(report, len);
+
+                /* Intercept SmartShift button (CID 0xC4) for A/B output switch.
+                 * Don't consume — let Options+ see it so it sends SetMode
+                 * (which we rewrite to ratchet if force_ratchet is set). */
+                if (is_input && len >= 7) {
+                    uint8_t fn_chk = (report[3] >> 4) & 0x0F;
+                    if (fn_chk == 2 && report[4] == 0x00 && report[5] == 0xC4 && report[6])
+                        global_state.switch_requested = true;
+                }
 
                 if (pt->hidpp_scan.pipe_debug_enabled && is_input
                     && report[2] == pt->hidpp_disc.fi_reprog_controls)
