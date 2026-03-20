@@ -46,16 +46,6 @@ void tud_hid_set_report_cb(uint8_t instance,
     passthrough_state_t *pt = passthrough_get_state();
     if (pt->active && instance >= ITF_NUM_PT_BASE) {
         int8_t idx = passthrough_device_to_host_index(pt, instance);
-#ifdef DH_DEBUG
-        {
-            char hex[32] = {0};
-            int pos = 0;
-            for (uint16_t i = 0; i < bufsize && i < 8 && pos < 30; i++)
-                pos += snprintf(hex + pos, sizeof(hex) - pos, "%02X ", buffer[i]);
-            dh_debug_printf("[PT] OUT rid=0x%02X type=%d len=%d idx=%d [%s]\n",
-                            report_id, report_type, bufsize, idx, hex);
-        }
-#endif
         if (idx >= 0 && bufsize <= sizeof(pt->out_queue.data)) {
             /* Queue for deferred send from main loop — SET_REPORT control
              * transfers fail when called from TinyUSB device callbacks. */
@@ -147,8 +137,9 @@ void tud_cdc_rx_cb(uint8_t itf) {
 void tuh_hid_set_report_complete_cb(uint8_t dev_addr, uint8_t idx,
                                      uint8_t report_id, uint8_t report_type,
                                      uint16_t len) {
-    dh_debug_printf("[PT] SET_REPORT done dev=%d idx=%d rid=0x%02X len=%d %s\n",
-                    dev_addr, idx, report_id, len, len ? "OK" : "FAIL");
+    if (!len)
+        dh_debug_printf("[PT] SET_REPORT FAIL dev=%d idx=%d rid=0x%02X\n",
+                        dev_addr, idx, report_id);
 }
 
 /* ================================================== *
@@ -321,10 +312,11 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
 
                 bool is_input = passthrough_is_hidpp_input_event(report, len);
 
-                if (pt->hidpp_scan.pipe_debug_enabled && is_input)
-                    dh_debug_printf("[P1] dev=%d fi=0x%02X fn=%d sw=%d active_out=%d\n",
+                if (pt->hidpp_scan.pipe_debug_enabled && is_input
+                    && report[2] == pt->hidpp_disc.fi_reprog_controls)
+                    dh_debug_printf("[P1] dev=%d fi=0x%02X fn=%d sw=%d\n",
                                     report[1], report[2], (report[3]>>4)&0xF,
-                                    report[3]&0xF, CURRENT_BOARD_IS_ACTIVE_OUTPUT);
+                                    report[3]&0xF);
 
                 if (!is_input || CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
                     bool ok = tud_hid_n_report(dev_inst, 0, report, len);
@@ -348,11 +340,13 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
                     bool converted = passthrough_convert_hidpp_to_mouse(pt, report, len, &mouse);
 
                     if (pt->hidpp_disc.button_state != prev_btn) {
-                        mouse_report_t btn_report = {
-                            .x    = global_state.pointer_x,
-                            .y    = global_state.pointer_y,
-                            .mode = ABSOLUTE,
-                        };
+                        bool rel = global_state.relative_mouse || global_state.gaming_mode;
+                        mouse_report_t btn_report = {0};
+                        btn_report.mode = rel ? RELATIVE : ABSOLUTE;
+                        if (!rel) {
+                            btn_report.x = global_state.pointer_x;
+                            btn_report.y = global_state.pointer_y;
+                        }
                         if (pt->hidpp_scan.pipe_debug_enabled)
                             dh_debug_printf("[P3] btn 0x%02X→0x%02X x=%d y=%d\n",
                                             prev_btn, pt->hidpp_disc.button_state,
