@@ -25,18 +25,21 @@
 enum hidpp_disc_state {
     DISC_IDLE = 0,
     DISC_DETECT_DEVICE,
+    DISC_QUERY_REPROG_CONTROLS,
     DISC_QUERY_HIRES_SCROLL,
     DISC_QUERY_THUMBWHEEL,
     DISC_DONE
 };
 
 typedef struct {
-    uint8_t  state;           /* enum hidpp_disc_state */
-    uint8_t  device_idx;      /* HID++ device index (byte[1]), 0=undetected */
-    uint8_t  fi_hires_scroll; /* Feature ID 0x2121 → feature index (0=not found) */
-    uint8_t  fi_thumbwheel;   /* Feature ID 0x2150 → feature index */
+    uint8_t  state;              /* enum hidpp_disc_state */
+    uint8_t  device_idx;         /* HID++ device index (byte[1]), 0=undetected */
+    uint8_t  fi_reprog_controls; /* Feature ID 0x1B04 → feature index (0=not found) */
+    uint8_t  fi_hires_scroll;    /* Feature ID 0x2121 → feature index (0=not found) */
+    uint8_t  fi_thumbwheel;      /* Feature ID 0x2150 → feature index */
+    uint8_t  button_state;       /* Accumulated mouse button bitmap */
     bool     done;
-    uint64_t query_sent_us;   /* timeout detection */
+    uint64_t query_sent_us;      /* timeout detection */
 } hidpp_discovery_t;
 
 typedef struct {
@@ -47,6 +50,26 @@ typedef struct {
     uint8_t  desc[MAX_HID_DESC_SIZE];
     bool     always_passthrough;
 } passthrough_iface_t;
+
+/* HID++ protocol analysis (debug hotkey) */
+#define HIDPP_SCAN_MAX_FEATURES 32
+
+enum hidpp_scan_state {
+    SCAN_IDLE = 0,
+    SCAN_QUERY_IROOT,      /* Query IRoot for each feature index */
+    SCAN_DONE
+};
+
+typedef struct {
+    uint8_t  state;                          /* enum hidpp_scan_state */
+    uint8_t  device_idx;                     /* Current device being scanned */
+    uint8_t  next_device;                    /* Next device to scan (0=done) */
+    uint8_t  query_idx;                      /* Current feature index being queried */
+    uint8_t  feature_count;                  /* Total features found */
+    uint64_t query_sent_us;
+    bool     raw_dump_enabled;               /* Toggle for raw event hex dump */
+    bool     pipe_debug_enabled;             /* Toggle for pipeline verification log */
+} hidpp_scan_t;
 
 typedef struct {
     uint8_t              iface_count;
@@ -77,6 +100,9 @@ typedef struct {
 
     /* P3: IRoot feature discovery */
     hidpp_discovery_t    hidpp_disc;
+
+    /* HID++ protocol scan (debug) */
+    hidpp_scan_t         hidpp_scan;
 } passthrough_state_t;
 
 passthrough_state_t *passthrough_get_state(void);
@@ -115,3 +141,8 @@ void passthrough_discovery_step(passthrough_state_t *state);
 bool passthrough_convert_hidpp_to_mouse(const passthrough_state_t *state,
                                         const uint8_t *report, uint16_t len,
                                         void *out_mouse);
+
+void passthrough_start_hidpp_scan(passthrough_state_t *state);
+void passthrough_scan_step(passthrough_state_t *state);
+void passthrough_handle_scan_response(passthrough_state_t *state,
+                                      const uint8_t *report, uint16_t len);

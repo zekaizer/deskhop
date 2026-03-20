@@ -127,6 +127,7 @@ typedef struct {
     fw_upgrade_state_t fw;           // State of the firmware upgrader
     firmware_metadata_t _running_fw; // RAM copy of running fw metadata
     bool reboot_requested;           // If set, stop updating watchdog
+    volatile bool bootsel_switch_requested; // Set by core1, consumed by core0
     uint64_t config_mode_timer;      // Counts how long are we to remain in config mode
 
     uint8_t page_buffer[FLASH_PAGE_SIZE]; // For firmware-over-serial upgrades

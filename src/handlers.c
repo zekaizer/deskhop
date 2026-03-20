@@ -155,6 +155,27 @@ void config_enable_hotkey_handler(device_t *state, hid_keyboard_report_t *report
 };
 
 
+/* HID++ protocol scan — dump full feature table for all devices */
+void hidpp_scan_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
+    passthrough_state_t *pt = passthrough_get_state();
+    passthrough_start_hidpp_scan(pt);
+}
+
+/* Pipeline debug toggle — trace button conversion step by step */
+void hidpp_pipe_debug_handler(device_t *state, hid_keyboard_report_t *report) {
+    passthrough_state_t *pt = passthrough_get_state();
+    if (!pt) return;
+    pt->hidpp_scan.pipe_debug_enabled = !pt->hidpp_scan.pipe_debug_enabled;
+    dh_debug_printf("[PIPE] Debug: %s (rc=%d sc=%d tw=%d btn=0x%02X active=%d out=%d)\n",
+                    pt->hidpp_scan.pipe_debug_enabled ? "ON" : "OFF",
+                    pt->hidpp_disc.fi_reprog_controls,
+                    pt->hidpp_disc.fi_hires_scroll,
+                    pt->hidpp_disc.fi_thumbwheel,
+                    pt->hidpp_disc.button_state,
+                    pt->active,
+                    state->active_output);
+}
+
 /* ==================================================== *
  * ==========  UART Message Handling Routines  ======== *
  * ==================================================== */
@@ -391,4 +412,9 @@ void set_active_output(device_t *state, uint8_t new_output) {
     /* If we were holding a key down and drag the mouse to another screen, the key gets stuck.
        Changing outputs = no more keypresses on the previous system. */
     release_all_keys(state);
+
+    /* Clear HID++ button state to prevent stuck buttons after switching */
+    passthrough_state_t *pt = passthrough_get_state();
+    if (pt)
+        pt->hidpp_disc.button_state = 0;
 }

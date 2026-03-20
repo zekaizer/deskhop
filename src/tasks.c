@@ -51,6 +51,14 @@ void usb_device_task(device_t *state) {
 /* Check if passthrough needs activation and handle re-enumeration sequence.
  * Runs on core0 since tud_disconnect/tud_connect are device-side operations. */
 void passthrough_task(device_t *state) {
+    /* BOOTSEL switch: flag set by core1, safe to execute on core0 */
+    if (state->bootsel_switch_requested) {
+        state->bootsel_switch_requested = false;
+        dh_debug_printf("[BTN] BOOTSEL → output %s\n",
+                        BOARD_ROLE == OUTPUT_A ? "A" : "B");
+        set_active_output(state, BOARD_ROLE);
+    }
+
     passthrough_state_t *pt = passthrough_get_state();
 
     /* Phase 1: Activate after captures stabilize (500ms since last capture) */
@@ -81,6 +89,7 @@ void passthrough_task(device_t *state) {
         if (pt->hidpp_disc.state == DISC_IDLE)
             pt->hidpp_disc.state = DISC_DETECT_DEVICE;
         passthrough_discovery_step(pt);
+        passthrough_scan_step(pt);
     }
 
     /* Phase 3: Send HID++ output via raw control transfer.
@@ -235,9 +244,19 @@ void heartbeat_output_task(device_t *state) {
     }
 
 #ifdef DH_DEBUG
-    /* Holding the button invokes bootsel firmware upgrade */
-    if (is_bootsel_pressed())
-        reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0);
+    /* BOOTSEL: short press sets flag for core0, long hold = bootsel reset */
+    {
+        static uint32_t press_start = 0;
+        if (is_bootsel_pressed()) {
+            if (press_start == 0)
+                press_start = time_us_32();
+            else if ((time_us_32() - press_start) > 2000000)
+                reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0);
+        } else if (press_start != 0) {
+            state->bootsel_switch_requested = true;
+            press_start = 0;
+        }
+    }
 #endif
 
     uart_packet_t packet = {

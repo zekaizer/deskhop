@@ -23,6 +23,8 @@ void disable_screensaver_hotkey_handler(device_t *, hid_keyboard_report_t *);
 void enable_screensaver_pong_hotkey_handler(device_t *, hid_keyboard_report_t *);
 void enable_screensaver_jitter_hotkey_handler(device_t *, hid_keyboard_report_t *);
 void fw_upgrade_hotkey_handler_A(device_t *, hid_keyboard_report_t *);
+void hidpp_scan_hotkey_handler(device_t *, hid_keyboard_report_t *);
+void hidpp_pipe_debug_handler(device_t *, hid_keyboard_report_t *);
 void fw_upgrade_hotkey_handler_B(device_t *, hid_keyboard_report_t *);
 void mouse_zoom_hotkey_handler(device_t *, hid_keyboard_report_t *);
 void output_config_hotkey_handler(device_t *, hid_keyboard_report_t *);

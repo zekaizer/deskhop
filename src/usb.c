@@ -301,31 +301,67 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
             if (pt->ifaces[idx].always_passthrough) {
                 /* Detect HID++ device index for IRoot discovery */
                 if (pt->hidpp_disc.state == DISC_DETECT_DEVICE &&
-                    pt->hidpp_disc.device_idx == 0 && len >= 2) {
+                    pt->hidpp_disc.device_idx == 0 && len >= 2 &&
+                    report[1] != 0xFF && report[1] != 0x00) {
+                    /* Only accept actual device indices (1-6), skip receiver (0xFF) */
                     pt->hidpp_disc.device_idx = report[1];
-                    pt->hidpp_disc.state = DISC_QUERY_HIRES_SCROLL;
+                    pt->hidpp_disc.state = DISC_QUERY_REPROG_CONTROLS;
                     dh_debug_printf("[DISC] Detected device idx=0x%02X\n", report[1]);
                 }
 
-                /* Intercept IRoot responses (sw_id == HIDPP_SWID_DESKHOP) */
-                if (!pt->hidpp_disc.done && len >= 7 &&
-                    (report[3] & 0x0F) == HIDPP_SWID_DESKHOP) {
-                    passthrough_handle_iroot_response(pt, report, len);
+                /* Intercept DeskHop sw_id responses (discovery + scan) */
+                if (len >= 7 && (report[3] & 0x0F) == HIDPP_SWID_DESKHOP) {
+                    if (!pt->hidpp_disc.done)
+                        passthrough_handle_iroot_response(pt, report, len);
+                    if (pt->hidpp_scan.state == SCAN_QUERY_IROOT)
+                        passthrough_handle_scan_response(pt, report, len);
                     tuh_hid_receive_report(dev_addr, instance);
                     return;
                 }
 
                 bool is_input = passthrough_is_hidpp_input_event(report, len);
 
+                if (pt->hidpp_scan.pipe_debug_enabled && is_input)
+                    dh_debug_printf("[P1] dev=%d fi=0x%02X fn=%d sw=%d active_out=%d\n",
+                                    report[1], report[2], (report[3]>>4)&0xF,
+                                    report[3]&0xF, CURRENT_BOARD_IS_ACTIVE_OUTPUT);
+
                 if (!is_input || CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
                     bool ok = tud_hid_n_report(dev_inst, 0, report, len);
                     if (!ok)
                         dh_debug_printf("[PT] IN fwd FAILED\n");
                 } else {
-                    /* B active: convert HID++ input event to mouse report */
+                    /* B active: raw dump if enabled */
+                    if (pt->hidpp_scan.raw_dump_enabled) {
+                        dh_debug_printf("[RAW] dev=%d fi=0x%02X fn=%d [",
+                                        report[1], report[2], (report[3] >> 4) & 0x0F);
+                        for (uint16_t i = 4; i < len && i < 20; i++)
+                            dh_debug_printf("%02X ", report[i]);
+                        dh_debug_printf("]\n");
+                    }
+
+                    /* HID++ → mouse conversion. Button events only update
+                     * button_state (merged into every output_mouse_report).
+                     * Send immediate report on button change for responsiveness. */
+                    uint8_t prev_btn = pt->hidpp_disc.button_state;
                     mouse_report_t mouse = {0};
-                    if (passthrough_convert_hidpp_to_mouse(pt, report, len, &mouse))
+                    bool converted = passthrough_convert_hidpp_to_mouse(pt, report, len, &mouse);
+
+                    if (pt->hidpp_disc.button_state != prev_btn) {
+                        mouse_report_t btn_report = {
+                            .x    = global_state.pointer_x,
+                            .y    = global_state.pointer_y,
+                            .mode = ABSOLUTE,
+                        };
+                        if (pt->hidpp_scan.pipe_debug_enabled)
+                            dh_debug_printf("[P3] btn 0x%02X→0x%02X x=%d y=%d\n",
+                                            prev_btn, pt->hidpp_disc.button_state,
+                                            btn_report.x, btn_report.y);
+                        output_mouse_report(&btn_report, &global_state);
+                    } else if (converted) {
+                        /* Non-button event (scroll etc) */
                         output_mouse_report(&mouse, &global_state);
+                    }
                 }
                 handled = true;
             } else if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
