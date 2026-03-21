@@ -332,12 +332,22 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
                 bool is_input = passthrough_is_hidpp_input_event(report, len);
 
                 /* Intercept SmartShift button (CID 0xC4) for A/B output switch.
+                 * Require double-click to prevent accidental switching.
                  * Don't consume — let Options+ see it so it sends SetMode
                  * (which we rewrite to ratchet if force_ratchet is set). */
                 if (is_input && len >= 7) {
                     uint8_t fn_chk = (report[3] >> 4) & 0x0F;
-                    if (fn_chk == 2 && report[4] == 0x00 && report[5] == 0xC4 && report[6])
-                        global_state.switch_requested = true;
+                    if (fn_chk == 2 && report[4] == 0x00 && report[5] == 0xC4 && report[6]) {
+                        static uint64_t last_press_us = 0;
+                        uint64_t now = time_us_64();
+                        if (last_press_us > 0
+                            && (now - last_press_us) < SMARTSHIFT_DOUBLE_CLICK_US) {
+                            global_state.switch_requested = true;
+                            last_press_us = 0;
+                        } else {
+                            last_press_us = now;
+                        }
+                    }
                 }
 
                 if (pt->hidpp_scan.pipe_debug_enabled && is_input
