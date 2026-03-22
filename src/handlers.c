@@ -45,15 +45,8 @@ void enable_screensaver_pong_hotkey_handler(device_t *s, hid_keyboard_report_t *
 void enable_screensaver_jitter_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_screensaver_jitter_enable(); }
 void disable_screensaver_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_screensaver_disable(); }
 
-/* HAL-dependent: watchdog_hw register access */
-void config_enable_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
-    if (!state->config_mode_active) {
-        watchdog_hw->scratch[5] = MAGIC_WORD_1;
-        watchdog_hw->scratch[6] = MAGIC_WORD_2;
-    }
-    release_all_keys(state);
-    state->reboot_requested = true;
-}
+extern void rust_config_enable(device_t *);
+void config_enable_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_config_enable(s); }
 
 /* ---- UART message handlers ---- */
 void handle_keyboard_uart_msg(uart_packet_t *p, device_t *s) { rust_handle_keyboard_uart_full(s, p->data); }
@@ -109,23 +102,8 @@ void handle_request_byte_msg(uart_packet_t *packet, device_t *state) {
     queue_packet(packet->data, RESPONSE_BYTE_MSG, PACKET_DATA_LENGTH);
 }
 
-void handle_response_byte_msg(uart_packet_t *packet, device_t *state) {
-    uint32_t address = packet->data32[0];
-    if (address != state->fw.address) {
-        state->fw.upgrade_in_progress = false;
-        state->fw.address = 0;
-        return;
-    }
-    if ((address & 0xfff) == 0x000) toggle_led();
-
-    if (address < STAGING_IMAGE_SIZE - FLASH_SECTOR_SIZE)
-        for (int i = 0; i < 4; i++)
-            state->fw.checksum = crc32_iter(state->fw.checksum, packet->data[4 + i]);
-
-    memcpy(state->page_buffer + packet->data[0], &packet->data32[1], sizeof(uint32_t));
-    state->fw.address += sizeof(uint32_t);
-    state->fw.byte_done = true;
-}
+extern void rust_handle_response_byte(const uint8_t *data);
+void handle_response_byte_msg(uart_packet_t *p, device_t *s) { rust_handle_response_byte(p->data); }
 
 /* HAL-dependent: restore_leds + send_value + release_all_keys */
 void set_active_output(device_t *state, uint8_t new_output) {

@@ -228,6 +228,13 @@ int hal_check_all_hotkeys(const uint8_t *report, uint8_t *out_pass_to_os,
     return 0;
 }
 
+void hal_toggle_led(void) { toggle_led(); }
+
+void hal_set_config_mode_scratch(void) {
+    watchdog_hw->scratch[5] = MAGIC_WORD_1;
+    watchdog_hw->scratch[6] = MAGIC_WORD_2;
+}
+
 /* ==================================================== *
  * Trace output
  * ==================================================== */

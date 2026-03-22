@@ -216,10 +216,55 @@ pub unsafe extern "C" fn rust_handle_sync_borders(dev: *mut core::ffi::c_void, d
     crate::hal::device::hal_save_config(dev);
 }
 
+/// Handle FW response byte — update checksum, page buffer, advance address.
+#[no_mangle]
+pub unsafe extern "C" fn rust_handle_response_byte(data: *const u8) {
+    if data.is_null() { return; }
+    let state = &mut *crate::app::state::rust_get_app_state();
+
+    // data is uart_packet_t.data (8 bytes): data32[0]=address, data[0]=offset, data32[1]=fw_data
+    let address = u32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
+
+    if address != state.fw.address {
+        state.fw.upgrade_in_progress = false;
+        state.fw.address = 0;
+        return;
+    }
+
+    if (address & 0xfff) == 0x000 {
+        crate::hal::device::hal_toggle_led();
+    }
+
+    // STAGING_IMAGE_SIZE = 1024 * 256 = 262144, FLASH_SECTOR_SIZE = 4096
+    const STAGING_IMAGE_SIZE: u32 = 262144;
+    const FLASH_SECTOR_SIZE: u32 = 4096;
+
+    if address < STAGING_IMAGE_SIZE - FLASH_SECTOR_SIZE {
+        for i in 0..4 {
+            state.fw.checksum = crate::app::crc::crc32_iter(state.fw.checksum, *data.add(4 + i));
+        }
+    }
+
+    let offset = *data as usize;
+    if offset + 4 <= state.page_buffer.len() {
+        let fw_data = core::slice::from_raw_parts(data.add(4), 4);
+        state.page_buffer[offset..offset + 4].copy_from_slice(fw_data);
+    }
+
+    state.fw.address += 4;
+    state.fw.byte_done = true;
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_get_border_position(pointer_y: i16, top: *mut i32, bottom: *mut i32) {
     match get_border_position(pointer_y) {
         BorderUpdate::Top(v) => { if !top.is_null() { *top = v; } }
         BorderUpdate::Bottom(v) => { if !bottom.is_null() { *bottom = v; } }
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_config_enable(dev: *mut core::ffi::c_void) {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    crate::app::hotkey_handlers::config_enable(dev, state);
 }

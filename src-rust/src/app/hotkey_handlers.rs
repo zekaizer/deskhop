@@ -50,16 +50,6 @@ pub unsafe fn wipe_config(dev: *mut c_void, state: &mut AppState) {
     device::hal_send_value(1, PacketType::WipeConfig as u8);
 }
 
-/// Enter config mode
-pub unsafe fn config_enable(dev: *mut c_void, state: &mut AppState) {
-    if !state.config_mode_active {
-        // Set watchdog scratch registers for config mode detection on reboot
-        // This requires direct HW register access — done in C via hal
-    }
-    device::hal_release_all_keys(dev);
-    state.reboot_requested = true;
-}
-
 /// Set screensaver mode
 pub unsafe fn screensaver_set(state: &mut AppState, mode: u8) {
     if state.is_active_output() {
@@ -95,6 +85,15 @@ pub unsafe fn screensaver_jitter_enable(state: &mut AppState) {
 /// Disable screensaver
 pub unsafe fn screensaver_disable(state: &mut AppState) {
     screensaver_set(state, 0); // DISABLED
+}
+
+/// Enter config mode — set watchdog scratch registers and request reboot
+pub unsafe fn config_enable(dev: *mut core::ffi::c_void, state: &mut AppState) {
+    if !state.config_mode_active {
+        device::hal_set_config_mode_scratch();
+    }
+    device::hal_release_all_keys(dev);
+    state.reboot_requested = true;
 }
 
 #[cfg(test)]

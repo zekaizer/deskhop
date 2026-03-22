@@ -84,6 +84,9 @@ extern "C" {
         report: *const u8, out_pass_to_os: *mut u8, out_acknowledge: *mut u8,
     ) -> i32;
 
+    pub fn hal_toggle_led();
+    pub fn hal_set_config_mode_scratch();
+
     // ---- DMA ----
     pub fn hal_dma_channel_is_busy(dev: *mut c_void) -> bool;
     pub fn hal_dma_tx_send(dev: *mut c_void, buf: *const u8, len: u32);
