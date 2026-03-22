@@ -266,24 +266,9 @@ void handle_response_byte_msg(uart_packet_t *packet, device_t *state) {
     state->fw.byte_done = true;
 }
 
-/* Process a request to read a firmware package from flash */
 void handle_heartbeat_msg(uart_packet_t *packet, device_t *state) {
-    uint16_t other_running_version = packet->data16[0];
-
-    if (state->fw.upgrade_in_progress)
-        return;
-
-    /* If the other board isn't running a newer version, we are done */
-    if (other_running_version <= state->_running_fw.version)
-        return;
-
-    /* It is? Ok, kick off the firmware upgrade */
-    state->fw = (fw_upgrade_state_t) {
-        .upgrade_in_progress = true,
-        .byte_done = true,
-        .address = 0,
-        .checksum = 0xffffffff,
-    };
+    /* State mutation handled by rust_handle_simple_msg in process_packet */
+    rust_handle_simple_msg(packet->type, packet->data);
 }
 
 
