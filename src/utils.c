@@ -1,17 +1,10 @@
-/*
- * This file is part of DeskHop (https://github.com/hrvach/deskhop).
- * Copyright (c) 2025 Hrvoje Cavrak
- * Checksum/CRC/validation ported to Rust. HAL functions remain.
- */
+/* DeskHop utils — CRC/checksum in Rust, HAL (flash/GPIO/config) here. */
 #include "main.h"
 
-/* Rust wrappers */
 extern uint8_t rust_calc_checksum(const uint8_t *, int);
-extern uint32_t rust_calc_crc32(const uint8_t *, size_t);
-extern uint32_t rust_crc32_iter(uint32_t, uint8_t);
-extern bool rust_verify_checksum(const uint8_t *);
-extern uint32_t rust_get_ptr_delta(uint32_t, uint32_t, uint32_t);
-extern bool rust_validate_packet(const uint8_t *);
+extern uint32_t rust_calc_crc32(const uint8_t *, size_t), rust_crc32_iter(uint32_t, uint8_t),
+    rust_get_ptr_delta(uint32_t, uint32_t, uint32_t);
+extern bool rust_verify_checksum(const uint8_t *), rust_validate_packet(const uint8_t *);
 
 uint8_t calc_checksum(const uint8_t *d, int l) { return rust_calc_checksum(d, l); }
 bool verify_checksum(const uart_packet_t *p) { return rust_verify_checksum((const uint8_t *)p); }
