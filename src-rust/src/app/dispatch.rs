@@ -150,4 +150,28 @@ mod tests {
         assert_eq!(get_dispatch_action(PacketType::Reboot), DispatchAction::Reboot);
         assert_eq!(get_dispatch_action(PacketType::ProxyPacket), DispatchAction::ProxyPacket);
     }
+
+    #[test]
+    fn test_validate_gap_types() {
+        // Types 16, 17 don't exist — should be UnknownType
+        for t in [0u8, 16, 17, 26, 100] {
+            let pkt = UartPacket { ptype: t, data: [0; PACKET_DATA_LENGTH], checksum: 0 };
+            assert_eq!(validate_received_packet(&pkt), Err(PacketError::UnknownType));
+        }
+    }
+
+    #[test]
+    fn test_process_packet_with_data() {
+        let mut pkt = make_valid_packet(PacketType::OutputSelect as u8);
+        pkt.data[0] = 1; // output B
+        pkt.checksum = crate::app::crc::calc_checksum(&pkt.data);
+        assert_eq!(process_packet(&pkt), Ok(DispatchAction::OutputSelect));
+    }
+
+    #[test]
+    fn test_dispatch_firmware_types() {
+        assert_eq!(get_dispatch_action(PacketType::FirmwareUpgrade), DispatchAction::FirmwareUpgrade);
+        assert_eq!(get_dispatch_action(PacketType::RequestByte), DispatchAction::RequestByte);
+        assert_eq!(get_dispatch_action(PacketType::ResponseByte), DispatchAction::ResponseByte);
+    }
 }

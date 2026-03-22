@@ -142,15 +142,43 @@ mod tests {
 
     #[test]
     fn test_validate_proxy_packet() {
-        // Proxy with allowed inner type
-        assert!(validate_packet_type(
-            PacketType::ProxyPacket as u8,
-            PacketType::GetVal as u8
-        ));
-        // Proxy with disallowed inner type
-        assert!(!validate_packet_type(
-            PacketType::ProxyPacket as u8,
-            PacketType::KeyboardReport as u8
-        ));
+        assert!(validate_packet_type(PacketType::ProxyPacket as u8, PacketType::GetVal as u8));
+        assert!(!validate_packet_type(PacketType::ProxyPacket as u8, PacketType::KeyboardReport as u8));
+    }
+
+    #[test]
+    fn test_all_allowed_config_packets() {
+        // ProxyPacket (23) is special — checks inner type, not itself
+        let allowed = [9, 20, 22, 21, 10, 18, 19]; // FlashLed..Reboot
+        for &t in &allowed {
+            assert!(validate_packet_type(t, 0), "Type {} should be allowed", t);
+        }
+        // ProxyPacket with allowed inner
+        assert!(validate_packet_type(23, 20)); // Proxy(GetVal)
+    }
+
+    #[test]
+    fn test_all_disallowed_config_packets() {
+        let disallowed = [1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 24, 25];
+        for &t in &disallowed {
+            assert!(!validate_packet_type(t, 0), "Type {} should be disallowed", t);
+        }
+    }
+
+    #[test]
+    fn test_packet_type_values() {
+        // Verify C enum values match
+        assert_eq!(PacketType::KeyboardReport as u8, 1);
+        assert_eq!(PacketType::SaveConfig as u8, 18);
+        assert_eq!(PacketType::ResponseByte as u8, 25);
+    }
+
+    #[test]
+    fn test_constants_values() {
+        assert_eq!(NUM_SCREENS, 2);
+        assert_eq!(RAW_PACKET_LENGTH, 12);
+        assert_eq!(PACKET_DATA_LENGTH, 8);
+        assert_eq!(MAX_SCREEN_COORD, 32767);
+        assert_eq!(MIN_SCREEN_COORD, 0);
     }
 }
