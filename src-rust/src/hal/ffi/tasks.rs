@@ -1,6 +1,20 @@
 use core::ffi::c_void;
 use crate::hal::device;
 
+const CORE1_HANG_TIMEOUT_US: u64 = 500_000; // 500ms
+
+/// Rust implementation of kick_watchdog_task
+#[no_mangle]
+pub unsafe extern "C" fn rust_kick_watchdog_task(_dev: *mut c_void) {
+    let state = &*crate::app::state::rust_get_app_state();
+    if state.reboot_requested { return; }
+    let c1 = state.core1_last_loop_pass;
+    let now = device::hal_time_us_64();
+    if now - c1 < CORE1_HANG_TIMEOUT_US {
+        device::hal_watchdog_update();
+    }
+}
+
 static mut LAST_POINTER_MOVE: u32 = 0;
 
 /// Rust implementation of screensaver_task

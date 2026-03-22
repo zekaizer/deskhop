@@ -8,14 +8,8 @@
 
 #include "main.h"
 
-/* HAL-dependent: watchdog hardware access */
-void kick_watchdog_task(device_t *state) {
-    uint64_t core1_last_loop_pass = state->core1_last_loop_pass;
-    uint64_t current_time = time_us_64();
-    if (state->reboot_requested) return;
-    if (current_time - core1_last_loop_pass < CORE1_HANG_TIMEOUT_US)
-        watchdog_update();
-}
+extern void rust_kick_watchdog_task(device_t *);
+void kick_watchdog_task(device_t *s) { rust_kick_watchdog_task(s); }
 
 /* HAL-dependent: TinyUSB task dispatch */
 void usb_device_task(device_t *state) { tud_task(); }
