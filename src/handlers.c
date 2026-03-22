@@ -1,38 +1,26 @@
 /*
  * This file is part of DeskHop (https://github.com/hrvach/deskhop).
  * Copyright (c) 2025 Hrvoje Cavrak
- *
- * Most handler logic ported to Rust. This file contains C wrappers
- * and HAL-dependent handlers (flash, watchdog, queue, offsetof).
+ * Most logic in Rust. C wrappers + HAL-dependent handlers.
  */
 #include "main.h"
 
-/* Rust FFI functions */
-extern void rust_output_toggle(device_t *);
-extern void rust_get_border_position(int16_t, int32_t *, int32_t *);
-extern void rust_screensaver_set(uint8_t);
-extern void rust_screen_border_hotkey(device_t *);
-extern void rust_fw_upgrade_a(void);
-extern void rust_fw_upgrade_b(void);
-extern void rust_switch_lock_toggle(void);
-extern void rust_gaming_mode_toggle(void);
-extern void rust_screenlock_handler(device_t *);
-extern void rust_wipe_config_hotkey(device_t *);
-extern void rust_mouse_zoom_toggle(void);
-extern void rust_screensaver_pong_enable(void);
-extern void rust_screensaver_jitter_enable(void);
-extern void rust_screensaver_disable(void);
+extern void rust_output_toggle(device_t *), rust_screen_border_hotkey(device_t *),
+    rust_fw_upgrade_a(void), rust_fw_upgrade_b(void), rust_switch_lock_toggle(void),
+    rust_gaming_mode_toggle(void), rust_screenlock_handler(device_t *),
+    rust_wipe_config_hotkey(device_t *), rust_mouse_zoom_toggle(void),
+    rust_screensaver_pong_enable(void), rust_screensaver_jitter_enable(void),
+    rust_screensaver_disable(void), rust_config_enable(device_t *),
+    rust_handle_keyboard_uart_full(device_t *, const uint8_t *),
+    rust_handle_mouse_uart_full(device_t *, const uint8_t *),
+    rust_handle_output_select(device_t *, uint8_t),
+    rust_handle_set_report(device_t *, uint8_t),
+    rust_handle_sync_borders(device_t *, const uint8_t *),
+    rust_handle_response_byte(const uint8_t *);
 extern uint8_t rust_handle_simple_msg(uint8_t, const uint8_t *);
-extern void rust_handle_keyboard_uart_full(device_t *, const uint8_t *);
-extern void rust_handle_mouse_uart_full(device_t *, const uint8_t *);
-extern void rust_handle_output_select(device_t *, uint8_t);
-extern void rust_handle_set_report(device_t *, uint8_t);
-extern void rust_handle_sync_borders(device_t *, const uint8_t *);
 
-/* ---- Hotkey handlers (1-line Rust wrappers) ---- */
+/* Hotkey wrappers */
 void output_toggle_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_output_toggle(s); }
-void _get_border_position(device_t *s, border_size_t *b) { rust_get_border_position(s->pointer_y, &b->top, &b->bottom); }
-void _screensaver_set(device_t *s, uint8_t v) { rust_screensaver_set(v); }
 void screen_border_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_screen_border_hotkey(s); }
 void fw_upgrade_hotkey_handler_A(device_t *s, hid_keyboard_report_t *r) { rust_fw_upgrade_a(); }
 void fw_upgrade_hotkey_handler_B(device_t *s, hid_keyboard_report_t *r) { rust_fw_upgrade_b(); }
@@ -44,11 +32,9 @@ void mouse_zoom_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_mou
 void enable_screensaver_pong_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_screensaver_pong_enable(); }
 void enable_screensaver_jitter_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_screensaver_jitter_enable(); }
 void disable_screensaver_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_screensaver_disable(); }
-
-extern void rust_config_enable(device_t *);
 void config_enable_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_config_enable(s); }
 
-/* ---- UART message handlers ---- */
+/* UART handlers */
 void handle_keyboard_uart_msg(uart_packet_t *p, device_t *s) { rust_handle_keyboard_uart_full(s, p->data); }
 void handle_mouse_abs_uart_msg(uart_packet_t *p, device_t *s) { rust_handle_mouse_uart_full(s, p->data); }
 void handle_output_select_msg(uart_packet_t *p, device_t *s) { rust_handle_output_select(s, p->data[0]); }
@@ -66,49 +52,36 @@ void handle_reboot_msg(uart_packet_t *p, device_t *s) { hal_reboot(); }
 void handle_proxy_msg(uart_packet_t *p, device_t *s) { hal_queue_packet(&p->data[1], p->data[0], PACKET_DATA_LENGTH - 1); }
 void handle_toggle_gaming_msg(uart_packet_t *p, device_t *s) { rust_handle_simple_msg(p->type, p->data); }
 void handle_heartbeat_msg(uart_packet_t *p, device_t *s) { rust_handle_simple_msg(p->type, p->data); }
+void handle_response_byte_msg(uart_packet_t *p, device_t *s) { rust_handle_response_byte(p->data); }
 
-/* HAL-dependent: global_state offsetof + queue */
+/* HAL-dependent: offsetof + queue */
 void handle_api_msgs(uart_packet_t *packet, device_t *state) {
-    uint8_t value_idx = packet->data[0];
-    const field_map_t *map = get_field_map_entry(value_idx);
-    if (map == NULL) return;
-
-    uint8_t *ptr = (((uint8_t *)&global_state) + map->offset);
-
-    if (packet->type == SET_VAL_MSG) {
-        if (map->readonly) return;
-        memcpy(ptr, &packet->data[1], map->len);
-    } else if (packet->type == GET_VAL_MSG) {
-        uart_packet_t response = {.type=GET_VAL_MSG, .data={[0] = value_idx}};
-        memcpy(&response.data[1], ptr, map->len);
-        queue_cfg_packet(&response, state);
+    uint8_t idx = packet->data[0];
+    const field_map_t *map = get_field_map_entry(idx);
+    if (!map) return;
+    uint8_t *ptr = ((uint8_t *)&global_state) + map->offset;
+    if (packet->type == SET_VAL_MSG) { if (map->readonly) return; memcpy(ptr, &packet->data[1], map->len); }
+    else if (packet->type == GET_VAL_MSG) {
+        uart_packet_t r = {.type=GET_VAL_MSG, .data={[0]=idx}};
+        memcpy(&r.data[1], ptr, map->len);
+        queue_cfg_packet(&r, state);
     }
     reset_config_timer(state);
 }
 
-void handle_api_read_all_msg(uart_packet_t *packet, device_t *state) {
-    uart_packet_t result = {.type=GET_VAL_MSG};
-    for (int i = 0; i < get_field_map_length(); i++) {
-        result.data[0] = get_field_map_index(i)->idx;
-        handle_api_msgs(&result, state);
-    }
+void handle_api_read_all_msg(uart_packet_t *p, device_t *s) {
+    uart_packet_t r = {.type=GET_VAL_MSG};
+    for (int i = 0; i < get_field_map_length(); i++) { r.data[0] = get_field_map_index(i)->idx; handle_api_msgs(&r, s); }
 }
 
-/* HAL-dependent: flash address + queue */
-void handle_request_byte_msg(uart_packet_t *packet, device_t *state) {
-    uint32_t address = packet->data32[0];
-    if (address > STAGING_IMAGE_SIZE) return;
-    packet->data32[1] = *(uint32_t *)&ADDR_FW_RUNNING[address];
-    queue_packet(packet->data, RESPONSE_BYTE_MSG, PACKET_DATA_LENGTH);
+/* HAL: flash address + queue */
+void handle_request_byte_msg(uart_packet_t *p, device_t *s) {
+    uint32_t a = p->data32[0]; if (a > STAGING_IMAGE_SIZE) return;
+    p->data32[1] = *(uint32_t *)&ADDR_FW_RUNNING[a];
+    queue_packet(p->data, RESPONSE_BYTE_MSG, PACKET_DATA_LENGTH);
 }
 
-extern void rust_handle_response_byte(const uint8_t *data);
-void handle_response_byte_msg(uart_packet_t *p, device_t *s) { rust_handle_response_byte(p->data); }
-
-/* HAL-dependent: restore_leds + send_value + release_all_keys */
-void set_active_output(device_t *state, uint8_t new_output) {
-    state->active_output = new_output;
-    restore_leds(state);
-    send_value(new_output, OUTPUT_SELECT_MSG);
-    release_all_keys(state);
+/* HAL: restore_leds + send_value + release_all_keys */
+void set_active_output(device_t *s, uint8_t o) {
+    s->active_output = o; restore_leds(s); send_value(o, OUTPUT_SELECT_MSG); release_all_keys(s);
 }
