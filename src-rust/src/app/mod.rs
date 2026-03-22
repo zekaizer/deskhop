@@ -10,6 +10,7 @@ pub mod hid_report;
 pub mod keyboard;
 pub mod mouse;
 pub mod mouse_logic;
+pub mod msg_handlers;
 pub mod packet;
 pub mod screensaver;
 pub mod state;

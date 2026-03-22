@@ -200,6 +200,53 @@ pub unsafe extern "C" fn rust_get_border_position(
     }
 }
 
+// ---- Message handlers ----
+
+/// Process a UART message and apply state changes to AppState.
+/// Returns: 0=no HAL action needed, 1=HAL action needed (check action type),
+/// specific codes for specific actions.
+#[no_mangle]
+pub unsafe extern "C" fn rust_handle_simple_msg(
+    ptype: u8,
+    data: *const u8,
+) -> u8 {
+    if data.is_null() {
+        return 0;
+    }
+    let state = &mut *crate::app::state::rust_get_app_state();
+    let mut data_arr = [0u8; 8];
+    core::ptr::copy_nonoverlapping(data, data_arr.as_mut_ptr(), 8);
+
+    let action = crate::app::msg_handlers::handle_simple_msg(ptype, &data_arr, state);
+    let needs_hal = crate::app::msg_handlers::apply_action(&action, state);
+
+    if needs_hal { 1 } else { 0 }
+}
+
+/// Handle mouse report from UART — update pointer state in AppState
+#[no_mangle]
+pub unsafe extern "C" fn rust_handle_mouse_uart(data: *const u8) {
+    if data.is_null() {
+        return;
+    }
+    let state = &mut *crate::app::state::rust_get_app_state();
+    let mut data_arr = [0u8; 8];
+    core::ptr::copy_nonoverlapping(data, data_arr.as_mut_ptr(), 8);
+    crate::app::msg_handlers::handle_mouse_uart(&data_arr, state);
+}
+
+/// Handle keyboard report from UART — update remote kbd state in AppState
+#[no_mangle]
+pub unsafe extern "C" fn rust_handle_keyboard_uart(data: *const u8) {
+    if data.is_null() {
+        return;
+    }
+    let state = &mut *crate::app::state::rust_get_app_state();
+    let mut data_arr = [0u8; 8];
+    core::ptr::copy_nonoverlapping(data, data_arr.as_mut_ptr(), 8);
+    crate::app::msg_handlers::handle_keyboard_uart(&data_arr, state);
+}
+
 // ---- Packet utilities ----
 
 #[no_mangle]
