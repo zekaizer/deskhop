@@ -1,23 +1,16 @@
-/*
- * This file is part of DeskHop (https://github.com/hrvach/deskhop).
- * Copyright (c) 2025 Hrvoje Cavrak
- *
- * Keyboard logic ported to Rust. This file contains hotkey data,
- * thin wrappers, and HAL-dependent queue functions.
- */
+/* DeskHop keyboard — logic in Rust, hotkey data + queue here. */
 #include "main.h"
 
-/* Rust FFI */
-extern bool rust_key_in_report(uint8_t, const uint8_t *);
-extern bool rust_check_specific_hotkey(uint8_t, const uint8_t *, uint8_t, const uint8_t *);
-extern void rust_update_kbd_state(const uint8_t *, uint8_t);
-extern void rust_update_remote_kbd_state(const uint8_t *);
-extern void rust_combine_kbd_states(uint8_t *);
-extern void rust_send_key(device_t *);
-extern void rust_release_all_keys_state(device_t *);
-extern void rust_process_keyboard_report(uint8_t *, int, uint8_t, void *, void *);
-extern void rust_process_consumer_report(const uint8_t *, int, uint8_t, void *, void *);
-extern void rust_process_system_report(const uint8_t *, int, uint8_t, void *, void *);
+extern bool rust_key_in_report(uint8_t, const uint8_t *),
+    rust_check_specific_hotkey(uint8_t, const uint8_t *, uint8_t, const uint8_t *);
+extern void rust_update_kbd_state(const uint8_t *, uint8_t),
+    rust_update_remote_kbd_state(const uint8_t *), rust_combine_kbd_states(uint8_t *),
+    rust_send_key(device_t *), rust_release_all_keys_state(device_t *),
+    rust_process_keyboard_report(uint8_t *, int, uint8_t, void *, void *),
+    rust_process_consumer_report(const uint8_t *, int, uint8_t, void *, void *),
+    rust_process_system_report(const uint8_t *, int, uint8_t, void *, void *),
+    rust_send_consumer_control(device_t *, const uint8_t *),
+    rust_send_system_control(device_t *, const uint8_t *);
 
 /* ---- Hotkey definitions (C function pointers required) ---- */
 hotkey_combo_t hotkeys[] = {
@@ -109,7 +102,5 @@ void queue_kbd_report(hid_keyboard_report_t *report, device_t *state) {
     queue_try_add(&state->kbd_queue, report);
 }
 
-extern void rust_send_consumer_control(device_t *, const uint8_t *);
-extern void rust_send_system_control(device_t *, const uint8_t *);
 void send_consumer_control(uint8_t *r, device_t *s) { rust_send_consumer_control(s, r); }
 void send_system_control(uint8_t *r, device_t *s) { rust_send_system_control(s, r); }
