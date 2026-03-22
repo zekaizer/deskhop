@@ -141,62 +141,27 @@ hotkey_combo_t *check_all_hotkeys(hid_keyboard_report_t *report, device_t *state
  * Keyboard State Management
  * ==================================================== */
 
-/* Update the keyboard state for a specific device */
+/* Now implemented in Rust (src-rust/src/app/kbd_state.rs) */
+extern void rust_update_kbd_state(const uint8_t *report, uint8_t device_idx);
+extern void rust_update_remote_kbd_state(const uint8_t *report);
+extern void rust_combine_kbd_states(uint8_t *out);
+extern void rust_send_key(device_t *dev);
+extern void rust_release_all_keys_state(device_t *dev);
+
 void update_kbd_state(device_t *state, hid_keyboard_report_t *report, uint8_t device_idx) {
-    /* Ensure device_idx is within bounds */
-    if (device_idx >= MAX_DEVICES)
-        return;
-
-    /* Update the keyboard state for this device */
-    memcpy(&state->local_kbd_states[device_idx], report, sizeof(hid_keyboard_report_t));
-
-    /* Track the largest keyboard index we have */
-    if (state->max_kbd_idx < device_idx)
-        state->max_kbd_idx = device_idx;
+    rust_update_kbd_state((const uint8_t *)report, device_idx);
 }
 
-/* Update the struct storing the state of the keyboard(s) connected to the other board */
 void update_remote_kbd_state(device_t *state, hid_keyboard_report_t *report) {
-    memcpy(&state->remote_kbd_state, report, sizeof(hid_keyboard_report_t));
+    rust_update_remote_kbd_state((const uint8_t *)report);
 }
 
-/* Add keys from source to destination, avoiding duplicates */
-static void add_keys(hid_keyboard_report_t *dest, const hid_keyboard_report_t *src) {
-    for (uint8_t i = 0; i < KEYS_IN_USB_REPORT; i++) {
-        uint8_t key = src->keycode[i];
-        
-        if (key == 0 || key_in_report(key, dest))
-            continue;
-            
-        uint8_t *empty_slot = memchr(dest->keycode, 0, KEYS_IN_USB_REPORT);
-        if (empty_slot)
-            *empty_slot = key;
-    }
-}
-
-/* Release all keys */
 void release_all_keys(device_t *state) {
-    memset(state->local_kbd_states, 0, sizeof(state->local_kbd_states));
-    memset(&state->remote_kbd_state, 0, sizeof(hid_keyboard_report_t));
-    
-    static hid_keyboard_report_t empty_report = {0};
-    queue_kbd_report(&empty_report, state);
+    rust_release_all_keys_state(state);
 }
 
-
-/* Combine all keyboard states into a single report */
 void combine_kbd_states(device_t *state, hid_keyboard_report_t *combined_report) {
-    memset(combined_report, 0, sizeof(hid_keyboard_report_t));
-
-    /* Combine all local keyboards up to max_kbd_idx */
-    for (uint8_t i = 0; i <= state->max_kbd_idx; i++) {
-        combined_report->modifier |= state->local_kbd_states[i].modifier;
-        add_keys(combined_report, &state->local_kbd_states[i]);
-    }
-    
-    /* Add remote keyboard */
-    combined_report->modifier |= state->remote_kbd_state.modifier;
-    add_keys(combined_report, &state->remote_kbd_state);
+    rust_combine_kbd_states((uint8_t *)combined_report);
 }
 
 /* ==================================================== *
@@ -238,20 +203,8 @@ void queue_kbd_report(hid_keyboard_report_t *report, device_t *state) {
     queue_try_add(&state->kbd_queue, report);
 }
 
-/* If keys need to go locally, queue packet to kbd queue, else send them through UART */
 void send_key(hid_keyboard_report_t *report, device_t *state) {
-    /* Create a combined report from all device states */
-    hid_keyboard_report_t combined_report;
-    combine_kbd_states(state, &combined_report);
-
-    if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
-        /* Queue the combined report */
-        queue_kbd_report(&combined_report, state);
-        state->last_activity[BOARD_ROLE] = time_us_64();
-    } else {
-        /* Send the combined report to ensure all keys are included */
-        queue_packet((uint8_t *)&combined_report, KEYBOARD_REPORT_MSG, KBD_REPORT_LENGTH);
-    }
+    rust_send_key(state);
 }
 
 /* Decide if consumer control reports go local or to the other board */
