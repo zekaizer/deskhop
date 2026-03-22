@@ -122,7 +122,24 @@ void hal_fetch_packet(device_t *dev) {
 }
 
 /* ==================================================== *
- * HID report extraction (wraps hid_report.c functions)
+ * HID report extraction
+ * ==================================================== */
+
+/// Extract mouse report values from raw HID report using hid_interface_t.
+/// out is mouse_values_t: [move_x(i32) + move_y(i32) + wheel(i32) + pan(i32) + buttons(i32)]
+void hal_extract_report_values(uint8_t *raw_report, int len,
+                                device_t *dev, void *iface_ptr, int32_t *out) {
+    mouse_values_t values = {0};
+    extract_report_values(raw_report, len, dev, &values, (hid_interface_t *)iface_ptr);
+    out[0] = values.move_x;
+    out[1] = values.move_y;
+    out[2] = values.wheel;
+    out[3] = values.pan;
+    out[4] = values.buttons;
+}
+
+/* ==================================================== *
+ * HID keyboard extraction
  * ==================================================== */
 
 int32_t hal_extract_kbd_data(uint8_t *raw_report, int len, uint8_t itf,

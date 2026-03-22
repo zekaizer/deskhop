@@ -7,6 +7,7 @@ mod hid;
 mod kbd_process;
 mod keyboard;
 mod mouse;
+mod mouse_process;
 mod packet;
 mod screensaver;
 mod state;

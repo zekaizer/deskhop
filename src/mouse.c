@@ -232,25 +232,12 @@ mouse_report_t create_mouse_report(device_t *state, mouse_values_t *values) {
     return mouse_report;
 }
 
+/* Now implemented in Rust (src-rust/src/hal/ffi/mouse_process.rs) */
+extern void rust_process_mouse_report(uint8_t *raw_report, int len, uint8_t itf,
+                                       void *iface, void *dev);
+
 void process_mouse_report(uint8_t *raw_report, int len, uint8_t itf, hid_interface_t *iface) {
-    mouse_values_t values = {0};
-    device_t *state = &global_state;
-
-    /* Interpret the mouse HID report, extract and save values we need. */
-    extract_report_values(raw_report, len, state, &values, iface);
-
-    /* Calculate and update mouse pointer movement. */
-    enum screen_pos_e switch_direction = update_mouse_position(state, &values);
-
-    /* Create the report for the output PC based on the updated values */
-    mouse_report_t report = create_mouse_report(state, &values);
-
-    /* Move the mouse, depending where the output is supposed to go */
-    output_mouse_report(&report, state);
-
-    /* We use the mouse to switch outputs, if switch_direction is LEFT or RIGHT */
-    if (switch_direction != NONE)
-        do_screen_switch(state, switch_direction);
+    rust_process_mouse_report(raw_report, len, itf, (void *)iface, (void *)&global_state);
 }
 
 /* ==================================================== *
