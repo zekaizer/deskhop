@@ -141,6 +141,65 @@ pub unsafe extern "C" fn rust_key_in_report(key: u8, report: *const u8) -> bool 
     keycode.iter().any(|&k| k == key)
 }
 
+/// C-callable: check_specific_hotkey(hotkey, report) -> bool
+/// hotkey: [modifier(1) + keys(6) + key_count(1) + ...]
+/// report: hid_keyboard_report_t [modifier(1) + reserved(1) + keycode(6)]
+#[no_mangle]
+pub unsafe extern "C" fn rust_check_specific_hotkey(
+    hotkey_modifier: u8,
+    hotkey_keys: *const u8,
+    hotkey_key_count: u8,
+    report: *const u8,
+) -> bool {
+    if report.is_null() {
+        return false;
+    }
+    let report_modifier = *report;
+
+    // All specified modifiers must be present
+    if hotkey_modifier != (report_modifier & hotkey_modifier) {
+        return false;
+    }
+
+    // All specified keys must be in report
+    let keycode = core::slice::from_raw_parts(report.add(2), 6);
+    if hotkey_keys.is_null() {
+        return true; // No keys required, modifier-only hotkey
+    }
+    for i in 0..hotkey_key_count as usize {
+        let key = *hotkey_keys.add(i);
+        if !keycode.iter().any(|&k| k == key) {
+            return false;
+        }
+    }
+    true
+}
+
+// ---- Handlers ----
+
+/// C-callable: _get_border_position(pointer_y, border_top_ptr, border_bottom_ptr)
+/// Sets either top or bottom based on pointer_y vs midpoint
+#[no_mangle]
+pub unsafe extern "C" fn rust_get_border_position(
+    pointer_y: i16,
+    border_top: *mut i32,
+    border_bottom: *mut i32,
+) {
+    use crate::app::handlers::{get_border_position, BorderUpdate};
+    match get_border_position(pointer_y) {
+        BorderUpdate::Top(val) => {
+            if !border_top.is_null() {
+                *border_top = val;
+            }
+        }
+        BorderUpdate::Bottom(val) => {
+            if !border_bottom.is_null() {
+                *border_bottom = val;
+            }
+        }
+    }
+}
+
 // ---- Packet utilities ----
 
 #[no_mangle]

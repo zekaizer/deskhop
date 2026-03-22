@@ -119,20 +119,11 @@ bool key_in_report(uint8_t key, const hid_keyboard_report_t *report) {
     return rust_key_in_report(key, (const uint8_t *)report);
 }
 
-/* Check if the current report matches a specific hotkey passed on */
+/* Now implemented in Rust (src-rust/src/hal/ffi.rs) */
+extern bool rust_check_specific_hotkey(uint8_t modifier, const uint8_t *keys, uint8_t key_count, const uint8_t *report);
+
 bool check_specific_hotkey(hotkey_combo_t keypress, const hid_keyboard_report_t *report) {
-    /* We expect all modifiers specified to be detected in the report */
-    if (keypress.modifier != (report->modifier & keypress.modifier))
-        return false;
-
-    for (int n = 0; n < keypress.key_count; n++) {
-        if (!key_in_report(keypress.keys[n], report)) {
-            return false;
-        }
-    }
-
-    /* Getting here means all of the keys were found. */
-    return true;
+    return rust_check_specific_hotkey(keypress.modifier, keypress.keys, keypress.key_count, (const uint8_t *)report);
 }
 
 /* Go through the list of hotkeys, check if any of them match. */

@@ -25,12 +25,10 @@ void output_toggle_hotkey_handler(device_t *state, hid_keyboard_report_t *report
     set_active_output(state, state->active_output);
 };
 
+extern void rust_get_border_position(int16_t pointer_y, int32_t *border_top, int32_t *border_bottom);
+
 void _get_border_position(device_t *state, border_size_t *border) {
-    /* To avoid having 2 different keys, if we're above half, it's the top coord */
-    if (state->pointer_y > (MAX_SCREEN_COORD / 2))
-        border->bottom = state->pointer_y;
-    else
-        border->top = state->pointer_y;
+    rust_get_border_position(state->pointer_y, &border->top, &border->bottom);
 }
 
 void _screensaver_set(device_t *state, uint8_t value) {
