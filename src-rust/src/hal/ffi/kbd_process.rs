@@ -27,9 +27,9 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
         return;
     }
 
-    // Extract keyboard data from raw HID report → standard 8-byte report
-    let mut new_report = [0u8; 8]; // hid_keyboard_report_t
-    device::hal_extract_kbd_data(raw_report, length, itf, iface, new_report.as_mut_ptr());
+    // Extract keyboard data — call Rust extract directly (no C roundtrip)
+    let mut new_report = [0u8; 8];
+    super::kbd_extract::rust_extract_kbd_data(raw_report, length, itf, iface, new_report.as_mut_ptr());
 
     // Update keyboard state for this device
     let kbd = &*(new_report.as_ptr() as *const crate::app::structs::HidKeyboardReport);
