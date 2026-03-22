@@ -125,48 +125,30 @@ void process_packet(uart_packet_t *packet, device_t *state) {
             return;
     }
 
-    /* Keyboard and mouse reports — Rust handles state, C handles queuing */
+    /* Keyboard and mouse — fully handled by Rust (state + queuing via HAL) */
     if (packet->type == KEYBOARD_REPORT_MSG) {
-        rust_handle_keyboard_uart(packet->data);
-        /* Still need C for combine + queue */
-        handle_keyboard_uart_msg(packet, state);
+        handle_keyboard_uart_msg(packet, state);  /* delegates to rust_handle_keyboard_uart_full */
         return;
     }
 
     if (packet->type == MOUSE_REPORT_MSG) {
-        rust_handle_mouse_uart(packet->data);
-        handle_mouse_abs_uart_msg(packet, state);
+        handle_mouse_abs_uart_msg(packet, state);  /* delegates to rust_handle_mouse_uart_full */
         return;
     }
 
     /* Simple state-setting messages — Rust handles all state mutation */
     uint8_t needs_hal = rust_handle_simple_msg(packet->type, packet->data);
 
-    /* Handle HAL side-effects */
+    /* HAL side-effects — Rust already set state, now do hardware ops */
     if (needs_hal) {
         switch (packet->type) {
-            case OUTPUT_SELECT_MSG:
-                handle_output_select_msg(packet, state);
-                break;
-            case KBD_SET_REPORT_MSG:
-                handle_set_report_msg(packet, state);
-                break;
-            case FLASH_LED_MSG:
-                blink_led(state);
-                break;
-            case WIPE_CONFIG_MSG:
-                wipe_config();
-                load_config(state);
-                break;
-            case SAVE_CONFIG_MSG:
-                save_config(state);
-                break;
-            case REBOOT_MSG:
-                reboot();
-                break;
-            case HEARTBEAT_MSG:
-                /* FW upgrade state already set by Rust */
-                break;
+            case OUTPUT_SELECT_MSG:  handle_output_select_msg(packet, state); break;
+            case KBD_SET_REPORT_MSG: handle_set_report_msg(packet, state); break;
+            case FLASH_LED_MSG:      hal_blink_led(state); break;
+            case WIPE_CONFIG_MSG:    hal_wipe_config(); hal_load_config(state); break;
+            case SAVE_CONFIG_MSG:    hal_save_config(state); break;
+            case REBOOT_MSG:         hal_reboot(); break;
+            case HEARTBEAT_MSG:      break;
         }
     }
 }
