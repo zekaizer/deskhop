@@ -104,8 +104,8 @@ void save_config(device_t *state) {
 }
 
 void reset_config_timer(device_t *state) {
-    /* Once this is reached, we leave the config mode */
-    state->config_mode_timer = time_us_64() + CONFIG_MODE_TIMEOUT;
+    /* AppState access + HAL timestamp */
+    state->config_mode_timer = hal_time_us_64() + CONFIG_MODE_TIMEOUT;
 }
 
 void _configure_flash_cs(enum gpio_override gpo, uint pin_index) {
