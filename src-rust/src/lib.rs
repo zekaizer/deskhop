@@ -1,5 +1,7 @@
 #![no_std]
 
+pub mod constants;
+pub mod crc;
 pub mod trace;
 
 #[cfg(not(test))]
