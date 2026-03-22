@@ -102,30 +102,10 @@ void switch_virtual_desktop(device_t *state, output_t *output, int new_index, in
        '---------'    '---------'  |  '---------'    '---------'    '---------'
           )___(          )___(     |     )___(          )___(          )___(
 */
+extern void rust_do_screen_switch(device_t *dev, int direction);
+
 void do_screen_switch(device_t *state, int direction) {
-    output_t *output = &state->config.output[state->active_output];
-
-    /* No switching allowed if explicitly disabled or in gaming mode */
-    if (state->switch_lock || state->gaming_mode)
-        return;
-
-    /* We want to jump in the direction of the other computer */
-    if (output->pos != direction) {
-        if (output->screen_index == 1) { /* We are at the border -> switch outputs */
-            /* No switching allowed if mouse button is held. Should only apply to the border! */
-            if (state->mouse_buttons)
-                return;
-
-            switch_to_another_pc(state, output, 1 - state->active_output, direction);
-        }
-        /* If here, this output has multiple desktops and we are not on the main one */
-        else
-            switch_virtual_desktop(state, output, output->screen_index - 1, direction);
-    }
-
-    /* We want to jump away from the other computer, only possible if there is another screen to jump to */
-    else if (output->screen_index < output->screen_count)
-        switch_virtual_desktop(state, output, output->screen_index + 1, direction);
+    rust_do_screen_switch(state, direction);
 }
 
 static inline bool extract_value(bool uses_id, int32_t *dst, report_val_t *src, uint8_t *raw_report, int len) {

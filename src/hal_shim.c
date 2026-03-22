@@ -149,6 +149,19 @@ void hal_iface_set_uses_report_id(void *iface_ptr, bool val) {
     ((hid_interface_t *)iface_ptr)->uses_report_id = val;
 }
 
+/// Get consumer control info from hid_interface_t
+bool hal_get_consumer_is_variable(void *iface_ptr) {
+    return ((hid_interface_t *)iface_ptr)->consumer.is_variable;
+}
+
+/// Get cc_array value from keyboard matched by report_id
+uint16_t hal_get_cc_array_value(void *iface_ptr, uint8_t report_id, int index) {
+    keyboard_t *kb = get_keyboard((hid_interface_t *)iface_ptr, report_id);
+    if (index < MAX_CC_BUTTONS)
+        return kb->cc_array[index];
+    return 0;
+}
+
 /* ==================================================== *
  * HID keyboard extraction
  * ==================================================== */

@@ -120,3 +120,46 @@ pub unsafe extern "C" fn rust_switch_virtual_desktop(
 
     state.pointer_x = if direction == 2 { MIN_SCREEN_COORD } else { MAX_SCREEN_COORD }; // RIGHT=2
 }
+
+/// Replace C's do_screen_switch
+#[no_mangle]
+pub unsafe extern "C" fn rust_do_screen_switch(dev: *mut c_void, direction: i32) {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    let output_idx = state.active_output as usize;
+    if output_idx >= state.config.output.len() { return; }
+
+    let output = &state.config.output[output_idx];
+
+    if state.switch_lock || state.gaming_mode {
+        return;
+    }
+
+    let pos = output.pos as i32;
+    let screen_index = output.screen_index;
+    let screen_count = output.screen_count;
+    let output_number = output.number;
+    let os = output.os;
+
+    // Jump toward the other computer
+    if pos != direction {
+        if screen_index == 1 {
+            // At the border — don't switch while button held
+            if state.mouse_buttons != 0 {
+                return;
+            }
+            rust_switch_to_another_pc(dev, output_number, (1 - state.active_output) as i32, direction);
+        } else {
+            // Multiple desktops, go toward main
+            rust_switch_virtual_desktop(dev, os, (screen_index - 1) as i32, direction);
+            // Update screen_index on the actual config
+            let state2 = &mut *crate::app::state::rust_get_app_state();
+            state2.config.output[output_idx].screen_index = screen_index - 1;
+        }
+    }
+    // Jump away from other computer
+    else if screen_index < screen_count {
+        rust_switch_virtual_desktop(dev, os, (screen_index + 1) as i32, direction);
+        let state2 = &mut *crate::app::state::rust_get_app_state();
+        state2.config.output[output_idx].screen_index = screen_index + 1;
+    }
+}

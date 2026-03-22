@@ -49,6 +49,10 @@ extern "C" {
     /// Set uses_report_id on hid_interface_t
     pub fn hal_iface_set_uses_report_id(iface: *mut c_void, val: bool);
 
+    // ---- Consumer control ----
+    pub fn hal_get_consumer_is_variable(iface: *mut c_void) -> bool;
+    pub fn hal_get_cc_array_value(iface: *mut c_void, report_id: u8, index: i32) -> u16;
+
     // ---- Mouse report extraction ----
     /// Extract mouse values from raw HID report. out is 5×i32.
     pub fn hal_extract_report_values(

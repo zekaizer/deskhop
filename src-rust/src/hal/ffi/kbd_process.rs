@@ -1,6 +1,7 @@
 use core::ffi::c_void;
 use crate::hal::device;
 use crate::app::structs::KBD_REPORT_LENGTH;
+use crate::app::constants::PacketType;
 
 /// Full keyboard report processing pipeline — replaces C process_keyboard_report.
 /// Called from TinyUSB callback context via C shim.
@@ -53,4 +54,68 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
 
     // Send key via combined report
     crate::app::kbd_state::send_key(dev, state);
+}
+
+/// Rust implementation of process_consumer_report
+#[no_mangle]
+pub unsafe extern "C" fn rust_process_consumer_report(
+    raw_report: *const u8,
+    length: i32,
+    _itf: u8,
+    iface: *mut c_void,
+    dev: *mut c_void,
+) {
+    if raw_report.is_null() || iface.is_null() || length < 2 { return; }
+    let state = &*crate::app::state::rust_get_app_state();
+
+    let mut new_report = [0u8; 4]; // CONSUMER_CONTROL_LENGTH
+
+    if device::hal_get_consumer_is_variable(iface) {
+        let report_id = *raw_report;
+        let max_buttons = 16i32; // MAX_CC_BUTTONS
+        let max_bits = 8 * (length - 1);
+        let limit = if max_buttons < max_bits { max_buttons } else { max_bits };
+
+        for i in 0..limit {
+            let bit_idx = i % 8;
+            let byte_idx = i >> 3;
+            if (*raw_report.add((byte_idx + 1) as usize) >> bit_idx) & 1 != 0 {
+                let cc_val = device::hal_get_cc_array_value(iface, report_id, i);
+                new_report[0] = (cc_val & 0xFF) as u8;
+                new_report[1] = ((cc_val >> 8) & 0xFF) as u8;
+            }
+        }
+    } else {
+        for i in 0..core::cmp::min((length - 1) as usize, 4) {
+            new_report[i] = *raw_report.add(i + 1);
+        }
+    }
+
+    if state.is_active_output() {
+        // Queue locally via HAL (need queue_cc_packet)
+        device::hal_queue_packet(new_report.as_ptr(), PacketType::ConsumerControl as u8, 4);
+    } else {
+        device::hal_queue_packet(new_report.as_ptr(), PacketType::ConsumerControl as u8, 4);
+    }
+}
+
+/// Rust implementation of process_system_report
+#[no_mangle]
+pub unsafe extern "C" fn rust_process_system_report(
+    raw_report: *const u8,
+    length: i32,
+    _itf: u8,
+    _iface: *mut c_void,
+    dev: *mut c_void,
+) {
+    if raw_report.is_null() || length < 2 { return; }
+    let state = &*crate::app::state::rust_get_app_state();
+
+    let report = [*raw_report.add(1), 0];
+
+    if state.is_active_output() {
+        device::hal_queue_packet(report.as_ptr(), PacketType::SystemControl as u8, 1);
+    } else {
+        device::hal_queue_packet(report.as_ptr(), PacketType::SystemControl as u8, 1);
+    }
 }
