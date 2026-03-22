@@ -67,16 +67,19 @@ typedef enum {
     REMAP_CONSUMED,  /* report consumed, do not pass */
 } remap_result_t;
 
-/* Forward declaration — hid_keyboard_report_t is from TinyUSB */
+/* Forward declarations for unit test builds */
 #ifdef UNIT_TEST
 typedef struct {
     uint8_t modifier;
     uint8_t reserved;
     uint8_t keycode[6];
 } hid_keyboard_report_t;
+
+/* Mirror os_type_e values needed by remap engine */
+enum { LINUX = 1, MACOS = 2, WINDOWS = 3 };
 #endif
 
-void remap_engine_init(remap_engine_t *engine);
+void remap_engine_init(remap_engine_t *engine, uint8_t os_a, uint8_t os_b);
 remap_result_t remap_engine_process(remap_engine_t *engine,
                                     hid_keyboard_report_t *report,
                                     uint8_t active_output);

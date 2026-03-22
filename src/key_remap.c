@@ -9,24 +9,30 @@
 #include "main.h"
 #endif
 
-void remap_engine_init(remap_engine_t *engine) {
+void remap_engine_init(remap_engine_t *engine, uint8_t os_a, uint8_t os_b) {
     if (!engine)
         return;
     memset(engine->runtime, 0, sizeof(engine->runtime));
     engine->config.count = 0;
 
-    /* Default: CapsLock (0x39) — tap: LANG1 (한영), hold: CapsLock */
-    engine->config.entries[0] = (remap_entry_t){
-        .trigger     = 0x39,
-        .type        = REMAP_TAP_HOLD,
-        .output_mask = 0xFF,
-        .tap_hold = {
-            .tap_action  = { .keycode = 0x90, .modifier = 0 }, /* LANG1 */
-            .hold_action = { .keycode = 0x39, .modifier = 0 }, /* CapsLock */
-            .threshold_us = TAP_HOLD_DEFAULT_US,                /* 200ms */
-        },
-    };
-    engine->config.count = 1;
+    /* CapsLock TAP_HOLD: skip on macOS outputs (native CapsLock → 한영) */
+    uint8_t mask = 0;
+    if (os_a != MACOS) mask |= (1 << 0); /* Output A */
+    if (os_b != MACOS) mask |= (1 << 1); /* Output B */
+
+    if (mask != 0) {
+        engine->config.entries[0] = (remap_entry_t){
+            .trigger     = 0x39,
+            .type        = REMAP_TAP_HOLD,
+            .output_mask = mask,
+            .tap_hold = {
+                .tap_action  = { .keycode = 0x90, .modifier = 0 }, /* LANG1 */
+                .hold_action = { .keycode = 0x39, .modifier = 0 }, /* CapsLock */
+                .threshold_us = TAP_HOLD_DEFAULT_US,                /* 200ms */
+            },
+        };
+        engine->config.count = 1;
+    }
 }
 
 /* Check if keycode is present in report */

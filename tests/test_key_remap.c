@@ -12,7 +12,7 @@ static remap_engine_t engine;
 
 void setUp(void) {
     memset(&engine, 0, sizeof(engine));
-    remap_engine_init(&engine);
+    remap_engine_init(&engine, LINUX, LINUX);
     /* Clear default entries so each test controls its own config */
     engine.config.count = 0;
 }
@@ -63,12 +63,12 @@ static hid_keyboard_report_t make_report(uint8_t key, uint8_t modifier) {
 
 void test_init_zeros_runtime(void) {
     engine.runtime[0].state = RS_HELD;
-    remap_engine_init(&engine);
+    remap_engine_init(&engine, LINUX, LINUX);
     TEST_ASSERT_EQUAL(RS_IDLE, engine.runtime[0].state);
 }
 
 void test_init_null_safe(void) {
-    remap_engine_init(NULL); /* should not crash */
+    remap_engine_init(NULL, LINUX, LINUX); /* should not crash */
 }
 
 /* ================================================== *
@@ -258,12 +258,12 @@ void test_tap_hold_default_threshold(void) {
     remap_engine_process(&engine, &report, 0);
     engine.runtime[0].timestamp = 1000000;
 
-    /* Just before default threshold (200ms) */
-    remap_engine_tick(&engine, 1199999);
+    /* Just before default threshold */
+    remap_engine_tick(&engine, 1000000 + TAP_HOLD_DEFAULT_US - 1);
     TEST_ASSERT_EQUAL(RS_WAITING, engine.runtime[0].state);
 
     /* At default threshold */
-    remap_engine_tick(&engine, 1200000);
+    remap_engine_tick(&engine, 1000000 + TAP_HOLD_DEFAULT_US);
     TEST_ASSERT_EQUAL(RS_HELD, engine.runtime[0].state);
 }
 
