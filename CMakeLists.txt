@@ -4,6 +4,7 @@ cmake_minimum_required(VERSION 3.6)
 ## Define e.g. 0.72 as major 0 and minor 72
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 77)
+set(DDM_VERSION 1)
 
 ## Release Type Selection
 option(DH_DEBUG "Build a debug version" OFF)
@@ -139,8 +140,8 @@ pico_set_linker_script(${binary} ${CMAKE_SOURCE_DIR}/misc/memory_map.ld)
 ## Build other file formats as well
 pico_add_extra_outputs(${binary})
 
-# For internal firmware use, to simplify comparison: 0.72 -> 172
-math(EXPR FIRMWARE_VERSION "${VERSION_MAJOR} * 1000 + ${VERSION_MINOR} + 100")
+# For internal firmware use: 0.77-ddm1 -> 17701
+math(EXPR FIRMWARE_VERSION "(${VERSION_MAJOR} * 1000 + ${VERSION_MINOR} + 100) * 100 + ${DDM_VERSION}")
 
 ## Post-Build Commands
 add_custom_command(

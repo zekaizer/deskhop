@@ -151,10 +151,15 @@ function updateElement(key, event) {
       setValue(element, parseInt(value).toString(16));
 
     if (element.hasAttribute('data-fw-ver')) {
-      /* u16 version = major * 1000 + minor + 100; */
-      const major = Math.floor((value - 100) / 1000);
-      const minor = (value - 100) % 1000;
-      setValue(element, `v${major}.${minor}`);
+      /* u16 version = (major * 1000 + minor + 100) * 100 + ddm; */
+      const ddm = value % 100;
+      const base = Math.floor(value / 100);
+      const major = Math.floor((base - 100) / 1000);
+      const minor = (base - 100) % 1000;
+      if (ddm > 0)
+        setValue(element, `v${major}.${minor}-ddm${ddm}`);
+      else
+        setValue(element, `v${major}.${minor}`);
     }
   }
 }
