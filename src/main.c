@@ -10,6 +10,9 @@
  */
 #include "main.h"
 
+/* Rust FFI */
+extern void rust_main_loop(void);
+
 /*********  Global Variables  **********/
 device_t global_state     = {0};
 device_t *device          = &global_state;
@@ -41,6 +44,9 @@ int main(void) {
 
     // Initial state, A is the default output
     set_active_output(device, OUTPUT_A);
+
+    // Rust entry point (currently no-op, returns immediately)
+    rust_main_loop();
 
     while (true) {
         for (int i = 0; i < NUM_TASKS; i++)
