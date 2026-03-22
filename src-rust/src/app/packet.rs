@@ -155,4 +155,35 @@ mod tests {
         assert_eq!(get_ptr_delta(0, 0, 1024), 0);
         assert_eq!(get_ptr_delta(1023, 0, 1024), 1023);
     }
+
+    #[test]
+    fn test_data16_all_indices() {
+        let pkt = UartPacket::new(0, [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
+        assert_eq!(pkt.data16(1), 0x0403);
+        assert_eq!(pkt.data16(2), 0x0605);
+        assert_eq!(pkt.data16(3), 0x0807);
+    }
+
+    #[test]
+    fn test_data32_second() {
+        let pkt = UartPacket::new(0, [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
+        assert_eq!(pkt.data32(1), 0x08070605);
+    }
+
+    #[test]
+    fn test_write_raw_packet_checksum() {
+        let data = [0xAA, 0x55, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06];
+        let pkt = UartPacket::new(PacketType::MouseReport as u8, data);
+        let raw = write_raw_packet(&pkt);
+        // Checksum is XOR of all data bytes
+        let expected_cs = data.iter().fold(0u8, |a, &b| a ^ b);
+        assert_eq!(raw[11], expected_cs);
+    }
+
+    #[test]
+    fn test_ptr_delta_wrap_exact() {
+        // Pointer wraps exactly at buffer size boundary
+        assert_eq!(get_ptr_delta(0, 1023, 1024), 1);
+        assert_eq!(get_ptr_delta(1, 1023, 1024), 2);
+    }
 }
