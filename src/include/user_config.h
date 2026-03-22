@@ -225,11 +225,11 @@
  * GAMING_MODE_DEFAULT: [0, 1] - 1 starts with gaming mode on (relative mouse + switch lock)
  *                               0 starts with gaming mode off
  *
- * SMARTSHIFT_DOUBLE_CLICK_US: double-click window for SmartShift A/B output switch
- *                             (microseconds, default 500ms)
+ * SMARTSHIFT_DOUBLE_CLICK_MS: double-click window for SmartShift A/B output switch
+ *                             (milliseconds, default 500)
  *
  * */
 
 #define PASSTHROUGH_ENABLED          1
 #define GAMING_MODE_DEFAULT          1
-#define SMARTSHIFT_DOUBLE_CLICK_US   500000
+#define SMARTSHIFT_DOUBLE_CLICK_MS   500

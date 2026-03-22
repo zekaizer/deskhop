@@ -86,7 +86,7 @@ typedef struct {
     uint8_t  passthrough_enabled;
     uint8_t  gaming_mode_default;
     uint16_t _reserved;
-    uint32_t smartshift_double_click_us;
+    uint32_t smartshift_double_click_ms;
 
     // Keep checksum at the end of the struct
     uint32_t checksum;

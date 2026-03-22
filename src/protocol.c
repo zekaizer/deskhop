@@ -70,7 +70,7 @@ const field_map_t api_field_map[] = {
     /* Semi-DDM extension config */
     { 90, false, UINT8,  1, offsetof(device_t, config.passthrough_enabled) },
     { 91, false, UINT8,  1, offsetof(device_t, config.gaming_mode_default) },
-    { 92, false, UINT32, 4, offsetof(device_t, config.smartshift_double_click_us) },
+    { 92, false, UINT32, 4, offsetof(device_t, config.smartshift_double_click_ms) },
 };
 
 const field_map_t* get_field_map_entry(uint32_t index) {

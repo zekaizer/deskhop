@@ -65,5 +65,5 @@ const config_t default_config = {
     /* Semi-DDM extension defaults */
     .passthrough_enabled = PASSTHROUGH_ENABLED,
     .gaming_mode_default = GAMING_MODE_DEFAULT,
-    .smartshift_double_click_us = SMARTSHIFT_DOUBLE_CLICK_US,
+    .smartshift_double_click_ms = SMARTSHIFT_DOUBLE_CLICK_MS,
 };

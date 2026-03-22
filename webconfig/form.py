@@ -82,7 +82,7 @@ SEMIDDM_ = [
     FormField(1004, "Semi-DDM Extension", elem="label"),
     FormField(90, "Passthrough Enabled", None, {}, "uint8", "checkbox"),
     FormField(91, "Gaming Mode Default", None, {}, "uint8", "checkbox"),
-    FormField(92, "SmartShift Double-Click (μs)", 500000, {"min": 200000, "max": 1000000}, "uint32", "range"),
+    FormField(92, "SmartShift Double-Click (ms)", 500, {"min": 200, "max": 1000}, "uint32", "range"),
 ]
 
 def output_config():

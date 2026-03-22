@@ -343,7 +343,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
                         static uint64_t last_press_us = 0;
                         uint64_t now = time_us_64();
                         if (last_press_us > 0
-                            && (now - last_press_us) < global_state.config.smartshift_double_click_us) {
+                            && (now - last_press_us) < (uint64_t)global_state.config.smartshift_double_click_ms * 1000) {
                             global_state.switch_requested = true;
                             last_press_us = 0;
                         } else {
