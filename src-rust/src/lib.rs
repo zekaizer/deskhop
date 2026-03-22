@@ -9,6 +9,7 @@ pub mod mouse;
 pub mod packet;
 pub mod scheduler;
 pub mod trace;
+pub mod usb;
 
 #[cfg(not(test))]
 use core::panic::PanicInfo;
