@@ -225,4 +225,96 @@ mod tests {
             _ => panic!("Expected None"),
         }
     }
+
+    #[test]
+    fn test_apply_screensaver_mode() {
+        let mut state = AppState::new();
+        state.board_role = 0;
+        apply_action(&HandlerAction::SetScreensaverMode(1), &mut state);
+        assert_eq!(state.config.output[0].screensaver.mode, 1);
+    }
+
+    #[test]
+    fn test_apply_set_active_output() {
+        let mut state = AppState::new();
+        apply_action(&HandlerAction::SetActiveOutput(1), &mut state);
+        assert_eq!(state.active_output, 1);
+    }
+
+    #[test]
+    fn test_apply_set_keyboard_leds() {
+        let mut state = AppState::new();
+        state.board_role = 0;
+        apply_action(&HandlerAction::SetKeyboardLeds(0x07), &mut state);
+        assert_eq!(state.keyboard_leds[1], 0x07); // OTHER_ROLE = 1
+    }
+
+    #[test]
+    fn test_apply_fw_upgrade() {
+        let mut state = AppState::new();
+        let fw = crate::app::handlers::FwUpgradeState {
+            upgrade_in_progress: true,
+            byte_done: true,
+            address: 0,
+            checksum: 0xFFFFFFFF,
+        };
+        apply_action(&HandlerAction::StartFwUpgrade(fw), &mut state);
+        assert!(state.fw.upgrade_in_progress);
+        assert!(state.fw.byte_done);
+        assert_eq!(state.fw.checksum, 0xFFFFFFFF);
+    }
+
+    #[test]
+    fn test_handle_reboot_msg() {
+        let state = AppState::new();
+        let data = [0u8; 8];
+        let action = handle_simple_msg(PacketType::Reboot as u8, &data, &state);
+        match action {
+            HandlerAction::Reboot => {}
+            _ => panic!("Expected Reboot"),
+        }
+    }
+
+    #[test]
+    fn test_handle_save_config() {
+        let state = AppState::new();
+        let data = [0u8; 8];
+        let action = handle_simple_msg(PacketType::SaveConfig as u8, &data, &state);
+        match action {
+            HandlerAction::SaveConfig => {}
+            _ => panic!("Expected SaveConfig"),
+        }
+    }
+
+    #[test]
+    fn test_handle_unknown_type() {
+        let state = AppState::new();
+        let data = [0u8; 8];
+        let action = handle_simple_msg(0xFF, &data, &state);
+        match action {
+            HandlerAction::None => {}
+            _ => panic!("Expected None for unknown type"),
+        }
+    }
+
+    #[test]
+    fn test_handle_gaming_mode() {
+        let state = AppState::new();
+        let data = [1u8, 0, 0, 0, 0, 0, 0, 0];
+        let action = handle_simple_msg(PacketType::GamingMode as u8, &data, &state);
+        match action {
+            HandlerAction::SetGamingMode(true) => {}
+            _ => panic!("Expected SetGamingMode(true)"),
+        }
+    }
+
+    #[test]
+    fn test_apply_returns_needs_hal() {
+        let mut state = AppState::new();
+        assert!(!apply_action(&HandlerAction::None, &mut state));
+        assert!(!apply_action(&HandlerAction::SetSwitchLock(true), &mut state));
+        assert!(apply_action(&HandlerAction::Reboot, &mut state));
+        assert!(apply_action(&HandlerAction::FlashLed, &mut state));
+        assert!(apply_action(&HandlerAction::SetActiveOutput(1), &mut state));
+    }
 }
