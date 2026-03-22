@@ -55,3 +55,19 @@ pub unsafe extern "C" fn rust_release_all_keys_state(dev: *mut core::ffi::c_void
     let state = &mut *crate::app::state::rust_get_app_state();
     crate::app::kbd_state::release_all_keys(dev, state);
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_queue_kbd_report(dev: *mut core::ffi::c_void, report: *const u8) {
+    let state = &*crate::app::state::rust_get_app_state();
+    if state.tud_connected && !report.is_null() {
+        crate::hal::device::hal_queue_kbd_report(dev, report);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_queue_mouse_report(dev: *mut core::ffi::c_void, report: *const u8) {
+    let state = &*crate::app::state::rust_get_app_state();
+    if state.tud_connected && !report.is_null() {
+        crate::hal::device::hal_queue_mouse_report(dev, report);
+    }
+}

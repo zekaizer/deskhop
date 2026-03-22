@@ -86,11 +86,9 @@ keyboard_t *get_keyboard(hid_interface_t *iface, uint8_t report_id) {
     return &iface->keyboards[PRIMARY_KEYBOARD];
 }
 
-extern void rust_process_kbd_queue_task(device_t *);
+extern void rust_process_kbd_queue_task(device_t *), rust_queue_kbd_report(device_t *, const uint8_t *);
 void process_kbd_queue_task(device_t *s) { rust_process_kbd_queue_task(s); }
-void queue_kbd_report(hid_keyboard_report_t *r, device_t *s) {
-    if (s->tud_connected) queue_try_add(&s->kbd_queue, r);
-}
+void queue_kbd_report(hid_keyboard_report_t *r, device_t *s) { rust_queue_kbd_report(s, (const uint8_t *)r); }
 
 void send_consumer_control(uint8_t *r, device_t *s) { rust_send_consumer_control(s, r); }
 void send_system_control(uint8_t *r, device_t *s) { rust_send_system_control(s, r); }
