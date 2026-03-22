@@ -86,14 +86,87 @@ const uart_handler_t uart_handler[] = {
     {.type = PROXY_PACKET_MSG, .handler = handle_proxy_msg},
 };
 
+/* Rust handles state mutations for simple messages */
+extern uint8_t rust_handle_simple_msg(uint8_t ptype, const uint8_t *data);
+extern void rust_handle_mouse_uart(const uint8_t *data);
+extern void rust_handle_keyboard_uart(const uint8_t *data);
+
 void process_packet(uart_packet_t *packet, device_t *state) {
     if (!verify_checksum(packet))
         return;
 
-    for (int i = 0; i < ARRAY_SIZE(uart_handler); i++) {
-        if (uart_handler[i].type == packet->type) {
-            uart_handler[i].handler(packet, state);
+    /* Messages that need HAL access beyond what Rust can do */
+    switch (packet->type) {
+        /* These need queue/TinyUSB/flash/GPIO access */
+        case CONSUMER_CONTROL_MSG:
+            handle_consumer_control_msg(packet, state);
             return;
+        case SYNC_BORDERS_MSG:
+            handle_sync_borders_msg(packet, state);
+            return;
+        case GET_VAL_MSG:
+        case SET_VAL_MSG:
+            handle_api_msgs(packet, state);
+            return;
+        case GET_ALL_VALS_MSG:
+            handle_api_read_all_msg(packet, state);
+            return;
+        case REQUEST_BYTE_MSG:
+            handle_request_byte_msg(packet, state);
+            return;
+        case RESPONSE_BYTE_MSG:
+            handle_response_byte_msg(packet, state);
+            return;
+        case FIRMWARE_UPGRADE_MSG:
+            handle_fw_upgrade_msg(packet, state);
+            return;
+        case PROXY_PACKET_MSG:
+            handle_proxy_msg(packet, state);
+            return;
+    }
+
+    /* Keyboard and mouse reports — Rust handles state, C handles queuing */
+    if (packet->type == KEYBOARD_REPORT_MSG) {
+        rust_handle_keyboard_uart(packet->data);
+        /* Still need C for combine + queue */
+        handle_keyboard_uart_msg(packet, state);
+        return;
+    }
+
+    if (packet->type == MOUSE_REPORT_MSG) {
+        rust_handle_mouse_uart(packet->data);
+        handle_mouse_abs_uart_msg(packet, state);
+        return;
+    }
+
+    /* Simple state-setting messages — Rust handles all state mutation */
+    uint8_t needs_hal = rust_handle_simple_msg(packet->type, packet->data);
+
+    /* Handle HAL side-effects */
+    if (needs_hal) {
+        switch (packet->type) {
+            case OUTPUT_SELECT_MSG:
+                handle_output_select_msg(packet, state);
+                break;
+            case KBD_SET_REPORT_MSG:
+                handle_set_report_msg(packet, state);
+                break;
+            case FLASH_LED_MSG:
+                blink_led(state);
+                break;
+            case WIPE_CONFIG_MSG:
+                wipe_config();
+                load_config(state);
+                break;
+            case SAVE_CONFIG_MSG:
+                save_config(state);
+                break;
+            case REBOOT_MSG:
+                reboot();
+                break;
+            case HEARTBEAT_MSG:
+                /* FW upgrade state already set by Rust */
+                break;
         }
     }
 }
