@@ -18,19 +18,11 @@
 enum { SIZE_0_BIT = 0, SIZE_8_BIT = 1, SIZE_16_BIT = 2, SIZE_32_BIT = 3 };
 const uint8_t SIZE_LOOKUP[4] = {0, 1, 2, 4};
 
-/* Size is 0, 1, 2, or 3, describing cases of no data, 8-bit, 16-bit,
-  or 32-bit data. */
+/* Now implemented in Rust (src-rust/src/app/hid_parser.rs) */
+extern uint32_t rust_get_descriptor_value(const uint8_t *report, int size);
+
 uint32_t get_descriptor_value(uint8_t const *report, int size) {
-    switch (size) {
-        case SIZE_8_BIT:
-            return report[0];
-        case SIZE_16_BIT:
-            return tu_u16(report[1], report[0]);
-        case SIZE_32_BIT:
-            return tu_u32(report[3], report[2], report[1], report[0]);
-        default:
-            return 0;
-    }
+    return rust_get_descriptor_value(report, size);
 }
 
 uint32_t *get_or_create_report_offset(parser_state_t *parser, uint8_t report_id) {

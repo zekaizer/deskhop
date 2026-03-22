@@ -85,6 +85,18 @@ pub extern "C" fn rust_scale_y_coordinate(
     mouse::scale_y_coordinate(pointer_y, (from_top, from_bottom), (to_top, to_bottom))
 }
 
+// ---- HID parser ----
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_get_descriptor_value(report: *const u8, size: i32) -> u32 {
+    if report.is_null() {
+        return 0;
+    }
+    let max_len = match size { 1 => 1, 2 => 2, 3 => 4, _ => 0 };
+    let data = core::slice::from_raw_parts(report, max_len);
+    crate::app::hid_parser::get_descriptor_value(data, size as u8)
+}
+
 // ---- HID report ----
 
 /// C-callable: get_report_value(report, len, val) -> int32_t
@@ -173,6 +185,99 @@ pub unsafe extern "C" fn rust_check_specific_hotkey(
         }
     }
     true
+}
+
+// ---- Mouse logic ----
+
+/// C-callable update_mouse_position. Returns switch direction: 0=none, 1=left, 2=right.
+/// Updates pointer_x, pointer_y, mouse_buttons in AppState.
+#[no_mangle]
+pub unsafe extern "C" fn rust_update_mouse_position(
+    move_x: i32, move_y: i32, wheel: i32, pan: i32, buttons: i32,
+) -> u8 {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    let output_idx = state.active_output as usize;
+    if output_idx >= state.config.output.len() { return 0; }
+
+    let output = &state.config.output[output_idx];
+    let values = crate::app::mouse_logic::MouseValues {
+        move_x, move_y, wheel, pan, buttons,
+    };
+
+    let (new_x, new_y, dir) = crate::app::mouse_logic::update_mouse_position(
+        state.pointer_x, state.pointer_y, &values,
+        output.speed_x, output.speed_y,
+        state.mouse_zoom, state.config.enable_acceleration != 0,
+        state.config.jump_threshold,
+    );
+
+    state.pointer_x = new_x;
+    state.pointer_y = new_y;
+    state.mouse_buttons = buttons as i16;
+
+    match dir {
+        crate::app::mouse_logic::SwitchDirection::None => 0,
+        crate::app::mouse_logic::SwitchDirection::Left => 1,
+        crate::app::mouse_logic::SwitchDirection::Right => 2,
+    }
+}
+
+/// C-callable create_mouse_report — writes 8 bytes to out.
+#[no_mangle]
+pub unsafe extern "C" fn rust_create_mouse_report(
+    wheel: i32, pan: i32, buttons: i32, move_x: i32, move_y: i32, out: *mut u8,
+) {
+    if out.is_null() { return; }
+    let state = &*crate::app::state::rust_get_app_state();
+
+    let values = crate::app::mouse_logic::MouseValues {
+        move_x, move_y, wheel, pan, buttons,
+    };
+
+    let report = crate::app::mouse_logic::create_mouse_report(
+        state.pointer_x, state.pointer_y, &values,
+        state.relative_mouse, state.gaming_mode,
+    );
+
+    *out = report.buttons;
+    let xb = report.x.to_le_bytes();
+    *out.add(1) = xb[0]; *out.add(2) = xb[1];
+    let yb = report.y.to_le_bytes();
+    *out.add(3) = yb[0]; *out.add(4) = yb[1];
+    *out.add(5) = report.wheel as u8;
+    *out.add(6) = report.pan as u8;
+    *out.add(7) = report.mode;
+}
+
+/// C-callable decide_screen_switch — returns ScreenSwitchAction encoded
+#[no_mangle]
+pub unsafe extern "C" fn rust_decide_screen_switch(direction: u8) -> u8 {
+    use crate::app::mouse_logic::*;
+    let state = &*crate::app::state::rust_get_app_state();
+    let output_idx = state.active_output as usize;
+    if output_idx >= state.config.output.len() { return 0; }
+
+    let output = &state.config.output[output_idx];
+    let dir = match direction {
+        1 => SwitchDirection::Left,
+        2 => SwitchDirection::Right,
+        _ => return 0,
+    };
+
+    let ctx = SwitchContext {
+        switch_lock: state.switch_lock,
+        gaming_mode: state.gaming_mode,
+        mouse_buttons: state.mouse_buttons,
+        screen_pos: output.pos,
+        screen_index: output.screen_index,
+        screen_count: output.screen_count,
+    };
+
+    match decide_screen_switch(dir, &ctx) {
+        ScreenSwitchAction::Nothing => 0,
+        ScreenSwitchAction::SwitchToOtherPc => 1,
+        ScreenSwitchAction::SwitchVirtualDesktop { .. } => 2,
+    }
 }
 
 // ---- Handlers ----
