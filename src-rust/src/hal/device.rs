@@ -43,6 +43,18 @@ extern "C" {
     pub fn hal_tud_hid_keyboard_report(report_id: u8, modifier: u8, keycode: *const u8) -> bool;
     pub fn hal_tud_mouse_report(mode: u8, buttons: u8, x: i16, y: i16, wheel: i8, pan: i8) -> bool;
 
+    // ---- HID report extraction ----
+    pub fn hal_extract_kbd_data(
+        raw_report: *mut u8, len: i32, itf: u8,
+        iface: *mut c_void, out_report: *mut u8,
+    ) -> i32;
+
+    /// Check hotkeys — returns -1 if no match, 0 if matched (and handler called).
+    /// out_pass_to_os and out_acknowledge are set if matched.
+    pub fn hal_check_all_hotkeys(
+        report: *const u8, out_pass_to_os: *mut u8, out_acknowledge: *mut u8,
+    ) -> i32;
+
     // ---- DMA ----
     pub fn hal_dma_channel_is_busy(dev: *mut c_void) -> bool;
     pub fn hal_dma_tx_send(dev: *mut c_void, buf: *const u8, len: u32);

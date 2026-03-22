@@ -122,6 +122,39 @@ void hal_fetch_packet(device_t *dev) {
 }
 
 /* ==================================================== *
+ * HID report extraction (wraps hid_report.c functions)
+ * ==================================================== */
+
+int32_t hal_extract_kbd_data(uint8_t *raw_report, int len, uint8_t itf,
+                             void *iface, uint8_t *out_report) {
+    return extract_kbd_data(raw_report, len, itf, (hid_interface_t *)iface,
+                           (hid_keyboard_report_t *)out_report);
+}
+
+/* ==================================================== *
+ * Keyboard hotkey check (wraps keyboard.c)
+ * ==================================================== */
+
+extern device_t *device;
+
+int hal_check_all_hotkeys(const uint8_t *report, uint8_t *out_pass_to_os,
+                          uint8_t *out_acknowledge) {
+    hid_keyboard_report_t *kbd_report = (hid_keyboard_report_t *)report;
+    hotkey_combo_t *hotkey = check_all_hotkeys(kbd_report, device);
+
+    if (hotkey == NULL)
+        return -1;
+
+    *out_pass_to_os = hotkey->pass_to_os;
+    *out_acknowledge = hotkey->acknowledge;
+
+    /* Execute the handler */
+    hotkey->action_handler(device, kbd_report);
+
+    return 0;
+}
+
+/* ==================================================== *
  * Trace output
  * ==================================================== */
 

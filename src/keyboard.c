@@ -231,42 +231,12 @@ void send_system_control(uint8_t *raw_report, device_t *state) {
  * Parse and interpret the keys pressed on the keyboard
  * ==================================================== */
 
+/* Now implemented in Rust (src-rust/src/hal/ffi/kbd_process.rs) */
+extern void rust_process_keyboard_report(uint8_t *raw_report, int length, uint8_t itf,
+                                          void *iface, void *dev);
+
 void process_keyboard_report(uint8_t *raw_report, int length, uint8_t itf, hid_interface_t *iface) {
-    hid_keyboard_report_t new_report = {0};
-    device_t *state                  = &global_state;
-    hotkey_combo_t *hotkey           = NULL;
-
-    if (length < KBD_REPORT_LENGTH)
-        return;
-
-    /* No more keys accepted if we're about to reboot */
-    if (global_state.reboot_requested)
-        return;
-
-    extract_kbd_data(raw_report, length, itf, iface, &new_report);
-
-    /* Update the keyboard state for this device */
-    update_kbd_state(state, &new_report, itf);
-
-    /* Check if any hotkey was pressed */
-    hotkey = check_all_hotkeys(&new_report, state);
-
-    /* ... and take appropriate action */
-    if (hotkey != NULL) {
-        /* Provide visual feedback we received the action */
-        if (hotkey->acknowledge)
-            blink_led(state);
-
-        /* Execute the corresponding handler */
-        hotkey->action_handler(state, &new_report);
-
-        /* And pass the key to the output PC if configured to do so. */
-        if (!hotkey->pass_to_os)
-            return;
-    }
-
-    /* This method will decide if the key gets queued locally or sent through UART */
-    send_key(&new_report, state);
+    rust_process_keyboard_report(raw_report, length, itf, (void *)iface, (void *)&global_state);
 }
 
 void process_consumer_report(uint8_t *raw_report, int length, uint8_t itf, hid_interface_t *iface) {
