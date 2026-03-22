@@ -30,7 +30,9 @@ pub fn get_report_value(report: &[u8], offset_bits: u16, size_bits: u16) -> i32 
 
     result &= mask as i32;
 
-    // Sign extension: if MSB of the extracted value is set, fill upper bits
+    // WORKAROUND(c-compat): Sign extension matches C's get_report_value() exactly.
+    // 1-bit value with bit set => -1 (not +1). This is correct per HID spec
+    // for relative values but surprising for buttons. Revisit when decoupled from C.
     if size_bits < 32 {
         let sign_bit = 1u32 << (size_bits - 1);
         if (result as u32) & sign_bit != 0 {

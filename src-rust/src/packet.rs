@@ -3,6 +3,9 @@ use crate::crc::calc_checksum;
 
 /// UART packet structure mirroring the C uart_packet_t.
 /// Layout: type (1 byte) + data (8 bytes) + checksum (1 byte) = 10 bytes
+// WORKAROUND(c-compat): Uses #[repr(C, packed)] and flat u8 arrays to match
+// C's uart_packet_t layout with union { data[8]; data16[4]; data32[2]; }.
+// Can be replaced with a proper Rust enum-based packet when C interop is removed.
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct UartPacket {

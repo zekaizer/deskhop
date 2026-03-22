@@ -31,7 +31,8 @@ pub fn move_and_keep_on_screen(position: i32, offset: i32) -> i32 {
 }
 
 /// Check if movement would cross screen boundary.
-/// Returns: -1 (left), 1 (right), 0 (none)
+// WORKAROUND(c-compat): Returns i32 (-1/0/1) instead of an enum to match
+// C's screen_pos_e. Can be replaced with a proper Rust enum later.
 pub fn is_screen_switch_needed(position: i32, offset: i32, jump_threshold: u16) -> i32 {
     if position + offset < MIN_SCREEN_COORD as i32 - jump_threshold as i32 {
         return -1; // LEFT
@@ -57,8 +58,9 @@ pub fn calculate_mouse_acceleration_factor(
         return 1.0;
     }
 
-    // Integer approximation of sqrt(x^2 + y^2) to avoid libm dependency
-    // Using alpha-max-beta-min approximation: max + 0.4*min
+    // WORKAROUND(c-compat): C uses sqrtf() from libm. We use alpha-max-beta-min
+    // approximation (max + 0.4*min) to avoid libm dependency on no_std.
+    // Can switch to libm crate or core::intrinsics when available.
     let ax = (offset_x as i64).unsigned_abs();
     let ay = (offset_y as i64).unsigned_abs();
     let (max_v, min_v) = if ax > ay { (ax, ay) } else { (ay, ax) };

@@ -17,7 +17,9 @@ pub struct HotkeyCombo {
     pub acknowledge: bool,
 }
 
-/// Check if a key exists in a keyboard report
+/// Check if a key exists in a keyboard report.
+// WORKAROUND(c-compat): Matches C behavior where key=0x00 returns true
+// because empty slots contain 0x00. Could filter key==0 in the future.
 pub fn key_in_report(key: u8, report: &KeyboardReport) -> bool {
     report.keycode.iter().any(|&k| k == key)
 }
