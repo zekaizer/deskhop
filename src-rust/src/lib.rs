@@ -1,5 +1,7 @@
 #![no_std]
 
+pub mod trace;
+
 #[cfg(not(test))]
 use core::panic::PanicInfo;
 
@@ -13,7 +15,7 @@ fn panic(_info: &PanicInfo) -> ! {
 /// Currently a no-op stub — returns immediately to let C main loop run.
 #[no_mangle]
 pub extern "C" fn rust_main_loop() {
-    // Phase 0: no-op stub, control returns to C main loop
+    traceln!("rust_main_loop: entered");
 }
 
 #[cfg(test)]
