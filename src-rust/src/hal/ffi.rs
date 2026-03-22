@@ -698,6 +698,27 @@ pub unsafe extern "C" fn rust_release_all_keys_state(dev: *mut core::ffi::c_void
     crate::app::kbd_state::release_all_keys(dev, state);
 }
 
+// ---- Mouse output routing ----
+
+/// Route mouse report to local queue or UART based on active output
+#[no_mangle]
+pub unsafe extern "C" fn rust_output_mouse_report(dev: *mut core::ffi::c_void, report: *const u8) {
+    if report.is_null() { return; }
+    let state = &mut *crate::app::state::rust_get_app_state();
+
+    if state.is_active_output() {
+        crate::hal::device::hal_queue_mouse_report(dev, report);
+        let role = state.board_role as usize;
+        if role < state.last_activity.len() {
+            state.last_activity[role] = crate::hal::device::hal_time_us_64();
+        }
+    } else {
+        crate::hal::device::hal_queue_packet(
+            report, crate::app::constants::PacketType::MouseReport as u8, 8,
+        );
+    }
+}
+
 // ---- Consumer/System control routing ----
 
 #[no_mangle]
