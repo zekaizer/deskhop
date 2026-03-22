@@ -280,6 +280,66 @@ pub unsafe extern "C" fn rust_decide_screen_switch(direction: u8) -> u8 {
     }
 }
 
+// ---- Hotkey handlers ----
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_output_toggle(dev: *mut core::ffi::c_void) {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    crate::app::hotkey_handlers::output_toggle(dev, state);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_mouse_zoom_toggle() {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    crate::app::hotkey_handlers::mouse_zoom_toggle(state);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_switch_lock_toggle() {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    crate::app::hotkey_handlers::switch_lock_toggle(state);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_gaming_mode_toggle() {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    crate::app::hotkey_handlers::gaming_mode_toggle(state);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_fw_upgrade_a() {
+    crate::app::hotkey_handlers::fw_upgrade_a();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_fw_upgrade_b() {
+    crate::app::hotkey_handlers::fw_upgrade_b();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_wipe_config_hotkey(dev: *mut core::ffi::c_void) {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    crate::app::hotkey_handlers::wipe_config(dev, state);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_screensaver_pong_enable() {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    crate::app::hotkey_handlers::screensaver_pong_enable(state);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_screensaver_jitter_enable() {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    crate::app::hotkey_handlers::screensaver_jitter_enable(state);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_screensaver_disable() {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    crate::app::hotkey_handlers::screensaver_disable(state);
+}
+
 // ---- Handlers ----
 
 /// C-callable: _get_border_position(pointer_y, border_top_ptr, border_bottom_ptr)

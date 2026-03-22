@@ -15,14 +15,10 @@
  * ============  Hotkey Handler Routines  ============ *
  * =================================================== */
 
-/* This is the main hotkey for switching outputs */
-void output_toggle_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
-    /* If switching explicitly disabled, return immediately */
-    if (state->switch_lock)
-        return;
+extern void rust_output_toggle(device_t *dev);
 
-    state->active_output ^= 1;
-    set_active_output(state, state->active_output);
+void output_toggle_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
+    rust_output_toggle(state);
 };
 
 extern void rust_get_border_position(int16_t pointer_y, int32_t *border_top, int32_t *border_bottom);
@@ -49,26 +45,26 @@ void screen_border_hotkey_handler(device_t *state, hid_keyboard_report_t *report
     queue_packet((uint8_t *)border, SYNC_BORDERS_MSG, sizeof(border_size_t));
 };
 
-/* This key combo puts board A in firmware upgrade mode */
+extern void rust_fw_upgrade_a(void);
+extern void rust_fw_upgrade_b(void);
+
 void fw_upgrade_hotkey_handler_A(device_t *state, hid_keyboard_report_t *report) {
-    reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0);
+    rust_fw_upgrade_a();
 };
 
-/* This key combo puts board B in firmware upgrade mode */
 void fw_upgrade_hotkey_handler_B(device_t *state, hid_keyboard_report_t *report) {
-    send_value(ENABLE, FIRMWARE_UPGRADE_MSG);
+    rust_fw_upgrade_b();
 };
 
-/* This key combo prevents mouse from switching outputs */
+extern void rust_switch_lock_toggle(void);
+extern void rust_gaming_mode_toggle(void);
+
 void switchlock_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
-    state->switch_lock ^= 1;
-    send_value(state->switch_lock, SWITCH_LOCK_MSG);
+    rust_switch_lock_toggle();
 }
 
-/* This key combo toggles gaming mode */
 void toggle_gaming_mode_handler(device_t *state, hid_keyboard_report_t *report) {
-    state->gaming_mode ^= 1;
-    send_value(state->gaming_mode, GAMING_MODE_MSG);
+    rust_gaming_mode_toggle();
 };
 
 /* This key combo locks both outputs simultaneously */
@@ -100,44 +96,30 @@ void screenlock_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
     }
 }
 
-/* When pressed, erases stored config in flash and loads defaults on both boards */
+extern void rust_wipe_config_hotkey(device_t *dev);
+extern void rust_mouse_zoom_toggle(void);
+extern void rust_screensaver_pong_enable(void);
+extern void rust_screensaver_jitter_enable(void);
+extern void rust_screensaver_disable(void);
+
 void wipe_config_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
-    wipe_config();
-    load_config(state);
-    send_value(ENABLE, WIPE_CONFIG_MSG);
+    rust_wipe_config_hotkey(state);
 }
 
-/* When pressed, toggles the current mouse zoom mode state */
 void mouse_zoom_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
-    state->mouse_zoom ^= 1;
-    send_value(state->mouse_zoom, MOUSE_ZOOM_MSG);
+    rust_mouse_zoom_toggle();
 };
 
-/* When pressed, enables the pong screensaver on active output */
 void enable_screensaver_pong_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
-    uint8_t desired_mode = state->config.output[BOARD_ROLE].screensaver.mode;
-
-    /* If the user explicitly asks for pong screensaver to be active, ignore config and turn it on */
-    if (desired_mode == DISABLED || desired_mode == JITTER)
-        desired_mode = PONG;
-
-    _screensaver_set(state, desired_mode);
+    rust_screensaver_pong_enable();
 }
 
-/* When pressed, enables the jitter screensaver on active output */
 void enable_screensaver_jitter_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
-    uint8_t desired_mode = state->config.output[BOARD_ROLE].screensaver.mode;
-
-    /* If the user explicitly asks for jitter screensaver to be active, ignore config and turn it on */
-    if (desired_mode == DISABLED || desired_mode == PONG)
-        desired_mode = JITTER;
-
-    _screensaver_set(state, desired_mode);
+    rust_screensaver_jitter_enable();
 }
 
-/* When pressed, disables the screensaver on active output */
 void disable_screensaver_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
-    _screensaver_set(state, DISABLED);
+    rust_screensaver_disable();
 }
 
 /* Put the device into a special configuration mode */
@@ -199,9 +181,8 @@ void handle_fw_upgrade_msg(uart_packet_t *packet, device_t *state) {
     reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0);
 }
 
-/* Comply with request to turn mouse zoom mode on/off  */
 void handle_mouse_zoom_msg(uart_packet_t *packet, device_t *state) {
-    state->mouse_zoom = packet->data[0];
+    rust_handle_simple_msg(packet->type, packet->data);
 }
 
 /* Process request to update keyboard LEDs */
@@ -214,9 +195,8 @@ void handle_set_report_msg(uart_packet_t *packet, device_t *state) {
         restore_leds(state);
 }
 
-/* Process request to block mouse from switching, update internal state */
 void handle_switch_lock_msg(uart_packet_t *packet, device_t *state) {
-    state->switch_lock = packet->data[0];
+    rust_handle_simple_msg(packet->type, packet->data);
 }
 
 /* Handle border syncing message that lets the other device know about monitor height offset */
@@ -243,9 +223,8 @@ void handle_wipe_config_msg(uart_packet_t *packet, device_t *state) {
     load_config(state);
 }
 
-/* Update screensaver state after received message */
 void handle_screensaver_msg(uart_packet_t *packet, device_t *state) {
-    state->config.output[BOARD_ROLE].screensaver.mode = packet->data[0];
+    rust_handle_simple_msg(packet->type, packet->data);
 }
 
 /* Process consumer control message */
@@ -268,9 +247,8 @@ void handle_proxy_msg(uart_packet_t *packet, device_t *state) {
     queue_packet(&packet->data[1], (enum packet_type_e)packet->data[0], PACKET_DATA_LENGTH - 1);
 }
 
-/* Process relative mouse command */
 void handle_toggle_gaming_msg(uart_packet_t *packet, device_t *state) {
-    state->gaming_mode = packet->data[0];
+    rust_handle_simple_msg(packet->type, packet->data);
 }
 
 /* Process api communication messages */

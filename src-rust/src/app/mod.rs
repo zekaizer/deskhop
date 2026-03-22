@@ -6,6 +6,7 @@ pub mod dispatch;
 pub mod extract;
 pub mod handlers;
 pub mod hid_parser;
+pub mod hotkey_handlers;
 pub mod hid_report;
 pub mod keyboard;
 pub mod mouse;
