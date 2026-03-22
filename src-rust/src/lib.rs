@@ -8,6 +8,7 @@ pub mod keyboard;
 pub mod mouse;
 pub mod packet;
 pub mod scheduler;
+pub mod screensaver;
 pub mod trace;
 pub mod usb;
 
