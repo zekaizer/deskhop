@@ -55,6 +55,47 @@ pub fn calc_checksum(data: &[u8]) -> u8 {
     data.iter().fold(0u8, |acc, &b| acc ^ b)
 }
 
+// ---- FFI exports: callable from C, replacing C implementations ----
+
+/// C-callable: calc_checksum(data, length) -> uint8_t
+#[no_mangle]
+pub unsafe extern "C" fn rust_calc_checksum(data: *const u8, length: i32) -> u8 {
+    if data.is_null() || length <= 0 {
+        return 0;
+    }
+    let slice = core::slice::from_raw_parts(data, length as usize);
+    calc_checksum(slice)
+}
+
+/// C-callable: calc_crc32(data, length) -> uint32_t
+#[no_mangle]
+pub unsafe extern "C" fn rust_calc_crc32(data: *const u8, length: usize) -> u32 {
+    if data.is_null() {
+        return 0;
+    }
+    let slice = core::slice::from_raw_parts(data, length);
+    calc_crc32(slice)
+}
+
+/// C-callable: crc32_iter(crc, byte) -> uint32_t
+#[no_mangle]
+pub extern "C" fn rust_crc32_iter(crc: u32, byte: u8) -> u32 {
+    crc32_iter(crc, byte)
+}
+
+/// C-callable: verify_checksum on a uart_packet_t
+/// packet points to: [type(1) + data(8) + checksum(1)] = 10 bytes
+#[no_mangle]
+pub unsafe extern "C" fn rust_verify_checksum(packet: *const u8) -> bool {
+    if packet.is_null() {
+        return false;
+    }
+    // data is at offset 1, length 8; checksum at offset 9
+    let data = core::slice::from_raw_parts(packet.add(1), 8);
+    let checksum = *packet.add(9);
+    calc_checksum(data) == checksum
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -15,34 +15,27 @@
  * ==============  Checksum Functions  ============== *
  * ================================================== */
 
+/* These functions are now implemented in Rust (src-rust/src/crc.rs) */
+extern uint8_t rust_calc_checksum(const uint8_t *data, int length);
+extern uint32_t rust_calc_crc32(const uint8_t *data, size_t length);
+extern uint32_t rust_crc32_iter(uint32_t crc, uint8_t byte);
+extern bool rust_verify_checksum(const uint8_t *packet);
+
+/* Thin wrappers to keep existing C call sites working */
 uint8_t calc_checksum(const uint8_t *data, int length) {
-    uint8_t checksum = 0;
-
-    for (int i = 0; i < length; i++) {
-        checksum ^= data[i];
-    }
-
-    return checksum;
+    return rust_calc_checksum(data, length);
 }
 
 bool verify_checksum(const uart_packet_t *packet) {
-    uint8_t checksum = calc_checksum(packet->data, PACKET_DATA_LENGTH);
-    return checksum == packet->checksum;
+    return rust_verify_checksum((const uint8_t *)packet);
 }
 
 uint32_t crc32_iter(uint32_t crc, const uint8_t byte) {
-    return crc32_lookup_table[(byte ^ crc) & 0xff] ^ (crc >> 8);
+    return rust_crc32_iter(crc, byte);
 }
 
-/* TODO - use DMA sniffer's built-in CRC32 */
 uint32_t calc_crc32(const uint8_t *s, size_t n) {
-    uint32_t crc = 0xffffffff;
-
-    for(size_t i=0; i < n; i++) {
-        crc = crc32_iter(crc, s[i]);
-    }
-
-    return ~crc;
+    return rust_calc_crc32(s, n);
 }
 
 uint32_t calculate_firmware_crc32(void) {
@@ -183,30 +176,11 @@ void fetch_packet(device_t *state) {
     }
 }
 
-/* Validating any input is mandatory. Only packets of these type are allowed
-   to be sent to the device over configuration endpoint. */
+/* Now implemented in Rust (src-rust/src/constants.rs) */
+extern bool rust_validate_packet(const uint8_t *packet);
+
 bool validate_packet(uart_packet_t *packet) {
-    const enum packet_type_e ALLOWED_PACKETS[] = {
-        FLASH_LED_MSG,
-        GET_VAL_MSG,
-        GET_ALL_VALS_MSG,
-        SET_VAL_MSG,
-        WIPE_CONFIG_MSG,
-        SAVE_CONFIG_MSG,
-        REBOOT_MSG,
-        PROXY_PACKET_MSG,
-    };
-    uint8_t packet_type = packet->type;
-
-    /* Proxied packets are encapsulated in the data field, but same rules apply */
-    if (packet->type == PROXY_PACKET_MSG)
-        packet_type = packet->data[0];
-
-    for (int i = 0; i < ARRAY_SIZE(ALLOWED_PACKETS); i++) {
-        if (ALLOWED_PACKETS[i] == packet_type)
-            return true;
-    }
-    return false;
+    return rust_validate_packet((const uint8_t *)packet);
 }
 
 

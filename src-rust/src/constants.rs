@@ -118,6 +118,19 @@ pub fn validate_packet_type(packet_type: u8, proxy_inner_type: u8) -> bool {
         .any(|&allowed| allowed as u8 == effective_type)
 }
 
+/// C-callable: validate_packet(uart_packet_t *packet) -> bool
+/// Matches C's validate_packet() signature — packet points to
+/// [type(1) + data(8) + checksum(1)]
+#[no_mangle]
+pub unsafe extern "C" fn rust_validate_packet(packet: *const u8) -> bool {
+    if packet.is_null() {
+        return false;
+    }
+    let packet_type = *packet;
+    let proxy_inner = *packet.add(1); // data[0] contains inner type for proxy
+    validate_packet_type(packet_type, proxy_inner)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
