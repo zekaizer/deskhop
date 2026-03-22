@@ -7,6 +7,7 @@ pub mod hid_report;
 pub mod keyboard;
 pub mod mouse;
 pub mod packet;
+pub mod scheduler;
 pub mod trace;
 
 #[cfg(not(test))]
