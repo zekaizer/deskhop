@@ -7,7 +7,7 @@
 #include <stdbool.h>
 
 #define MAX_REMAP_ENTRIES    16
-#define TAP_HOLD_DEFAULT_US  200000 /* 200ms */
+#define TAP_HOLD_DEFAULT_US  250000 /* 250ms */
 
 typedef enum {
     REMAP_SIMPLE,
