@@ -1,25 +1,7 @@
 #![no_std]
 
-// ---- Internal modules (Rust-only, not exposed to C) ----
-pub mod constants;
-pub mod crc;
-pub mod dispatch;
-pub mod handlers;
-pub mod hid_parser;
-pub mod hid_report;
-pub mod keyboard;
-pub mod mouse;
-pub mod mouse_logic;
-pub mod packet;
-pub mod screensaver;
-pub mod structs;
-pub mod usb;
-
-// ---- HAL layer (C↔Rust boundary) ----
-pub mod device;   // Opaque device_t handle + C HAL extern declarations
-pub mod ffi;       // #[no_mangle] exports callable from C
-pub mod scheduler; // Task scheduler (calls C task functions)
-pub mod trace;     // Trace macro (calls C hal_trace_write)
+pub mod app;
+pub mod hal;
 
 #[cfg(not(test))]
 use core::panic::PanicInfo;
@@ -30,7 +12,8 @@ fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
 
-use core::ffi::c_void;
+use ::core::ffi::c_void;
+use hal::{device, scheduler};
 
 // C task functions called by the Rust scheduler (both cores)
 extern "C" {
@@ -85,9 +68,7 @@ pub extern "C" fn rust_core1_loop(dev: *mut c_void) -> ! {
     ];
 
     loop {
-        // Update timestamp so core0 can detect if we're dead
         unsafe { device::hal_set_core1_last_loop_pass(dev, device::hal_time_us_64()) };
-
         scheduler::run_all_tasks(&mut tasks, dev);
     }
 }
@@ -96,7 +77,6 @@ pub extern "C" fn rust_core1_loop(dev: *mut c_void) -> ! {
 mod tests {
     #[test]
     fn smoke_test() {
-        // Verify Rust test infrastructure works
         assert!(true);
     }
 }

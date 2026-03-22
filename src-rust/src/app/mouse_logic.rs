@@ -1,6 +1,6 @@
-use crate::constants::{MAX_SCREEN_COORD, MIN_SCREEN_COORD, ABSOLUTE, RELATIVE};
-use crate::mouse;
-use crate::screensaver::MouseReport;
+use crate::app::constants::{MAX_SCREEN_COORD, MIN_SCREEN_COORD, ABSOLUTE, RELATIVE};
+use crate::app::mouse;
+use crate::app::screensaver::MouseReport;
 
 /// Extended precision mouse movement values (from HID report extraction)
 #[derive(Debug, Clone, Copy, Default)]

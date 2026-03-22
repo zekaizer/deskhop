@@ -1,8 +1,8 @@
 // Core data structures mirroring C's structs.h, screen.h, flash.h, packet.h
 // These must maintain exact layout compatibility with C (#[repr(C)]).
 
-use crate::constants::{NUM_SCREENS, PACKET_DATA_LENGTH, RAW_PACKET_LENGTH};
-use crate::hid_parser::ReportVal;
+use crate::app::constants::{NUM_SCREENS, PACKET_DATA_LENGTH, RAW_PACKET_LENGTH};
+use crate::app::hid_parser::ReportVal;
 
 // From hid_parser.h
 pub const MAX_DEVICES: usize = 4;

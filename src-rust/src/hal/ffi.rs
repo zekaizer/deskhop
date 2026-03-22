@@ -2,8 +2,8 @@
 // All functions here are #[no_mangle] pub extern "C" and form the
 // Rust→C API boundary. Internal Rust functions should NOT be here.
 
-use crate::constants;
-use crate::crc;
+use crate::app::constants;
+use crate::app::crc;
 
 // ---- Checksum / CRC ----
 

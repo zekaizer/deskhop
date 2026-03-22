@@ -1,4 +1,4 @@
-use crate::constants::{MAX_SCREEN_COORD, MIN_SCREEN_COORD};
+use crate::app::constants::{MAX_SCREEN_COORD, MIN_SCREEN_COORD};
 
 const ACCEL_POINTS: usize = 7;
 

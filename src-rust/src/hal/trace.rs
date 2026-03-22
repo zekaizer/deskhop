@@ -16,7 +16,7 @@ macro_rules! trace {
         #[cfg(feature = "trace")]
         {
             let bytes = $msg.as_bytes();
-            unsafe { $crate::trace::hal_trace_write(bytes.as_ptr(), bytes.len() as u32) };
+            unsafe { $crate::hal::trace::hal_trace_write(bytes.as_ptr(), bytes.len() as u32) };
         }
     };
 }

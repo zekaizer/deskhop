@@ -1,7 +1,7 @@
-use crate::constants::PacketType;
-use crate::crc::calc_checksum;
-use crate::packet::UartPacket;
-use crate::constants::PACKET_DATA_LENGTH;
+use crate::app::constants::PacketType;
+use crate::app::crc::calc_checksum;
+use crate::app::packet::UartPacket;
+use crate::app::constants::PACKET_DATA_LENGTH;
 
 /// Result of packet validation
 #[derive(Debug, PartialEq, Eq)]

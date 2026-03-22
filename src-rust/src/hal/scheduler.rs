@@ -1,6 +1,6 @@
 use core::ffi::c_void;
 
-use crate::device;
+use crate::hal::device;
 
 /// Task function signature: takes a device_t* (opaque pointer)
 pub type TaskFn = unsafe extern "C" fn(*mut c_void);
