@@ -228,7 +228,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
 
     /* Capture raw descriptor for Semi-DDM passthrough */
     passthrough_state_t *pt = passthrough_get_state();
-    if (PASSTHROUGH_ENABLED) {
+    if (global_state.config.passthrough_enabled) {
         passthrough_capture_descriptor(pt, dev_addr, instance, itf_protocol, desc_report, desc_len);
         pt->last_capture_us = time_us_64();
 
@@ -343,7 +343,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
                         static uint64_t last_press_us = 0;
                         uint64_t now = time_us_64();
                         if (last_press_us > 0
-                            && (now - last_press_us) < SMARTSHIFT_DOUBLE_CLICK_US) {
+                            && (now - last_press_us) < global_state.config.smartshift_double_click_us) {
                             global_state.switch_requested = true;
                             last_press_us = 0;
                         } else {

@@ -118,7 +118,7 @@ void passthrough_task(device_t *state) {
     /* Phase 1: Activate after captures stabilize (500ms since last capture).
      * Since we called tud_disconnect() at boot, connect once here — no
      * disconnect/reconnect cycle needed. */
-    if (!PASSTHROUGH_ENABLED)
+    if (!state->config.passthrough_enabled)
         return;
 
     if (!pt->active && pt->iface_count > 0 && pt->last_capture_us > 0) {
