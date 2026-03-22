@@ -2,8 +2,7 @@
 // All functions here are #[no_mangle] pub extern "C" and form the
 // Rust→C API boundary. Internal Rust functions should NOT be here.
 
-use crate::app::constants;
-use crate::app::crc;
+use crate::app::{constants, crc, mouse, packet};
 
 // ---- Checksum / CRC ----
 
@@ -52,4 +51,61 @@ pub unsafe extern "C" fn rust_validate_packet(packet: *const u8) -> bool {
     let packet_type = *packet;
     let proxy_inner = *packet.add(1);
     constants::validate_packet_type(packet_type, proxy_inner)
+}
+
+// ---- Mouse math ----
+
+#[no_mangle]
+pub extern "C" fn rust_move_and_keep_on_screen(position: i32, offset: i32) -> i32 {
+    mouse::move_and_keep_on_screen(position, offset)
+}
+
+#[no_mangle]
+pub extern "C" fn rust_is_screen_switch_needed(position: i32, offset: i32, threshold: u16) -> i32 {
+    mouse::is_screen_switch_needed(position, offset, threshold)
+}
+
+#[no_mangle]
+pub extern "C" fn rust_calculate_mouse_acceleration_factor(
+    offset_x: i32,
+    offset_y: i32,
+    enabled: bool,
+) -> f32 {
+    mouse::calculate_mouse_acceleration_factor(offset_x, offset_y, enabled)
+}
+
+#[no_mangle]
+pub extern "C" fn rust_scale_y_coordinate(
+    pointer_y: i16,
+    from_top: i32,
+    from_bottom: i32,
+    to_top: i32,
+    to_bottom: i32,
+) -> i16 {
+    mouse::scale_y_coordinate(pointer_y, (from_top, from_bottom), (to_top, to_bottom))
+}
+
+// ---- Packet utilities ----
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_write_raw_packet(dst: *mut u8, packet_ptr: *const u8) {
+    if dst.is_null() || packet_ptr.is_null() {
+        return;
+    }
+    let pkt = packet::UartPacket {
+        ptype: *packet_ptr,
+        data: {
+            let mut d = [0u8; constants::PACKET_DATA_LENGTH];
+            core::ptr::copy_nonoverlapping(packet_ptr.add(1), d.as_mut_ptr(), constants::PACKET_DATA_LENGTH);
+            d
+        },
+        checksum: *packet_ptr.add(9),
+    };
+    let raw = packet::write_raw_packet(&pkt);
+    core::ptr::copy_nonoverlapping(raw.as_ptr(), dst, constants::RAW_PACKET_LENGTH);
+}
+
+#[no_mangle]
+pub extern "C" fn rust_get_ptr_delta(current: u32, saved: u32, buffer_size: u32) -> u32 {
+    packet::get_ptr_delta(current, saved, buffer_size)
 }

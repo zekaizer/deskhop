@@ -150,18 +150,10 @@ bool is_start_of_packet(device_t *state) {
     return (uart_rxbuf[state->dma_ptr] == START1 && uart_rxbuf[NEXT_RING_IDX(state->dma_ptr)] == START2);
 }
 
+extern uint32_t rust_get_ptr_delta(uint32_t current, uint32_t saved, uint32_t buffer_size);
+
 uint32_t get_ptr_delta(uint32_t current_pointer, device_t *state) {
-    uint32_t delta;
-
-    if (current_pointer >= state->dma_ptr)
-        delta = current_pointer - state->dma_ptr;
-    else
-        delta = DMA_RX_BUFFER_SIZE - state->dma_ptr + current_pointer;
-
-    /* Clamp to 12 bits since it can never be bigger */
-    delta = delta & 0x3FF;
-
-    return delta;
+    return rust_get_ptr_delta(current_pointer, state->dma_ptr, DMA_RX_BUFFER_SIZE);
 }
 
 void fetch_packet(device_t *state) {

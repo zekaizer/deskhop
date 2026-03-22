@@ -16,82 +16,23 @@
 #define MACOS_SWITCH_MOVE_COUNT 5
 #define ACCEL_POINTS 7
 
-/* Check if our upcoming mouse movement would result in having to switch outputs */
+/* Now implemented in Rust (src-rust/src/app/mouse.rs) */
+extern int32_t rust_move_and_keep_on_screen(int32_t position, int32_t offset);
+extern int32_t rust_is_screen_switch_needed(int32_t position, int32_t offset, uint16_t threshold);
+extern float rust_calculate_mouse_acceleration_factor(int32_t offset_x, int32_t offset_y, bool enabled);
+extern int16_t rust_scale_y_coordinate(int16_t pointer_y, int32_t from_top, int32_t from_bottom, int32_t to_top, int32_t to_bottom);
+
 enum screen_pos_e is_screen_switch_needed(int position, int offset) {
-    if (position + offset < MIN_SCREEN_COORD - global_state.config.jump_threshold)
-        return LEFT;
-
-    if (position + offset > MAX_SCREEN_COORD + global_state.config.jump_threshold)
-        return RIGHT;
-
-    return NONE;
+    int32_t result = rust_is_screen_switch_needed(position, offset, global_state.config.jump_threshold);
+    return (result == -1) ? LEFT : (result == 1) ? RIGHT : NONE;
 }
 
-/* Move mouse coordinate 'position' by 'offset', but don't fall off the screen */
 int32_t move_and_keep_on_screen(int position, int offset) {
-    /* Lowest we can go is 0 */
-    if (position + offset < MIN_SCREEN_COORD)
-        return MIN_SCREEN_COORD;
-
-    /* Highest we can go is MAX_SCREEN_COORD */
-    else if (position + offset > MAX_SCREEN_COORD)
-        return MAX_SCREEN_COORD;
-
-    /* We're still on screen, all good */
-    return position + offset;
+    return rust_move_and_keep_on_screen(position, offset);
 }
 
-/* Implement basic mouse acceleration based on actual 2D movement magnitude.
-   Returns the acceleration factor to apply to both x and y components. */
 float calculate_mouse_acceleration_factor(int32_t offset_x, int32_t offset_y) {
-    const struct curve {
-        int value;
-        float factor;
-    } acceleration[ACCEL_POINTS] = {
-                   // 4 |                                        *
-        {2, 1},    //   |                                  *
-        {5, 1.1},  // 3 |
-        {15, 1.4}, //   |                       *
-        {30, 1.9}, // 2 |                *
-        {45, 2.6}, //   |        *
-        {60, 3.4}, // 1 |  *
-        {70, 4.0}, //    -------------------------------------------
-    };             //        10    20    30    40    50    60    70
-
-    if (offset_x == 0 && offset_y == 0)
-        return 1.0;
-
-    if (!global_state.config.enable_acceleration)
-        return 1.0;
-
-    // Calculate the 2D movement magnitude
-    const float movement_magnitude = sqrtf((float)(offset_x * offset_x) + (float)(offset_y * offset_y));
-
-    if (movement_magnitude <= acceleration[0].value)
-        return acceleration[0].factor;
-
-    if (movement_magnitude >= acceleration[ACCEL_POINTS-1].value)
-        return acceleration[ACCEL_POINTS-1].factor;
-
-    const struct curve *lower = NULL;
-    const struct curve *upper = NULL;
-
-    for (int i = 0; i < ACCEL_POINTS-1; i++) {
-        if (movement_magnitude < acceleration[i + 1].value) {
-            lower = &acceleration[i];
-            upper = &acceleration[i + 1];
-            break;
-        }
-    }
-
-    // Should never happen, but just in case
-    if (lower == NULL || upper == NULL)
-        return 1.0;
-
-    const float interpolation_pos = (movement_magnitude - lower->value) /
-                                  (upper->value - lower->value);
-
-    return lower->factor + interpolation_pos * (upper->factor - lower->factor);
+    return rust_calculate_mouse_acceleration_factor(offset_x, offset_y, global_state.config.enable_acceleration);
 }
 
 /* Returns LEFT if need to jump left, RIGHT if right, NONE otherwise */
@@ -131,35 +72,12 @@ void output_mouse_report(mouse_report_t *report, device_t *state) {
     }
 }
 
-/* Calculate and return Y coordinate when moving from screen out_from to screen out_to */
 int16_t scale_y_coordinate(int screen_from, int screen_to, device_t *state) {
     output_t *from = &state->config.output[screen_from];
     output_t *to   = &state->config.output[screen_to];
-
-    int size_to   = to->border.bottom - to->border.top;
-    int size_from = from->border.bottom - from->border.top;
-
-    /* If sizes match, there is nothing to do */
-    if (size_from == size_to)
-        return state->pointer_y;
-
-    /* Moving from smaller ==> bigger screen
-       y_a = top + (((bottom - top) * y_b) / HEIGHT) */
-
-    if (size_from > size_to) {
-        return to->border.top + ((size_to * state->pointer_y) / MAX_SCREEN_COORD);
-    }
-
-    /* Moving from bigger ==> smaller screen
-       y_b = ((y_a - top) * HEIGHT) / (bottom - top) */
-
-    if (state->pointer_y < from->border.top)
-        return MIN_SCREEN_COORD;
-
-    if (state->pointer_y > from->border.bottom)
-        return MAX_SCREEN_COORD;
-
-    return ((state->pointer_y - from->border.top) * MAX_SCREEN_COORD) / size_from;
+    return rust_scale_y_coordinate(state->pointer_y,
+        from->border.top, from->border.bottom,
+        to->border.top, to->border.bottom);
 }
 
 void switch_to_another_pc(

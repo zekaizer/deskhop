@@ -15,16 +15,11 @@
  * ===============  Sending Packets  ================ *
  * ================================================== */
 
-/* Takes a packet as uart_packet_t struct, adds preamble, checksum and encodes it to a raw array. */
-void write_raw_packet(uint8_t *dst, uart_packet_t *packet) {
-    uint8_t pkt[RAW_PACKET_LENGTH] = {[0] = START1,
-                                      [1] = START2,
-                                      [2] = packet->type,
-                                      /* [3-10] is data, defaults to 0 */
-                                      [11] = calc_checksum(packet->data, PACKET_DATA_LENGTH)};
+/* Now implemented in Rust (src-rust/src/app/packet.rs) */
+extern void rust_write_raw_packet(uint8_t *dst, const uint8_t *packet);
 
-    memcpy(&pkt[START_LENGTH + TYPE_LENGTH], packet->data, PACKET_DATA_LENGTH);
-    memcpy(dst, &pkt, RAW_PACKET_LENGTH);
+void write_raw_packet(uint8_t *dst, uart_packet_t *packet) {
+    rust_write_raw_packet(dst, (const uint8_t *)packet);
 }
 
 /* Schedule packet for sending to the other box */
