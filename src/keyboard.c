@@ -86,20 +86,10 @@ keyboard_t *get_keyboard(hid_interface_t *iface, uint8_t report_id) {
     return &iface->keyboards[PRIMARY_KEYBOARD];
 }
 
-/* HAL-dependent: queue_t + TinyUSB */
-void process_kbd_queue_task(device_t *state) {
-    hid_keyboard_report_t report;
-    if (!state->tud_connected) return;
-    if (!queue_try_peek(&state->kbd_queue, &report)) return;
-    if (tud_suspended()) tud_remote_wakeup();
-    if (!tud_hid_n_ready(ITF_NUM_HID)) return;
-    bool ok = tud_hid_keyboard_report(REPORT_ID_KEYBOARD, report.modifier, report.keycode);
-    if (ok) queue_try_remove(&state->kbd_queue, &report);
-}
-
-void queue_kbd_report(hid_keyboard_report_t *report, device_t *state) {
-    if (!state->tud_connected) return;
-    queue_try_add(&state->kbd_queue, report);
+extern void rust_process_kbd_queue_task(device_t *);
+void process_kbd_queue_task(device_t *s) { rust_process_kbd_queue_task(s); }
+void queue_kbd_report(hid_keyboard_report_t *r, device_t *s) {
+    if (s->tud_connected) queue_try_add(&s->kbd_queue, r);
 }
 
 void send_consumer_control(uint8_t *r, device_t *s) { rust_send_consumer_control(s, r); }

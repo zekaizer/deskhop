@@ -35,6 +35,41 @@ pub unsafe extern "C" fn rust_process_uart_tx_task(dev: *mut c_void) {
     device::hal_dma_tx_send(dev, raw.as_ptr(), crate::app::constants::RAW_PACKET_LENGTH as u32);
 }
 
+/// Rust implementation of process_kbd_queue_task
+#[no_mangle]
+pub unsafe extern "C" fn rust_process_kbd_queue_task(dev: *mut c_void) {
+    let state = &*crate::app::state::rust_get_app_state();
+    if !state.tud_connected { return; }
+    let mut report = [0u8; 8]; // hid_keyboard_report_t
+    if !device::hal_kbd_queue_peek(dev, report.as_mut_ptr()) { return; }
+    if device::hal_tud_suspended() { device::hal_tud_remote_wakeup(); }
+    if !device::hal_tud_hid_n_ready(crate::app::constants::ITF_NUM_HID) { return; }
+    if device::hal_tud_hid_keyboard_report(1, report[0], report[2..].as_ptr()) { // REPORT_ID_KEYBOARD=1
+        device::hal_kbd_queue_remove(dev, report.as_mut_ptr());
+    }
+}
+
+/// Rust implementation of process_mouse_queue_task
+#[no_mangle]
+pub unsafe extern "C" fn rust_process_mouse_queue_task(dev: *mut c_void) {
+    let state = &*crate::app::state::rust_get_app_state();
+    if !state.tud_connected { return; }
+    let mut r = [0u8; 8]; // mouse_report_t
+    if !device::hal_mouse_queue_peek(dev, r.as_mut_ptr()) { return; }
+    if device::hal_tud_suspended() { device::hal_tud_remote_wakeup(); }
+    if !device::hal_tud_hid_n_ready(crate::app::constants::ITF_NUM_HID) { return; }
+    // mouse_report_t: buttons(1)+x(i16)+y(i16)+wheel(i8)+pan(i8)+mode(1)
+    let mode = r[7];
+    let buttons = r[0];
+    let x = i16::from_le_bytes([r[1], r[2]]);
+    let y = i16::from_le_bytes([r[3], r[4]]);
+    let wheel = r[5] as i8;
+    let pan = r[6] as i8;
+    if device::hal_tud_mouse_report(mode, buttons, x, y, wheel, pan) {
+        device::hal_mouse_queue_remove(dev, r.as_mut_ptr());
+    }
+}
+
 static mut LAST_POINTER_MOVE: u32 = 0;
 
 /// Rust implementation of screensaver_task

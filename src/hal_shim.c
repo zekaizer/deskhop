@@ -227,6 +227,20 @@ int hal_check_all_hotkeys(const uint8_t *report, uint8_t *out_pass_to_os,
 
 void hal_toggle_led(void) { toggle_led(); }
 
+/* Queue peek/remove for kbd and mouse */
+bool hal_kbd_queue_peek(device_t *dev, uint8_t *out) {
+    return queue_try_peek(&dev->kbd_queue, out);
+}
+bool hal_kbd_queue_remove(device_t *dev, uint8_t *out) {
+    return queue_try_remove(&dev->kbd_queue, out);
+}
+bool hal_mouse_queue_peek(device_t *dev, uint8_t *out) {
+    return queue_try_peek(&dev->mouse_queue, out);
+}
+bool hal_mouse_queue_remove(device_t *dev, uint8_t *out) {
+    return queue_try_remove(&dev->mouse_queue, out);
+}
+
 bool hal_uart_tx_queue_remove(device_t *dev, uint8_t *out) {
     return queue_try_remove(&dev->uart_tx_queue, out);
 }

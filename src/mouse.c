@@ -33,15 +33,8 @@ void process_mouse_report(uint8_t *r, int l, uint8_t i, hid_interface_t *f) {
     rust_process_mouse_report(r, l, i, (void *)f, (void *)&global_state);
 }
 
-/* HAL: queue_t + TinyUSB */
-void process_mouse_queue_task(device_t *s) {
-    mouse_report_t r = {0};
-    if (!s->tud_connected || !queue_try_peek(&s->mouse_queue, &r)) return;
-    if (tud_suspended()) tud_remote_wakeup();
-    if (!tud_hid_n_ready(ITF_NUM_HID)) return;
-    if (tud_mouse_report(r.mode, r.buttons, r.x, r.y, r.wheel, r.pan))
-        queue_try_remove(&s->mouse_queue, &r);
-}
+extern void rust_process_mouse_queue_task(device_t *);
+void process_mouse_queue_task(device_t *s) { rust_process_mouse_queue_task(s); }
 void queue_mouse_report(mouse_report_t *r, device_t *s) {
     if (s->tud_connected) queue_try_add(&s->mouse_queue, r);
 }
