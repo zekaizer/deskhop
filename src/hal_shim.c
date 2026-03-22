@@ -182,6 +182,15 @@ uint8_t hal_get_iface_protocol(void *iface_ptr) {
     return ((hid_interface_t *)iface_ptr)->protocol;
 }
 
+/// Get mouse descriptor report_val_t pointers from hid_interface_t
+/// Each returns a pointer to report_val_t that can be passed to rust_get_report_value
+const uint8_t* hal_get_mouse_move_x_val(void *iface) { return (const uint8_t *)&((hid_interface_t *)iface)->mouse.move_x; }
+const uint8_t* hal_get_mouse_move_y_val(void *iface) { return (const uint8_t *)&((hid_interface_t *)iface)->mouse.move_y; }
+const uint8_t* hal_get_mouse_wheel_val(void *iface) { return (const uint8_t *)&((hid_interface_t *)iface)->mouse.wheel; }
+const uint8_t* hal_get_mouse_pan_val(void *iface) { return (const uint8_t *)&((hid_interface_t *)iface)->mouse.pan; }
+const uint8_t* hal_get_mouse_buttons_val(void *iface) { return (const uint8_t *)&((hid_interface_t *)iface)->mouse.buttons; }
+uint8_t hal_get_mouse_buttons_report_id(void *iface) { return ((hid_interface_t *)iface)->mouse.buttons.report_id; }
+
 /// Get consumer control info from hid_interface_t
 bool hal_get_consumer_is_variable(void *iface_ptr) {
     return ((hid_interface_t *)iface_ptr)->consumer.is_variable;

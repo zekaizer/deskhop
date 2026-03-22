@@ -1,4 +1,4 @@
-/* DeskHop mouse — logic in Rust, C wrappers + HAL queue/extract. */
+/* DeskHop mouse — logic in Rust, C wrappers + HAL queue. */
 #include "main.h"
 
 extern int32_t rust_move_and_keep_on_screen(int32_t, int32_t);
@@ -31,22 +31,6 @@ void switch_virtual_desktop(device_t *s, output_t *o, int n, int d) { rust_switc
 void do_screen_switch(device_t *s, int d) { rust_do_screen_switch(s, d); }
 void process_mouse_report(uint8_t *r, int l, uint8_t i, hid_interface_t *f) {
     rust_process_mouse_report(r, l, i, (void *)f, (void *)&global_state);
-}
-
-/* HAL: hid_interface_t mouse extraction */
-static inline bool extract_value(bool uid, int32_t *dst, report_val_t *src, uint8_t *r, int l) {
-    if (uid && (*r++ != src->report_id)) return false;
-    *dst = get_report_value(r, l, src); return true;
-}
-void extract_report_values(uint8_t *r, int l, device_t *s, mouse_values_t *v, hid_interface_t *i) {
-    if (i->protocol == HID_PROTOCOL_BOOT) {
-        hid_mouse_report_t *m = (hid_mouse_report_t *)r;
-        v->move_x=m->x; v->move_y=m->y; v->wheel=m->wheel; v->pan=m->pan; v->buttons=m->buttons; return;
-    }
-    mouse_t *m = &i->mouse; bool uid = i->uses_report_id;
-    extract_value(uid,&v->move_x,&m->move_x,r,l); extract_value(uid,&v->move_y,&m->move_y,r,l);
-    extract_value(uid,&v->wheel,&m->wheel,r,l); extract_value(uid,&v->pan,&m->pan,r,l);
-    if (!extract_value(uid,&v->buttons,&m->buttons,r,l)) v->buttons = s->mouse_buttons;
 }
 
 /* HAL: queue_t + TinyUSB */

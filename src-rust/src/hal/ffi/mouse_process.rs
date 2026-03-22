@@ -17,9 +17,47 @@ pub unsafe extern "C" fn rust_process_mouse_report(
 
     let state = &mut *crate::app::state::rust_get_app_state();
 
-    // Extract mouse values from HID report (delegates to C for hid_interface_t access)
-    let mut values = [0i32; 5]; // [move_x, move_y, wheel, pan, buttons]
-    device::hal_extract_report_values(raw_report, len, dev, iface, values.as_mut_ptr());
+    // Extract mouse values — use HAL getters for hid_interface_t mouse fields
+    let mut values = [0i32; 5];
+    let protocol = device::hal_get_iface_protocol(iface);
+    const HID_PROTOCOL_BOOT: u8 = 0;
+
+    if protocol == HID_PROTOCOL_BOOT {
+        // Boot protocol: fixed layout [buttons, x, y, wheel, pan]
+        values[0] = *raw_report.add(1) as i8 as i32; // x
+        values[1] = *raw_report.add(2) as i8 as i32; // y
+        values[2] = *raw_report.add(3) as i8 as i32; // wheel
+        values[3] = 0; // pan (not in boot)
+        values[4] = *raw_report as i32; // buttons
+    } else {
+        // Report protocol: use descriptor-parsed field locations
+        let uses_id = device::hal_get_iface_uses_report_id(iface);
+        let report_slice = core::slice::from_raw_parts(raw_report, len as usize);
+
+        fn extract_val(report: &[u8], uses_id: bool, val_ptr: *const u8) -> Option<i32> {
+            if val_ptr.is_null() { return None; }
+            unsafe {
+                let report_id = *val_ptr.add(16); // report_val_t.report_id at offset 16
+                let src = if uses_id {
+                    if report[0] != report_id { return None; }
+                    &report[1..]
+                } else { report };
+                let offset = u16::from_le_bytes([*val_ptr, *val_ptr.add(1)]);
+                let size = u16::from_le_bytes([*val_ptr.add(4), *val_ptr.add(5)]);
+                Some(crate::app::hid_report::get_report_value(src, offset, size))
+            }
+        }
+
+        if let Some(v) = extract_val(report_slice, uses_id, device::hal_get_mouse_move_x_val(iface)) { values[0] = v; }
+        if let Some(v) = extract_val(report_slice, uses_id, device::hal_get_mouse_move_y_val(iface)) { values[1] = v; }
+        if let Some(v) = extract_val(report_slice, uses_id, device::hal_get_mouse_wheel_val(iface)) { values[2] = v; }
+        if let Some(v) = extract_val(report_slice, uses_id, device::hal_get_mouse_pan_val(iface)) { values[3] = v; }
+        if let Some(v) = extract_val(report_slice, uses_id, device::hal_get_mouse_buttons_val(iface)) {
+            values[4] = v;
+        } else {
+            values[4] = state.mouse_buttons as i32;
+        }
+    }
 
     let mouse_vals = mouse_logic::MouseValues {
         move_x: values[0],
