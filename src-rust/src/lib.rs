@@ -9,6 +9,7 @@ pub mod hid_parser;
 pub mod hid_report;
 pub mod keyboard;
 pub mod mouse;
+pub mod mouse_logic;
 pub mod packet;
 pub mod scheduler;
 pub mod screensaver;
