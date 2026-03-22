@@ -222,65 +222,10 @@ int32_t _extract_kbd_boot(uint8_t *raw_report, int len, hid_keyboard_report_t *r
     return rust_extract_kbd_boot(raw_report, len, (uint8_t *)report);
 }
 
-int32_t _extract_kbd_other(uint8_t *raw_report, int len, hid_interface_t *iface, hid_keyboard_report_t *report) {
-    keyboard_t *kb = get_keyboard(iface, raw_report[0]);
-    uint8_t *src = raw_report;
-
-    if (iface->uses_report_id)
-        src++;
-
-    report->modifier = src[kb->modifier.offset_idx];
-    for (int i=0, j=0; i < MAX_KEYS && j < KEYS_IN_USB_REPORT; i++) {
-        if(kb->key_array[i])
-            report->keycode[j++] = src[i];
-    }
-
-    return KBD_REPORT_LENGTH;
-}
-
-int32_t _extract_kbd_nkro(uint8_t *raw_report, int len, hid_interface_t *iface, hid_keyboard_report_t *report) {
-    keyboard_t *kb = get_keyboard(iface, raw_report[0]);
-    uint8_t *ptr = raw_report;
-
-    /* Skip report ID */
-    if (iface->uses_report_id)
-        ptr++;
-
-    /* We expect array of bits mapping 1:1 from usage_min to usage_max, otherwise panic */
-    if ((kb->nkro.usage_max - kb->nkro.usage_min + 1) != kb->nkro.size)
-        return -1;
-
-    /* We expect modifier to be 8 bits long, otherwise we'll fallback to boot mode */
-    if (kb->modifier.size == MODIFIER_BIT_LENGTH) {
-        report->modifier = ptr[kb->modifier.offset_idx];
-    } else
-        return -1;
-
-    /* Move the pointer to the nkro offset's byte index */
-    ptr = &ptr[kb->nkro.offset_idx];
-
-    return extract_bit_variable(&kb->nkro, ptr, KEYS_IN_USB_REPORT, report->keycode);
-}
+/* Now implemented in Rust (src-rust/src/hal/ffi/kbd_extract.rs) */
+extern int32_t rust_extract_kbd_data(uint8_t *, int, uint8_t, void *, uint8_t *);
 
 int32_t extract_kbd_data(
     uint8_t *raw_report, int len, uint8_t itf, hid_interface_t *iface, hid_keyboard_report_t *report) {
-    keyboard_t *keyboard = get_keyboard(iface, raw_report[0]);
-
-    /* Clear the report to start fresh */
-    memset(report, 0, KBD_REPORT_LENGTH);
-
-    /* If we're in boot protocol mode, then it's easy to decide. */
-    if (iface->protocol == HID_PROTOCOL_BOOT)
-        return _extract_kbd_boot(raw_report, len, report);
-
-    /* NKRO is a special case */
-    if (keyboard->is_nkro)
-        return _extract_kbd_nkro(raw_report, len, iface, report);
-
-    /* If we're getting 8 bytes of report, it's safe to assume standard modifier + reserved + keys */
-    if (!iface->uses_report_id && (len == KBD_REPORT_LENGTH || len == KBD_REPORT_LENGTH + 1))
-        return _extract_kbd_boot(raw_report, len, report);
-
-    /* This is something completely different, look at the report  */
-    return _extract_kbd_other(raw_report, len, iface, report);
+    return rust_extract_kbd_data(raw_report, len, itf, (void *)iface, (uint8_t *)report);
 }

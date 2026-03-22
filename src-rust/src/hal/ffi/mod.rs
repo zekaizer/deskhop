@@ -5,6 +5,7 @@ mod checksum;
 mod handlers;
 mod hid;
 mod hid_parser_ffi;
+mod kbd_extract;
 mod kbd_process;
 mod keyboard;
 mod mouse;

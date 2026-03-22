@@ -149,6 +149,39 @@ void hal_iface_set_uses_report_id(void *iface_ptr, bool val) {
     ((hid_interface_t *)iface_ptr)->uses_report_id = val;
 }
 
+/// Get keyboard_t fields via hid_interface_t
+uint16_t hal_get_kbd_modifier_offset_idx(void *iface_ptr, uint8_t report_id) {
+    return get_keyboard((hid_interface_t *)iface_ptr, report_id)->modifier.offset_idx;
+}
+uint16_t hal_get_kbd_modifier_size(void *iface_ptr, uint8_t report_id) {
+    return get_keyboard((hid_interface_t *)iface_ptr, report_id)->modifier.size;
+}
+bool hal_get_kbd_key_array(void *iface_ptr, uint8_t report_id, int index) {
+    if (index >= MAX_KEYS) return false;
+    return get_keyboard((hid_interface_t *)iface_ptr, report_id)->key_array[index];
+}
+bool hal_get_kbd_is_nkro(void *iface_ptr, uint8_t report_id) {
+    return get_keyboard((hid_interface_t *)iface_ptr, report_id)->is_nkro;
+}
+uint16_t hal_get_kbd_nkro_offset_idx(void *iface_ptr, uint8_t report_id) {
+    return get_keyboard((hid_interface_t *)iface_ptr, report_id)->nkro.offset_idx;
+}
+int32_t hal_get_kbd_nkro_usage_min(void *iface_ptr, uint8_t report_id) {
+    return get_keyboard((hid_interface_t *)iface_ptr, report_id)->nkro.usage_min;
+}
+int32_t hal_get_kbd_nkro_usage_max(void *iface_ptr, uint8_t report_id) {
+    return get_keyboard((hid_interface_t *)iface_ptr, report_id)->nkro.usage_max;
+}
+uint16_t hal_get_kbd_nkro_size(void *iface_ptr, uint8_t report_id) {
+    return get_keyboard((hid_interface_t *)iface_ptr, report_id)->nkro.size;
+}
+bool hal_get_iface_uses_report_id(void *iface_ptr) {
+    return ((hid_interface_t *)iface_ptr)->uses_report_id;
+}
+uint8_t hal_get_iface_protocol(void *iface_ptr) {
+    return ((hid_interface_t *)iface_ptr)->protocol;
+}
+
 /// Get consumer control info from hid_interface_t
 bool hal_get_consumer_is_variable(void *iface_ptr) {
     return ((hid_interface_t *)iface_ptr)->consumer.is_variable;
