@@ -168,19 +168,14 @@ impl AppState {
     }
 }
 
-/// Global application state — Rust-owned, exported to C via FFI.
-/// C code accesses this via the `rust_get_app_state()` function.
+/// Global application state — Rust-owned.
 static mut APP_STATE: AppState = AppState::new();
 
-/// Get mutable pointer to the global app state (for C FFI)
-#[no_mangle]
-pub extern "C" fn rust_get_app_state() -> *mut AppState {
+/// Get mutable pointer to the global app state.
+/// Exported to C via hal/ffi/state.rs.
+pub fn rust_get_app_state() -> *mut AppState {
     unsafe { &raw mut APP_STATE }
 }
-
-/// Get sizeof for C layout verification
-#[no_mangle]
-pub static RUST_SIZEOF_APP_STATE: u32 = core::mem::size_of::<AppState>() as u32;
 
 #[cfg(test)]
 mod tests {
