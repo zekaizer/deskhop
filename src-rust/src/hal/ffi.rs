@@ -340,6 +340,56 @@ pub unsafe extern "C" fn rust_screensaver_disable() {
     crate::app::hotkey_handlers::screensaver_disable(state);
 }
 
+// ---- Screensaver set ----
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_screensaver_set(value: u8) {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    if state.is_active_output() {
+        let role = state.board_role as usize;
+        if role < state.config.output.len() {
+            state.config.output[role].screensaver.mode = value;
+        }
+    } else {
+        crate::hal::device::hal_send_value(value, crate::app::constants::PacketType::Screensaver as u8);
+    }
+}
+
+/// Screen border hotkey — record Y position and sync
+#[no_mangle]
+pub unsafe extern "C" fn rust_screen_border_hotkey(dev: *mut core::ffi::c_void) {
+    use crate::app::handlers::{get_border_position, BorderUpdate};
+    let state = &mut *crate::app::state::rust_get_app_state();
+    let output_idx = state.active_output as usize;
+    if output_idx >= state.config.output.len() { return; }
+
+    if state.is_active_output() {
+        match get_border_position(state.pointer_y) {
+            BorderUpdate::Top(v) => state.config.output[output_idx].border.top = v,
+            BorderUpdate::Bottom(v) => state.config.output[output_idx].border.bottom = v,
+        }
+        crate::hal::device::hal_save_config(dev);
+    }
+
+    // Send border to other board
+    let border = &state.config.output[output_idx].border;
+    let border_bytes = [
+        (border.top & 0xFF) as u8,
+        ((border.top >> 8) & 0xFF) as u8,
+        ((border.top >> 16) & 0xFF) as u8,
+        ((border.top >> 24) & 0xFF) as u8,
+        (border.bottom & 0xFF) as u8,
+        ((border.bottom >> 8) & 0xFF) as u8,
+        ((border.bottom >> 16) & 0xFF) as u8,
+        ((border.bottom >> 24) & 0xFF) as u8,
+    ];
+    crate::hal::device::hal_queue_packet(
+        border_bytes.as_ptr(),
+        crate::app::constants::PacketType::SyncBorders as u8,
+        8, // sizeof(border_size_t)
+    );
+}
+
 // ---- Screen lock ----
 
 #[no_mangle]
@@ -368,6 +418,55 @@ pub unsafe extern "C" fn rust_screenlock_handler(dev: *mut core::ffi::c_void) {
             }
         }
     }
+}
+
+/// Handle KBD set report — update LED state, restore if needed
+#[no_mangle]
+pub unsafe extern "C" fn rust_handle_set_report(dev: *mut core::ffi::c_void, led_value: u8) {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    let other_role = 1 - state.board_role as usize;
+    if other_role < state.keyboard_leds.len() {
+        state.keyboard_leds[other_role] = led_value;
+    }
+    if state.keyboard_connected && !state.is_active_output() {
+        crate::hal::device::hal_restore_leds(dev);
+    }
+}
+
+/// Handle sync borders — update border config and save
+#[no_mangle]
+pub unsafe extern "C" fn rust_handle_sync_borders(dev: *mut core::ffi::c_void, data: *const u8) {
+    use crate::app::handlers::{get_border_position, BorderUpdate};
+    if data.is_null() { return; }
+    let state = &mut *crate::app::state::rust_get_app_state();
+    let output_idx = state.active_output as usize;
+    if output_idx >= state.config.output.len() { return; }
+
+    if state.is_active_output() {
+        match get_border_position(state.pointer_y) {
+            BorderUpdate::Top(v) => state.config.output[output_idx].border.top = v,
+            BorderUpdate::Bottom(v) => state.config.output[output_idx].border.bottom = v,
+        }
+        // Send to other board
+        let border = &state.config.output[output_idx].border;
+        let bytes = [
+            (border.top & 0xFF) as u8, ((border.top >> 8) & 0xFF) as u8,
+            ((border.top >> 16) & 0xFF) as u8, ((border.top >> 24) & 0xFF) as u8,
+            (border.bottom & 0xFF) as u8, ((border.bottom >> 8) & 0xFF) as u8,
+            ((border.bottom >> 16) & 0xFF) as u8, ((border.bottom >> 24) & 0xFF) as u8,
+        ];
+        crate::hal::device::hal_queue_packet(
+            bytes.as_ptr(),
+            crate::app::constants::PacketType::SyncBorders as u8,
+            8,
+        );
+    } else {
+        // Copy border data from packet
+        let border = &mut state.config.output[output_idx].border;
+        border.top = i32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
+        border.bottom = i32::from_le_bytes([*data.add(4), *data.add(5), *data.add(6), *data.add(7)]);
+    }
+    crate::hal::device::hal_save_config(dev);
 }
 
 // ---- UART handler helpers ----

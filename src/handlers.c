@@ -27,22 +27,15 @@ void _get_border_position(device_t *state, border_size_t *border) {
     rust_get_border_position(state->pointer_y, &border->top, &border->bottom);
 }
 
+extern void rust_screensaver_set(uint8_t value);
+extern void rust_screen_border_hotkey(device_t *dev);
+
 void _screensaver_set(device_t *state, uint8_t value) {
-    if (CURRENT_BOARD_IS_ACTIVE_OUTPUT)
-        state->config.output[BOARD_ROLE].screensaver.mode = value;
-    else
-        send_value(value, SCREENSAVER_MSG);
+    rust_screensaver_set(value);
 };
 
-/* This key combo records switch y top coordinate for different-size monitors  */
 void screen_border_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
-    border_size_t *border = &state->config.output[state->active_output].border;
-    if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
-        _get_border_position(state, border);
-        save_config(state);
-    }
-
-    queue_packet((uint8_t *)border, SYNC_BORDERS_MSG, sizeof(border_size_t));
+    rust_screen_border_hotkey(state);
 };
 
 extern void rust_fw_upgrade_a(void);
@@ -141,31 +134,20 @@ void handle_mouse_zoom_msg(uart_packet_t *packet, device_t *state) {
     rust_handle_simple_msg(packet->type, packet->data);
 }
 
-/* Process request to update keyboard LEDs */
-void handle_set_report_msg(uart_packet_t *packet, device_t *state) {
-    /* We got this via serial, so it's stored to the opposite of our board role */
-    state->keyboard_leds[OTHER_ROLE] = packet->data[0];
+extern void rust_handle_set_report(device_t *dev, uint8_t led_value);
 
-    /* If we have a keyboard we can control leds on, restore state if active */
-    if (global_state.keyboard_connected && !CURRENT_BOARD_IS_ACTIVE_OUTPUT)
-        restore_leds(state);
+void handle_set_report_msg(uart_packet_t *packet, device_t *state) {
+    rust_handle_set_report(state, packet->data[0]);
 }
 
 void handle_switch_lock_msg(uart_packet_t *packet, device_t *state) {
     rust_handle_simple_msg(packet->type, packet->data);
 }
 
-/* Handle border syncing message that lets the other device know about monitor height offset */
+extern void rust_handle_sync_borders(device_t *dev, const uint8_t *data);
+
 void handle_sync_borders_msg(uart_packet_t *packet, device_t *state) {
-    border_size_t *border = &state->config.output[state->active_output].border;
-
-    if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
-        _get_border_position(state, border);
-        queue_packet((uint8_t *)border, SYNC_BORDERS_MSG, sizeof(border_size_t));
-    } else
-        memcpy(border, packet->data, sizeof(border_size_t));
-
-    save_config(state);
+    rust_handle_sync_borders(state, packet->data);
 }
 
 /* When this message is received, flash the locally attached LED to verify serial comms */
