@@ -314,13 +314,12 @@ void handle_heartbeat_msg(uart_packet_t *packet, device_t *state) {
  * ==============  Output Switch Routines  ============ *
  * ==================================================== */
 
-/* Update output variable, set LED on/off and notify the other board so they are in sync. */
+/* Now partially in Rust — state mutation done via AppState,
+   but HAL calls (restore_leds, send_value, release_all_keys) stay here.
+   This is called from hal_set_active_output() in hal_shim.c. */
 void set_active_output(device_t *state, uint8_t new_output) {
     state->active_output = new_output;
     restore_leds(state);
     send_value(new_output, OUTPUT_SELECT_MSG);
-
-    /* If we were holding a key down and drag the mouse to another screen, the key gets stuck.
-       Changing outputs = no more keypresses on the previous system. */
     release_all_keys(state);
 }
