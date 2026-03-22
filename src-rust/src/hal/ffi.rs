@@ -85,6 +85,26 @@ pub extern "C" fn rust_scale_y_coordinate(
     mouse::scale_y_coordinate(pointer_y, (from_top, from_bottom), (to_top, to_bottom))
 }
 
+// ---- HID report ----
+
+/// C-callable: get_report_value(report, len, val) -> int32_t
+/// val points to report_val_t — we need offset (u16 at +0) and size (u16 at +4)
+#[no_mangle]
+pub unsafe extern "C" fn rust_get_report_value(
+    report: *const u8,
+    len: i32,
+    val: *const u8,
+) -> i32 {
+    if report.is_null() || val.is_null() || len <= 0 {
+        return 0;
+    }
+    let report_slice = core::slice::from_raw_parts(report, len as usize);
+    // ReportVal layout: offset(u16) at +0, offset_idx(u16) at +2, size(u16) at +4
+    let offset = u16::from_le_bytes([*val, *val.add(1)]);
+    let size = u16::from_le_bytes([*val.add(4), *val.add(5)]);
+    crate::app::hid_report::get_report_value(report_slice, offset, size)
+}
+
 // ---- Keyboard ----
 
 /// C-callable: key_in_report(key, report) -> bool

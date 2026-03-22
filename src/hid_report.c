@@ -11,43 +11,11 @@
 #include "hid_report.h"
 #include "main.h"
 
-/* Given a value struct with size and offset in bits, find and return a value from the HID report */
+/* Now implemented in Rust (src-rust/src/app/hid_report.rs) */
+extern int32_t rust_get_report_value(const uint8_t *report, int len, const uint8_t *val);
+
 int32_t get_report_value(uint8_t *report, int len, report_val_t *val) {
-    /* Calculate the bit offset within the byte */
-    uint16_t offset_in_bits = val->offset % 8;
-
-    /* Calculate the remaining bits in the first byte */
-    uint16_t remaining_bits = 8 - offset_in_bits;
-
-    /* Calculate the byte offset in the array */
-    uint16_t byte_offset = val->offset >> 3;
-
-    if (byte_offset >= len)
-        return 0;
-
-    /* Create a mask for the specified number of bits */
-    uint32_t mask = (1u << val->size) - 1;
-
-    /* Initialize the result value with the bits from the first byte */
-    int32_t result = report[byte_offset] >> offset_in_bits;
-
-    /* Move to the next byte and continue fetching bits until the desired length is reached */
-    while (val->size > remaining_bits && byte_offset < len) {
-        result |= report[++byte_offset] << remaining_bits;
-        remaining_bits += 8;
-    }
-
-    /* Apply the mask to retain only the desired number of bits */
-    result = result & mask;
-
-    /* Special case if our result is negative.
-       Check if the most significant bit of 'val' is set */
-    if (result & ((mask >> 1) + 1)) {
-        /* If it is set, sign-extend 'val' by filling the higher bits with 1s */
-        result |= (0xFFFFFFFFU << val->size);
-    }
-
-    return result;
+    return rust_get_report_value(report, len, (const uint8_t *)val);
 }
 
 /* After processing the descriptor, assign the values so we can later use them to interpret reports */
