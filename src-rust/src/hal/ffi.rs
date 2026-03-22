@@ -247,6 +247,73 @@ pub unsafe extern "C" fn rust_handle_keyboard_uart(data: *const u8) {
     crate::app::msg_handlers::handle_keyboard_uart(&data_arr, state);
 }
 
+// ---- Screensaver ----
+
+use crate::app::screensaver::{PongState, JitterState, MouseReport as SSMouseReport};
+
+static mut PONG_STATE: PongState = PongState::new();
+static mut JITTER_STATE: JitterState = JitterState::new();
+
+/// Pong screensaver step — returns mouse report via out pointer.
+/// out must point to 8 bytes [buttons(1)+x(i16)+y(i16)+wheel(i8)+pan(i8)+mode(1)]
+#[no_mangle]
+pub unsafe extern "C" fn rust_screensaver_pong(out: *mut u8) {
+    let report = PONG_STATE.step();
+    write_mouse_report(out, &report);
+}
+
+/// Jitter screensaver step
+#[no_mangle]
+pub unsafe extern "C" fn rust_screensaver_jitter(out: *mut u8) {
+    let report = JITTER_STATE.step();
+    write_mouse_report(out, &report);
+}
+
+/// Reset pong state (called when screensaver restarts)
+#[no_mangle]
+pub unsafe extern "C" fn rust_screensaver_pong_reset() {
+    PONG_STATE = PongState::new();
+}
+
+unsafe fn write_mouse_report(out: *mut u8, report: &SSMouseReport) {
+    if out.is_null() { return; }
+    *out = report.buttons;
+    let x_bytes = report.x.to_le_bytes();
+    *out.add(1) = x_bytes[0];
+    *out.add(2) = x_bytes[1];
+    let y_bytes = report.y.to_le_bytes();
+    *out.add(3) = y_bytes[0];
+    *out.add(4) = y_bytes[1];
+    *out.add(5) = report.wheel as u8;
+    *out.add(6) = report.pan as u8;
+    *out.add(7) = report.mode;
+}
+
+/// Check if screensaver should activate
+#[no_mangle]
+pub extern "C" fn rust_screensaver_should_activate(
+    mode: u8,
+    only_if_inactive: u8,
+    idle_time_us: u64,
+    max_time_us: u64,
+    inactivity_us: u64,
+    is_active_output: bool,
+    tud_ready: bool,
+    last_move_us: u32,
+    current_time_us: u32,
+) -> bool {
+    let config = crate::app::screensaver::ScreensaverConfig {
+        mode,
+        only_if_inactive: only_if_inactive != 0,
+        idle_time_us,
+        max_time_us,
+    };
+    crate::app::screensaver::should_activate(
+        &config, inactivity_us, is_active_output, tud_ready,
+        last_move_us, current_time_us,
+    )
+}
+
 // ---- Packet utilities ----
 
 #[no_mangle]

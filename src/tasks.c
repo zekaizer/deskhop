@@ -53,30 +53,19 @@ void usb_host_task(device_t *state) {
         tuh_task();
 }
 
+/* Now implemented in Rust (src-rust/src/app/screensaver.rs) */
+extern void rust_screensaver_pong(uint8_t *out);
+extern void rust_screensaver_jitter(uint8_t *out);
+
 mouse_report_t *screensaver_pong(device_t *state) {
     static mouse_report_t report = {0};
-    static int dx = 20, dy = 25;
-
-    /* Check if we are bouncing off the walls and reverse direction in that case. */
-    if (report.x + dx < MIN_SCREEN_COORD || report.x + dx > MAX_SCREEN_COORD)
-        dx = -dx;
-
-    if (report.y + dy < MIN_SCREEN_COORD || report.y + dy > MAX_SCREEN_COORD)
-        dy = -dy;
-
-    report.x += dx;
-    report.y += dy;
-
+    rust_screensaver_pong((uint8_t *)&report);
     return &report;
 }
 
 mouse_report_t *screensaver_jitter(device_t *state) {
-    static mouse_report_t report = {
-        .y = JITTER_DISTANCE,
-        .mode = RELATIVE,
-    };
-    report.y = -report.y;
-
+    static mouse_report_t report = {0};
+    rust_screensaver_jitter((uint8_t *)&report);
     return &report;
 }
 
