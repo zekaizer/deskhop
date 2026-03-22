@@ -3,6 +3,7 @@
 pub mod constants;
 pub mod crc;
 pub mod dispatch;
+pub mod extract;
 pub mod handlers;
 pub mod hid_parser;
 pub mod hid_report;

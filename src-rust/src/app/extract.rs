@@ -1,0 +1,207 @@
+// HID descriptor data extraction — determines which handler should process
+// a parsed report value based on usage page / global usage / usage matching.
+
+use crate::app::hid_parser::*;
+
+/// What kind of HID data was found during descriptor parsing
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtractedType {
+    MouseButtons,
+    MouseX,
+    MouseY,
+    MouseWheel,
+    MousePan,
+    Keyboard,
+    ConsumerControl,
+    SystemControl,
+    Unknown,
+}
+
+/// Match a parsed ReportVal to a semantic type based on usage page and usage.
+/// This replaces C's extract_data() usage_map matching logic.
+pub fn classify_report_val(val: &ReportVal) -> ExtractedType {
+    let up = val.usage_page;
+    let gu = val.global_usage;
+    let u = val.usage;
+
+    // Mouse buttons: Button page + Mouse global usage
+    if up == HID_USAGE_PAGE_BUTTON && gu == HID_USAGE_DESKTOP_MOUSE {
+        return ExtractedType::MouseButtons;
+    }
+
+    // Mouse X/Y/Wheel: Desktop page + Mouse global usage
+    if up == HID_USAGE_PAGE_DESKTOP && gu == HID_USAGE_DESKTOP_MOUSE {
+        return match u {
+            HID_USAGE_DESKTOP_X => ExtractedType::MouseX,
+            HID_USAGE_DESKTOP_Y => ExtractedType::MouseY,
+            HID_USAGE_DESKTOP_WHEEL => ExtractedType::MouseWheel,
+            _ => ExtractedType::Unknown,
+        };
+    }
+
+    // Mouse Pan: Consumer page + Mouse global usage
+    if up == HID_USAGE_PAGE_CONSUMER && gu == HID_USAGE_DESKTOP_MOUSE {
+        if u == HID_USAGE_CONSUMER_AC_PAN {
+            return ExtractedType::MousePan;
+        }
+    }
+
+    // Keyboard: Keyboard page + Keyboard global usage
+    if up == HID_USAGE_PAGE_KEYBOARD && gu == HID_USAGE_DESKTOP_KEYBOARD {
+        return ExtractedType::Keyboard;
+    }
+
+    // Consumer Control: Consumer page + Consumer Control global usage
+    if up == HID_USAGE_PAGE_CONSUMER && gu == HID_USAGE_CONSUMER_CONTROL {
+        return ExtractedType::ConsumerControl;
+    }
+
+    // System Control: Desktop page + System Control global usage
+    if up == HID_USAGE_PAGE_DESKTOP && gu == HID_USAGE_DESKTOP_SYSTEM_CONTROL {
+        return ExtractedType::SystemControl;
+    }
+
+    ExtractedType::Unknown
+}
+
+/// Determine if a value represents a constant (padding) — should not be stored.
+pub fn is_padding(val: &ReportVal) -> bool {
+    val.item_type == CONSTANT
+}
+
+/// Determine if this value uses NKRO format (size > 32 bits, variable type)
+pub fn is_nkro(val: &ReportVal) -> bool {
+    val.size > 32 && val.data_type == VARIABLE
+}
+
+/// Check if this is a modifier key (left control 0xE0 within usage range)
+pub fn is_modifier_key(val: &ReportVal) -> bool {
+    const LEFT_CTRL: i32 = 0xE0;
+    const MODIFIER_BIT_LENGTH: u16 = 8;
+
+    val.size <= MODIFIER_BIT_LENGTH
+        && val.data_type == VARIABLE
+        && LEFT_CTRL >= val.usage_min
+        && LEFT_CTRL <= val.usage_max
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_val(usage_page: u16, global_usage: u16, usage: u16) -> ReportVal {
+        ReportVal {
+            usage_page,
+            global_usage,
+            usage,
+            ..ReportVal::default()
+        }
+    }
+
+    #[test]
+    fn test_classify_mouse_buttons() {
+        let val = make_val(HID_USAGE_PAGE_BUTTON, HID_USAGE_DESKTOP_MOUSE, 0);
+        assert_eq!(classify_report_val(&val), ExtractedType::MouseButtons);
+    }
+
+    #[test]
+    fn test_classify_mouse_x() {
+        let val = make_val(HID_USAGE_PAGE_DESKTOP, HID_USAGE_DESKTOP_MOUSE, HID_USAGE_DESKTOP_X);
+        assert_eq!(classify_report_val(&val), ExtractedType::MouseX);
+    }
+
+    #[test]
+    fn test_classify_mouse_y() {
+        let val = make_val(HID_USAGE_PAGE_DESKTOP, HID_USAGE_DESKTOP_MOUSE, HID_USAGE_DESKTOP_Y);
+        assert_eq!(classify_report_val(&val), ExtractedType::MouseY);
+    }
+
+    #[test]
+    fn test_classify_mouse_wheel() {
+        let val = make_val(HID_USAGE_PAGE_DESKTOP, HID_USAGE_DESKTOP_MOUSE, HID_USAGE_DESKTOP_WHEEL);
+        assert_eq!(classify_report_val(&val), ExtractedType::MouseWheel);
+    }
+
+    #[test]
+    fn test_classify_mouse_pan() {
+        let val = make_val(HID_USAGE_PAGE_CONSUMER, HID_USAGE_DESKTOP_MOUSE, HID_USAGE_CONSUMER_AC_PAN);
+        assert_eq!(classify_report_val(&val), ExtractedType::MousePan);
+    }
+
+    #[test]
+    fn test_classify_keyboard() {
+        let val = make_val(HID_USAGE_PAGE_KEYBOARD, HID_USAGE_DESKTOP_KEYBOARD, 0);
+        assert_eq!(classify_report_val(&val), ExtractedType::Keyboard);
+    }
+
+    #[test]
+    fn test_classify_consumer_control() {
+        let val = make_val(HID_USAGE_PAGE_CONSUMER, HID_USAGE_CONSUMER_CONTROL, 0);
+        assert_eq!(classify_report_val(&val), ExtractedType::ConsumerControl);
+    }
+
+    #[test]
+    fn test_classify_system_control() {
+        let val = make_val(HID_USAGE_PAGE_DESKTOP, HID_USAGE_DESKTOP_SYSTEM_CONTROL, 0);
+        assert_eq!(classify_report_val(&val), ExtractedType::SystemControl);
+    }
+
+    #[test]
+    fn test_classify_unknown() {
+        let val = make_val(0xFF, 0xFF, 0xFF);
+        assert_eq!(classify_report_val(&val), ExtractedType::Unknown);
+    }
+
+    #[test]
+    fn test_is_padding() {
+        let mut val = ReportVal::default();
+        val.item_type = CONSTANT;
+        assert!(is_padding(&val));
+
+        val.item_type = DATA;
+        assert!(!is_padding(&val));
+    }
+
+    #[test]
+    fn test_is_nkro() {
+        let mut val = ReportVal::default();
+        val.size = 240;
+        val.data_type = VARIABLE;
+        assert!(is_nkro(&val));
+
+        val.size = 8;
+        assert!(!is_nkro(&val));
+    }
+
+    #[test]
+    fn test_is_modifier_key() {
+        let val = ReportVal {
+            size: 8,
+            data_type: VARIABLE,
+            usage_min: 0xE0,
+            usage_max: 0xE7,
+            ..ReportVal::default()
+        };
+        assert!(is_modifier_key(&val));
+
+        // Not modifier — wrong range
+        let val2 = ReportVal {
+            size: 8,
+            data_type: VARIABLE,
+            usage_min: 0x00,
+            usage_max: 0x0F,
+            ..ReportVal::default()
+        };
+        assert!(!is_modifier_key(&val2));
+
+        // Not modifier — array type
+        let val3 = ReportVal {
+            size: 8,
+            data_type: ARRAY,
+            usage_min: 0xE0,
+            usage_max: 0xE7,
+            ..ReportVal::default()
+        };
+        assert!(!is_modifier_key(&val3));
+    }
+}
