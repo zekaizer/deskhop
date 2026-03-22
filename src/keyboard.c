@@ -109,12 +109,7 @@ void queue_kbd_report(hid_keyboard_report_t *report, device_t *state) {
     queue_try_add(&state->kbd_queue, report);
 }
 
-/* HAL-dependent: queue_t routing */
-void send_consumer_control(uint8_t *r, device_t *s) {
-    if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) { queue_cc_packet(r, s); s->last_activity[BOARD_ROLE] = time_us_64(); }
-    else queue_packet(r, CONSUMER_CONTROL_MSG, CONSUMER_CONTROL_LENGTH);
-}
-void send_system_control(uint8_t *r, device_t *s) {
-    if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) { queue_system_packet(r, s); s->last_activity[BOARD_ROLE] = time_us_64(); }
-    else queue_packet(r, SYSTEM_CONTROL_MSG, SYSTEM_CONTROL_LENGTH);
-}
+extern void rust_send_consumer_control(device_t *, const uint8_t *);
+extern void rust_send_system_control(device_t *, const uint8_t *);
+void send_consumer_control(uint8_t *r, device_t *s) { rust_send_consumer_control(s, r); }
+void send_system_control(uint8_t *r, device_t *s) { rust_send_system_control(s, r); }

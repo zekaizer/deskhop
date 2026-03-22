@@ -127,6 +127,9 @@ void hal_fetch_packet(device_t *dev) {
 
 /* extract_report_values now handled directly by Rust mouse_process */
 
+void hal_queue_cc_packet(device_t *dev, const uint8_t *payload) { queue_cc_packet((uint8_t *)payload, dev); }
+void hal_queue_system_packet(device_t *dev, const uint8_t *payload) { queue_system_packet((uint8_t *)payload, dev); }
+
 /// Call C extract_data for a single ReportVal.
 /// val_ptr points to a report_val_t struct.
 void hal_extract_data(void *iface_ptr, const uint8_t *val_ptr) {

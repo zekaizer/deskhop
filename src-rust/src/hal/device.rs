@@ -14,6 +14,10 @@ extern "C" {
     pub fn hal_queue_uart_packet(dev: *mut c_void, packet: *const u8);
     pub fn hal_queue_try_add_uart(dev: *mut c_void, data: *const u8) -> bool;
 
+    // ---- HID queue helpers ----
+    pub fn hal_queue_cc_packet(dev: *mut c_void, payload: *const u8);
+    pub fn hal_queue_system_packet(dev: *mut c_void, payload: *const u8);
+
     // ---- UART send helpers ----
     pub fn hal_send_value(value: u8, packet_type: u8);
     pub fn hal_queue_packet(data: *const u8, packet_type: u8, length: i32);
