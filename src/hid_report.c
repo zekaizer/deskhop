@@ -216,15 +216,10 @@ int32_t extract_bit_variable(report_val_t *kbd, uint8_t *raw_report, int len, ui
     return rust_extract_bit_variable((const uint8_t *)kbd, raw_report, len, dst);
 }
 
+extern int32_t rust_extract_kbd_boot(const uint8_t *raw_report, int len, uint8_t *out);
+
 int32_t _extract_kbd_boot(uint8_t *raw_report, int len, hid_keyboard_report_t *report) {
-    uint8_t *src = raw_report;
-
-    /* In case keyboard still uses report ID in this, just pick the last 8 bytes */
-    if (len == KBD_REPORT_LENGTH + 1)
-        src++;
-
-    memcpy(report, src, KBD_REPORT_LENGTH);
-    return KBD_REPORT_LENGTH;
+    return rust_extract_kbd_boot(raw_report, len, (uint8_t *)report);
 }
 
 int32_t _extract_kbd_other(uint8_t *raw_report, int len, hid_interface_t *iface, hid_keyboard_report_t *report) {

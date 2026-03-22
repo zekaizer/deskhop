@@ -1,3 +1,14 @@
+/// Extract boot protocol keyboard report — pure logic, no hid_interface_t.
+#[no_mangle]
+pub unsafe extern "C" fn rust_extract_kbd_boot(
+    raw_report: *const u8, len: i32, out_report: *mut u8,
+) -> i32 {
+    if raw_report.is_null() || out_report.is_null() || len < 8 { return 0; }
+    let src = if len == 9 { raw_report.add(1) } else { raw_report };
+    core::ptr::copy_nonoverlapping(src, out_report, 8);
+    8
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_get_descriptor_value(report: *const u8, size: i32) -> u32 {
     if report.is_null() { return 0; }

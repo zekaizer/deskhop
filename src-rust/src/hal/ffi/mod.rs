@@ -10,5 +10,6 @@ mod keyboard;
 mod mouse;
 mod mouse_process;
 mod packet;
+mod screen_switch;
 mod screensaver;
 mod state;

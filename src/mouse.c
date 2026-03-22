@@ -76,20 +76,11 @@ int16_t scale_y_coordinate(int screen_from, int screen_to, device_t *state) {
         to->border.top, to->border.bottom);
 }
 
+extern void rust_switch_to_another_pc(device_t *dev, uint32_t output_number, int output_to, int direction);
+
 void switch_to_another_pc(
     device_t *state, output_t *output, int output_to, int direction) {
-    uint8_t *mouse_park_pos = &state->config.output[state->active_output].mouse_park_pos;
-
-    int16_t mouse_y = (*mouse_park_pos == 0) ? MIN_SCREEN_COORD : /* Top */
-                      (*mouse_park_pos == 1) ? MAX_SCREEN_COORD : /* Bottom */
-                                               state->pointer_y;  /* Previous */
-
-    mouse_report_t hidden_pointer = {.y = mouse_y, .x = MAX_SCREEN_COORD};
-
-    output_mouse_report(&hidden_pointer, state);
-    set_active_output(state, output_to);
-    state->pointer_x = (direction == LEFT) ? MAX_SCREEN_COORD : MIN_SCREEN_COORD;
-    state->pointer_y = scale_y_coordinate(output->number, 1 - output->number, state);
+    rust_switch_to_another_pc(state, output->number, output_to, direction);
 }
 
 void switch_virtual_desktop_macos(device_t *state, int direction) {
