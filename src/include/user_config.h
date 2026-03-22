@@ -50,8 +50,7 @@
 #define HOTKEY_MODIFIER  KEYBOARD_MODIFIER_LEFTCTRL
 #define HOTKEY_TOGGLE    HID_KEY_CAPS_LOCK
 
-/* SmartShift double-click window for A/B output switch (microseconds) */
-#define SMARTSHIFT_DOUBLE_CLICK_US 500000
+/* (SmartShift moved to Semi-DDM Extension Config section below) */
 
 /**================================================== *
  * ==============  Mouse Speed Factor  ============== *
@@ -210,3 +209,27 @@
  * */
 
 #define ENFORCE_KEYBOARD_BOOT_PROTOCOL 0
+
+
+/**================================================== *
+ * =========  Semi-DDM Extension Config  ============ *
+ * ================================================== *
+ *
+ * Settings below are for Semi-DDM extended features
+ * (Logitech Bolt/Unifying passthrough, gaming mode,
+ * key remapping).
+ *
+ * PASSTHROUGH_ENABLED: [0, 1] - 1 enables HID passthrough for Logitech receivers
+ *                               0 disables passthrough even if receiver is connected
+ *
+ * GAMING_MODE_DEFAULT: [0, 1] - 1 starts with gaming mode on (relative mouse + switch lock)
+ *                               0 starts with gaming mode off
+ *
+ * SMARTSHIFT_DOUBLE_CLICK_US: double-click window for SmartShift A/B output switch
+ *                             (microseconds, default 500ms)
+ *
+ * */
+
+#define PASSTHROUGH_ENABLED          1
+#define GAMING_MODE_DEFAULT          1
+#define SMARTSHIFT_DOUBLE_CLICK_US   500000
