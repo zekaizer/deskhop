@@ -7,6 +7,14 @@
 #include "main.h"
 
 /* ==================================================== *
+ * Layout verification — Rust struct sizes must match C
+ * ==================================================== */
+
+// Rust structs.rs defines QUEUE_T_SIZE — must match sizeof(queue_t)
+_Static_assert(sizeof(queue_t) == 16,
+    "queue_t size changed — update QUEUE_T_SIZE in src-rust/src/structs.rs");
+
+/* ==================================================== *
  * Read-only state accessors
  * ==================================================== */
 

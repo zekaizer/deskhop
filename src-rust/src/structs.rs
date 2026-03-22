@@ -217,7 +217,7 @@ pub struct HidKeyboardReport {
 // WORKAROUND(c-compat): queue_t is SDK-internal. We use a fixed-size
 // opaque blob. Size MUST match sizeof(queue_t) from the Pico SDK.
 // If SDK changes queue_t size, this will break silently.
-const QUEUE_T_SIZE: usize = 20;
+const QUEUE_T_SIZE: usize = 16;
 
 #[derive(Clone, Copy)]
 #[repr(C, align(4))]
