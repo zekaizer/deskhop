@@ -67,33 +67,10 @@ void toggle_gaming_mode_handler(device_t *state, hid_keyboard_report_t *report) 
     rust_gaming_mode_toggle();
 };
 
-/* This key combo locks both outputs simultaneously */
+extern void rust_screenlock_handler(device_t *dev);
+
 void screenlock_hotkey_handler(device_t *state, hid_keyboard_report_t *report) {
-    hid_keyboard_report_t lock_report = {0}, release_keys = {0};
-
-    for (int out = 0; out < NUM_SCREENS; out++) {
-        switch (state->config.output[out].os) {
-            case WINDOWS:
-            case LINUX:
-                lock_report.modifier   = KEYBOARD_MODIFIER_LEFTGUI;
-                lock_report.keycode[0] = HID_KEY_L;
-                break;
-            case MACOS:
-                lock_report.modifier   = KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_LEFTGUI;
-                lock_report.keycode[0] = HID_KEY_Q;
-                break;
-            default:
-                break;
-        }
-
-        if (BOARD_ROLE == out) {
-            queue_kbd_report(&lock_report, state);
-            release_all_keys(state);
-        } else {
-            queue_packet((uint8_t *)&lock_report, KEYBOARD_REPORT_MSG, KBD_REPORT_LENGTH);
-            queue_packet((uint8_t *)&release_keys, KEYBOARD_REPORT_MSG, KBD_REPORT_LENGTH);
-        }
-    }
+    rust_screenlock_handler(state);
 }
 
 extern void rust_wipe_config_hotkey(device_t *dev);
@@ -139,41 +116,20 @@ void config_enable_hotkey_handler(device_t *state, hid_keyboard_report_t *report
  * ==========  UART Message Handling Routines  ======== *
  * ==================================================== */
 
-/* Function handles received keypresses from the other board */
+extern void rust_handle_keyboard_uart_full(device_t *dev, const uint8_t *data);
+extern void rust_handle_mouse_uart_full(device_t *dev, const uint8_t *data);
+extern void rust_handle_output_select(device_t *dev, uint8_t output);
+
 void handle_keyboard_uart_msg(uart_packet_t *packet, device_t *state) {
-    hid_keyboard_report_t *report = (hid_keyboard_report_t *)packet->data;
-    hid_keyboard_report_t combined_report;
-
-    /* Update the keyboard state for the remote device  */
-    update_remote_kbd_state(state, report);
-
-    /* Create a combined report from all device states */
-    combine_kbd_states(state, &combined_report);
-
-    /* Queue the combined report */
-    queue_kbd_report(&combined_report, state);
-    state->last_activity[BOARD_ROLE] = time_us_64();
+    rust_handle_keyboard_uart_full(state, packet->data);
 }
 
-/* Function handles received mouse moves from the other board */
 void handle_mouse_abs_uart_msg(uart_packet_t *packet, device_t *state) {
-    mouse_report_t *mouse_report = (mouse_report_t *)packet->data;
-    queue_mouse_report(mouse_report, state);
-
-    state->pointer_x       = mouse_report->x;
-    state->pointer_y       = mouse_report->y;
-    state->mouse_buttons   = mouse_report->buttons;
-
-    state->last_activity[BOARD_ROLE] = time_us_64();
+    rust_handle_mouse_uart_full(state, packet->data);
 }
 
-/* Function handles request to switch output  */
 void handle_output_select_msg(uart_packet_t *packet, device_t *state) {
-    state->active_output = packet->data[0];
-    if (state->tud_connected)
-        release_all_keys(state);
-
-    restore_leds(state);
+    rust_handle_output_select(state, packet->data[0]);
 }
 
 /* On firmware upgrade message, reboot into the BOOTSEL fw upgrade mode */

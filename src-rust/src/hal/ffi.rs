@@ -340,6 +340,88 @@ pub unsafe extern "C" fn rust_screensaver_disable() {
     crate::app::hotkey_handlers::screensaver_disable(state);
 }
 
+// ---- Screen lock ----
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_screenlock_handler(dev: *mut core::ffi::c_void) {
+    use crate::app::handlers::screenlock_keys;
+    let state = &*crate::app::state::rust_get_app_state();
+
+    for out in 0..2u8 {
+        let os = state.config.output[out as usize].os;
+        if let Some((modifier, key)) = screenlock_keys(os) {
+            let mut report = [0u8; 8]; // hid_keyboard_report_t
+            report[0] = modifier;
+            report[2] = key;
+
+            if state.board_role == out {
+                crate::hal::device::hal_queue_kbd_report(dev, report.as_ptr());
+                crate::hal::device::hal_release_all_keys(dev);
+            } else {
+                crate::hal::device::hal_queue_packet(
+                    report.as_ptr(), crate::app::constants::PacketType::KeyboardReport as u8, 8,
+                );
+                let empty = [0u8; 8];
+                crate::hal::device::hal_queue_packet(
+                    empty.as_ptr(), crate::app::constants::PacketType::KeyboardReport as u8, 8,
+                );
+            }
+        }
+    }
+}
+
+// ---- UART handler helpers ----
+
+/// Handle output select — set output, release keys, restore LEDs
+#[no_mangle]
+pub unsafe extern "C" fn rust_handle_output_select(dev: *mut core::ffi::c_void, output: u8) {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    state.active_output = output;
+    if state.tud_connected {
+        crate::hal::device::hal_release_all_keys(dev);
+    }
+    crate::hal::device::hal_restore_leds(dev);
+}
+
+/// Handle keyboard UART msg — update remote state, combine, queue
+#[no_mangle]
+pub unsafe extern "C" fn rust_handle_keyboard_uart_full(dev: *mut core::ffi::c_void, data: *const u8) {
+    if data.is_null() { return; }
+    let state = &mut *crate::app::state::rust_get_app_state();
+
+    // Update remote state
+    let mut data_arr = [0u8; 8];
+    core::ptr::copy_nonoverlapping(data, data_arr.as_mut_ptr(), 8);
+    crate::app::msg_handlers::handle_keyboard_uart(&data_arr, state);
+
+    // Combine and queue
+    crate::app::kbd_state::send_key(dev, state);
+    let role = state.board_role as usize;
+    if role < state.last_activity.len() {
+        state.last_activity[role] = crate::hal::device::hal_time_us_64();
+    }
+}
+
+/// Handle mouse abs UART msg — queue report, update state
+#[no_mangle]
+pub unsafe extern "C" fn rust_handle_mouse_uart_full(dev: *mut core::ffi::c_void, data: *const u8) {
+    if data.is_null() { return; }
+    let state = &mut *crate::app::state::rust_get_app_state();
+
+    // Queue the mouse report
+    crate::hal::device::hal_queue_mouse_report(dev, data);
+
+    // Update state
+    let mut data_arr = [0u8; 8];
+    core::ptr::copy_nonoverlapping(data, data_arr.as_mut_ptr(), 8);
+    crate::app::msg_handlers::handle_mouse_uart(&data_arr, state);
+
+    let role = state.board_role as usize;
+    if role < state.last_activity.len() {
+        state.last_activity[role] = crate::hal::device::hal_time_us_64();
+    }
+}
+
 // ---- Handlers ----
 
 /// C-callable: _get_border_position(pointer_y, border_top_ptr, border_bottom_ptr)
