@@ -43,6 +43,12 @@ extern "C" {
     pub fn hal_tud_hid_keyboard_report(report_id: u8, modifier: u8, keycode: *const u8) -> bool;
     pub fn hal_tud_mouse_report(mode: u8, buttons: u8, x: i16, y: i16, wheel: i8, pan: i8) -> bool;
 
+    // ---- HID interface manipulation ----
+    /// Call C extract_data to populate hid_interface_t from a ReportVal
+    pub fn hal_extract_data(iface: *mut c_void, val: *const u8);
+    /// Set uses_report_id on hid_interface_t
+    pub fn hal_iface_set_uses_report_id(iface: *mut c_void, val: bool);
+
     // ---- Mouse report extraction ----
     /// Extract mouse values from raw HID report. out is 5×i32.
     pub fn hal_extract_report_values(

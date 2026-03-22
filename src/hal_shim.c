@@ -138,6 +138,17 @@ void hal_extract_report_values(uint8_t *raw_report, int len,
     out[4] = values.buttons;
 }
 
+/// Call C extract_data for a single ReportVal.
+/// val_ptr points to a report_val_t struct.
+void hal_extract_data(void *iface_ptr, const uint8_t *val_ptr) {
+    extract_data((hid_interface_t *)iface_ptr, (report_val_t *)val_ptr);
+}
+
+/// Set uses_report_id on hid_interface_t
+void hal_iface_set_uses_report_id(void *iface_ptr, bool val) {
+    ((hid_interface_t *)iface_ptr)->uses_report_id = val;
+}
+
 /* ==================================================== *
  * HID keyboard extraction
  * ==================================================== */

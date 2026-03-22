@@ -159,37 +159,12 @@ void handle_main_item(parser_state_t *parser, item_t *item, hid_interface_t *ifa
  * hopefully work well enough to find the basic values we care about to move the mouse around.
  * Your descriptor for a mouse with 2 wheels and 264 buttons might not parse correctly.
  * */
-parser_state_t parser_state = {0};  // Avoid placing it on the stack, it's large
+/* Now implemented in Rust (src-rust/src/hal/ffi/hid_parser_ffi.rs) */
+extern void rust_parse_report_descriptor(void *iface, const uint8_t *report, int desc_len);
 
+/* C parser state is no longer used — Rust owns the parser */
 void parse_report_descriptor(hid_interface_t *iface,
                             uint8_t const *report,
-                            int desc_len
-                            ) {
-    item_t item = {0};
-
-    /* Wipe parser_state clean */
-    memset(&parser_state, 0, sizeof(parser_state_t));
-    parser_state.p_usage = parser_state.usages;
-
-    while (desc_len > 0) {
-        item.hdr = *(header_t *)report++;
-        item.val = get_descriptor_value(report, item.hdr.size);
-
-        switch (item.hdr.type) {
-            case RI_TYPE_MAIN:
-                handle_main_item(&parser_state, &item, iface);
-                break;
-
-            case RI_TYPE_GLOBAL:
-                handle_global_item(&parser_state, &item);
-                break;
-
-            case RI_TYPE_LOCAL:
-                handle_local_item(&parser_state, &item);
-                break;
-        }
-        /* Move to the next position and decrement size by header length + data length */
-        report += SIZE_LOOKUP[item.hdr.size];
-        desc_len -= (SIZE_LOOKUP[item.hdr.size] + 1);
-    }
+                            int desc_len) {
+    rust_parse_report_descriptor((void *)iface, report, desc_len);
 }

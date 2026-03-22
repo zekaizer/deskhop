@@ -80,7 +80,10 @@ pub const HID_USAGE_DESKTOP_MOUSE: u16 = 0x02;
 pub const HID_USAGE_DESKTOP_KEYBOARD: u16 = 0x06;
 
 /// Parsed report value descriptor — describes where a value lives in a HID report
+// WORKAROUND(c-compat): C's report_val_t is TU_ATTR_PACKED. When passing to
+// C's extract_data, we serialize to packed bytes. Rust-internal use is non-packed.
 #[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
 pub struct ReportVal {
     pub offset: u16,      // In bits
     pub offset_idx: u16,  // In bytes
