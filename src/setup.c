@@ -254,6 +254,11 @@ void initial_setup(device_t *state) {
     configure_tx_dma(state);
     configure_rx_dma(state);
 
+    /* Initialize key remap engine with default mappings */
+    remap_engine_init(&state->remap_engine,
+                       state->config.output[OUTPUT_A].os,
+                       state->config.output[OUTPUT_B].os);
+
     /* Load the current firmware info */
     state->_running_fw = _firmware_metadata;
 

@@ -224,6 +224,12 @@ void combine_kbd_states(device_t *state, hid_keyboard_report_t *combined_report)
     /* Add remote keyboard */
     combined_report->modifier |= state->remote_kbd_state.modifier;
     add_keys(combined_report, &state->remote_kbd_state);
+
+    /* Add remap engine active output (hold keys in RS_HELD) */
+    hid_keyboard_report_t remap_out;
+    remap_engine_get_active_output(&state->remap_engine, &remap_out);
+    combined_report->modifier |= remap_out.modifier;
+    add_keys(combined_report, &remap_out);
 }
 
 /* ==================================================== *
@@ -265,20 +271,21 @@ void queue_kbd_report(hid_keyboard_report_t *report, device_t *state) {
     queue_try_add(&state->kbd_queue, report);
 }
 
-/* If keys need to go locally, queue packet to kbd queue, else send them through UART */
-void send_key(hid_keyboard_report_t *report, device_t *state) {
-    /* Create a combined report from all device states */
-    hid_keyboard_report_t combined_report;
-    combine_kbd_states(state, &combined_report);
-
+/* Route a pre-built keyboard report to local queue or UART */
+void route_kbd_report(hid_keyboard_report_t *report, device_t *state) {
     if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
-        /* Queue the combined report */
-        queue_kbd_report(&combined_report, state);
+        queue_kbd_report(report, state);
         state->last_activity[BOARD_ROLE] = time_us_64();
     } else {
-        /* Send the combined report to ensure all keys are included */
-        queue_packet((uint8_t *)&combined_report, KEYBOARD_REPORT_MSG, KBD_REPORT_LENGTH);
+        queue_packet((uint8_t *)report, KEYBOARD_REPORT_MSG, KBD_REPORT_LENGTH);
     }
+}
+
+/* If keys need to go locally, queue packet to kbd queue, else send them through UART */
+void send_key(hid_keyboard_report_t *report, device_t *state) {
+    hid_keyboard_report_t combined_report;
+    combine_kbd_states(state, &combined_report);
+    route_kbd_report(&combined_report, state);
 }
 
 /* Decide if consumer control reports go local or to the other board */
@@ -319,25 +326,45 @@ void process_keyboard_report(uint8_t *raw_report, int length, uint8_t itf, hid_i
 
     extract_kbd_data(raw_report, length, itf, iface, &new_report);
 
-    /* Update the keyboard state for this device */
+    /* Update state with ORIGINAL keys for hotkey matching */
     update_kbd_state(state, &new_report, itf);
 
-    /* Check if any hotkey was pressed */
+    /* Check hotkeys on ORIGINAL (physical) keys */
     hotkey = check_all_hotkeys(&new_report, state);
-
-    /* ... and take appropriate action */
     if (hotkey != NULL) {
-        /* Provide visual feedback we received the action */
         if (hotkey->acknowledge)
             blink_led(state);
-
-        /* Execute the corresponding handler */
         hotkey->action_handler(state, &new_report);
-
-        /* And pass the key to the output PC if configured to do so. */
         if (!hotkey->pass_to_os)
             return;
     }
+
+    remap_result_t remap = remap_engine_process(&state->remap_engine,
+                                                &new_report,
+                                                state->active_output);
+    if (remap == REMAP_CONSUMED)
+        return;
+
+    /* Emit any pending tap actions from remap engine */
+    {
+        hid_keyboard_report_t pending = {0};
+        if (remap_engine_get_pending(&state->remap_engine, &pending)) {
+            /* Build combined report with tap key added, then route directly.
+             * send_key() ignores its argument and uses combine_kbd_states(),
+             * which doesn't include momentary tap keys. */
+            hid_keyboard_report_t tap_press;
+            combine_kbd_states(state, &tap_press);
+            add_keys(&tap_press, &pending);
+            tap_press.modifier |= pending.modifier;
+            route_kbd_report(&tap_press, state);
+            /* The subsequent send_key() below sends combined without tap key = release */
+        }
+    }
+
+    /* Re-update state with REMAPPED keys so send_key's combine_kbd_states
+     * sends the remapped version, not the original physical keys. */
+    if (remap == REMAP_MODIFIED)
+        update_kbd_state(state, &new_report, itf);
 
     /* This method will decide if the key gets queued locally or sent through UART */
     send_key(&new_report, state);

@@ -31,6 +31,7 @@ int main(void) {
         [4] = {.exec = &process_hid_queue_task,   .frequency = _HZ(1000)},   // | Check if there are any packets to send over vendor link
         [5] = {.exec = &process_uart_tx_task,     .frequency = _TOP()},      // | Check if there are any packets to send over UART
         [6] = {.exec = &passthrough_task,         .frequency = _HZ(10)},     // | Passthrough activation and re-enumeration
+        [7] = {.exec = &remap_engine_tick_task,    .frequency = _HZ(1000)},   // | Key remap engine timer (tap-hold threshold)
     };                                                                       // `----- then go back and repeat forever
     const int NUM_TASKS = ARRAY_SIZE(tasks_core0);
 

@@ -14,6 +14,7 @@
 #include "flash.h"
 #include "packet.h"
 #include "screen.h"
+#include "key_remap.h"
 
 typedef void (*action_handler_t)();
 
@@ -146,6 +147,9 @@ typedef struct {
     bool gaming_mode;        // True when gaming mode is on (relative passthru + lock)
     bool config_mode_active; // True when config mode is active
     bool digitizer_active;   // True when digitizer Win/Mac workaround is active
+
+    /* Key remap engine (P4) */
+    remap_engine_t remap_engine;
 
     /* Onboard LED blinky (provide feedback when e.g. mouse connected) */
     int32_t blinks_left;     // How many blink transitions are left

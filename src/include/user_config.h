@@ -50,6 +50,9 @@
 #define HOTKEY_MODIFIER  KEYBOARD_MODIFIER_LEFTCTRL
 #define HOTKEY_TOGGLE    HID_KEY_CAPS_LOCK
 
+/* SmartShift double-click window for A/B output switch (microseconds) */
+#define SMARTSHIFT_DOUBLE_CLICK_US 500000
+
 /**================================================== *
  * ==============  Mouse Speed Factor  ============== *
  * ================================================== *

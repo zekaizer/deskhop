@@ -35,3 +35,4 @@ void screensaver_task(device_t *);
 void usb_device_task(device_t *);
 void usb_host_task(device_t *);
 void passthrough_task(device_t *);
+void remap_engine_tick_task(device_t *);
