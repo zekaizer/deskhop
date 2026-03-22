@@ -150,15 +150,13 @@ void handle_sync_borders_msg(uart_packet_t *packet, device_t *state) {
     rust_handle_sync_borders(state, packet->data);
 }
 
-/* When this message is received, flash the locally attached LED to verify serial comms */
 void handle_flash_led_msg(uart_packet_t *packet, device_t *state) {
-    blink_led(state);
+    hal_blink_led(state);
 }
 
-/* When this message is received, wipe the local flash config */
 void handle_wipe_config_msg(uart_packet_t *packet, device_t *state) {
-    wipe_config();
-    load_config(state);
+    hal_wipe_config();
+    hal_load_config(state);
 }
 
 void handle_screensaver_msg(uart_packet_t *packet, device_t *state) {
@@ -170,19 +168,16 @@ void handle_consumer_control_msg(uart_packet_t *packet, device_t *state) {
     queue_cc_packet(packet->data, state);
 }
 
-/* Process request to store config to flash */
 void handle_save_config_msg(uart_packet_t *packet, device_t *state) {
-    save_config(state);
+    hal_save_config(state);
 }
 
-/* Process request to reboot the board */
 void handle_reboot_msg(uart_packet_t *packet, device_t *state) {
-    reboot();
+    hal_reboot();
 }
 
-/* Decapsulate and send to the other box */
 void handle_proxy_msg(uart_packet_t *packet, device_t *state) {
-    queue_packet(&packet->data[1], (enum packet_type_e)packet->data[0], PACKET_DATA_LENGTH - 1);
+    hal_queue_packet(&packet->data[1], packet->data[0], PACKET_DATA_LENGTH - 1);
 }
 
 void handle_toggle_gaming_msg(uart_packet_t *packet, device_t *state) {
