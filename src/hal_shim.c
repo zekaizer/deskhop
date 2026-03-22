@@ -12,7 +12,11 @@
 
 // Rust structs.rs defines QUEUE_T_SIZE — must match sizeof(queue_t)
 _Static_assert(sizeof(queue_t) == 16,
-    "queue_t size changed — update QUEUE_T_SIZE in src-rust/src/structs.rs");
+    "queue_t size changed — update QUEUE_T_SIZE in src-rust/src/app/structs.rs");
+
+// AppState is Rust-owned. C accesses it via rust_get_app_state().
+// AppState does NOT mirror device_t — it's a separate Rust struct
+// containing only HAL-independent fields.
 
 /* ==================================================== *
  * Read-only state accessors

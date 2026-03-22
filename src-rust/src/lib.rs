@@ -15,9 +15,8 @@ fn panic(_info: &PanicInfo) -> ! {
 use ::core::ffi::c_void;
 use hal::{device, scheduler};
 
-// C task functions called by the Rust scheduler (both cores)
+// C task functions — still take device_t* (c_void from Rust's perspective)
 extern "C" {
-    // Core0 tasks
     fn usb_device_task(dev: *mut c_void);
     fn kick_watchdog_task(dev: *mut c_void);
     fn process_kbd_queue_task(dev: *mut c_void);
@@ -25,7 +24,6 @@ extern "C" {
     fn process_hid_queue_task(dev: *mut c_void);
     fn process_uart_tx_task(dev: *mut c_void);
 
-    // Core1 tasks
     fn usb_host_task(dev: *mut c_void);
     fn packet_receiver_task(dev: *mut c_void);
     fn led_blinking_task(dev: *mut c_void);
@@ -35,10 +33,11 @@ extern "C" {
 }
 
 /// Core0 main loop — called from C main() after initial_setup().
-/// Never returns. Replaces the C while(true) task scheduler loop.
+/// Receives C device_t* for passing to C task functions.
+/// Rust app state is accessed via AppState global.
 #[no_mangle]
 pub extern "C" fn rust_main_loop(dev: *mut c_void) -> ! {
-    traceln!("rust_main_loop: core0 scheduler active");
+    traceln!("rust_main_loop: core0 active");
 
     let mut tasks = [
         scheduler::Task::new(usb_device_task, scheduler::top()),
@@ -54,10 +53,12 @@ pub extern "C" fn rust_main_loop(dev: *mut c_void) -> ! {
     }
 }
 
-/// Core1 main loop — called from C core1_main().
-/// Never returns. Updates core1_last_loop_pass timestamp each iteration.
+/// Core1 main loop — receives C device_t* for C task functions.
+/// Updates core1_last_loop_pass in AppState directly.
 #[no_mangle]
 pub extern "C" fn rust_core1_loop(dev: *mut c_void) -> ! {
+    let state = unsafe { &mut *app::state::rust_get_app_state() };
+
     let mut tasks = [
         scheduler::Task::new(usb_host_task, scheduler::top()),
         scheduler::Task::new(packet_receiver_task, scheduler::top()),
@@ -68,7 +69,7 @@ pub extern "C" fn rust_core1_loop(dev: *mut c_void) -> ! {
     ];
 
     loop {
-        unsafe { device::hal_set_core1_last_loop_pass(dev, device::hal_time_us_64()) };
+        state.core1_last_loop_pass = unsafe { device::hal_time_us_64() };
         scheduler::run_all_tasks(&mut tasks, dev);
     }
 }
