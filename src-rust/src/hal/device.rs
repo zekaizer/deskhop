@@ -73,19 +73,7 @@ extern "C" {
     pub fn hal_get_consumer_is_variable(iface: *mut c_void) -> bool;
     pub fn hal_get_cc_array_value(iface: *mut c_void, report_id: u8, index: i32) -> u16;
 
-    // ---- Mouse report extraction ----
-    /// Extract mouse values from raw HID report. out is 5×i32.
-    pub fn hal_extract_report_values(
-        raw_report: *mut u8, len: i32, dev: *mut c_void,
-        iface: *mut c_void, out: *mut i32,
-    );
-
-    // ---- HID report extraction ----
-    pub fn hal_extract_kbd_data(
-        raw_report: *mut u8, len: i32, itf: u8,
-        iface: *mut c_void, out_report: *mut u8,
-    ) -> i32;
-
+    // ---- HID hotkey check ----
     /// Check hotkeys — returns -1 if no match, 0 if matched (and handler called).
     /// out_pass_to_os and out_acknowledge are set if matched.
     pub fn hal_check_all_hotkeys(
