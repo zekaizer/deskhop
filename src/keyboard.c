@@ -112,15 +112,11 @@ hotkey_combo_t hotkeys[] = {
  * Detect if any hotkeys were pressed
  * ============================================================ */
 
-/* Tries to find if the keyboard report contains key, returns true/false */
-bool key_in_report(uint8_t key, const hid_keyboard_report_t *report) {
-    for (int j = 0; j < KEYS_IN_USB_REPORT; j++) {
-        if (key == report->keycode[j]) {
-            return true;
-        }
-    }
+/* Now implemented in Rust (src-rust/src/hal/ffi.rs) */
+extern bool rust_key_in_report(uint8_t key, const uint8_t *report);
 
-    return false;
+bool key_in_report(uint8_t key, const hid_keyboard_report_t *report) {
+    return rust_key_in_report(key, (const uint8_t *)report);
 }
 
 /* Check if the current report matches a specific hotkey passed on */

@@ -85,6 +85,20 @@ pub extern "C" fn rust_scale_y_coordinate(
     mouse::scale_y_coordinate(pointer_y, (from_top, from_bottom), (to_top, to_bottom))
 }
 
+// ---- Keyboard ----
+
+/// C-callable: key_in_report(key, report) -> bool
+/// report points to hid_keyboard_report_t [modifier(1) + reserved(1) + keycode(6)]
+#[no_mangle]
+pub unsafe extern "C" fn rust_key_in_report(key: u8, report: *const u8) -> bool {
+    if report.is_null() {
+        return false;
+    }
+    // keycode starts at offset 2, length 6
+    let keycode = core::slice::from_raw_parts(report.add(2), 6);
+    keycode.iter().any(|&k| k == key)
+}
+
 // ---- Packet utilities ----
 
 #[no_mangle]
