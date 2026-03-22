@@ -3,6 +3,7 @@
 pub mod constants;
 pub mod crc;
 pub mod hid_report;
+pub mod keyboard;
 pub mod mouse;
 pub mod packet;
 pub mod trace;
