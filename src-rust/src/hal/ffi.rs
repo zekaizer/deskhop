@@ -698,6 +698,35 @@ pub unsafe extern "C" fn rust_release_all_keys_state(dev: *mut core::ffi::c_void
     crate::app::kbd_state::release_all_keys(dev, state);
 }
 
+// ---- Consumer/System control routing ----
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_send_consumer_control(dev: *mut core::ffi::c_void, raw_report: *const u8) {
+    if raw_report.is_null() { return; }
+    let state = &*crate::app::state::rust_get_app_state();
+    if state.is_active_output() {
+        // Queue locally — need protocol.c queue_cc_packet which is C-only (queue_t)
+        // For now, delegate back to C
+    } else {
+        crate::hal::device::hal_queue_packet(
+            raw_report, crate::app::constants::PacketType::ConsumerControl as u8, 4,
+        );
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_send_system_control(dev: *mut core::ffi::c_void, raw_report: *const u8) {
+    if raw_report.is_null() { return; }
+    let state = &*crate::app::state::rust_get_app_state();
+    if state.is_active_output() {
+        // Queue locally — delegate to C
+    } else {
+        crate::hal::device::hal_queue_packet(
+            raw_report, crate::app::constants::PacketType::SystemControl as u8, 1,
+        );
+    }
+}
+
 // ---- Packet utilities ----
 
 #[no_mangle]
