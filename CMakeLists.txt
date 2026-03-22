@@ -80,6 +80,19 @@ set(COMMON_INCLUDES
   ${PICO_PIO_USB_DIR}/src
 )
 
+## Rust Static Library
+set(RUST_SRC_DIR ${CMAKE_CURRENT_LIST_DIR}/src-rust)
+set(RUST_TARGET "thumbv6m-none-eabi")
+set(RUST_LIB ${RUST_SRC_DIR}/target/${RUST_TARGET}/release/libdeskhop_rust.a)
+
+add_custom_command(
+    OUTPUT ${RUST_LIB}
+    COMMAND cargo build --release --target ${RUST_TARGET}
+    WORKING_DIRECTORY ${RUST_SRC_DIR}
+    COMMENT "Building Rust static library"
+)
+add_custom_target(deskhop_rust DEPENDS ${RUST_LIB})
+
 ## Library Dependencies
 set(COMMON_LINK_LIBRARIES
   pico_stdlib
@@ -89,11 +102,12 @@ set(COMMON_LINK_LIBRARIES
   hardware_pio
   hardware_dma
 
-  tinyusb_device 
+  tinyusb_device
   tinyusb_host
   pico_multicore
   pico_unique_id
   Pico-PIO-USB
+  ${RUST_LIB}
 )
 set(binary deskhop)
 
@@ -128,6 +142,7 @@ endif()
   
 target_include_directories(${binary} PUBLIC ${COMMON_INCLUDES})
 target_link_libraries(${binary} PUBLIC ${COMMON_LINK_LIBRARIES})
+add_dependencies(${binary} deskhop_rust)
 
 ## Configure Pico Library
 pico_enable_stdio_usb(${binary} 0)
