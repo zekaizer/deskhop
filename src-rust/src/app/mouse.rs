@@ -31,8 +31,8 @@ pub fn move_and_keep_on_screen(position: i32, offset: i32) -> i32 {
 }
 
 /// Check if movement would cross screen boundary.
-// WORKAROUND(c-compat): Returns i32 (-1/0/1) instead of an enum to match
-// C's screen_pos_e. Can be replaced with a proper Rust enum later.
+// WORKAROUND(c-compat): Returns i32 (-1/0/1) for C FFI compatibility.
+// Rust-internal code uses mouse_logic::SwitchDirection enum instead.
 pub fn is_screen_switch_needed(position: i32, offset: i32, jump_threshold: u16) -> i32 {
     if position + offset < MIN_SCREEN_COORD as i32 - jump_threshold as i32 {
         return -1; // LEFT
