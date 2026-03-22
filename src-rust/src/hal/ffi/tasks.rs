@@ -15,6 +15,26 @@ pub unsafe extern "C" fn rust_kick_watchdog_task(_dev: *mut c_void) {
     }
 }
 
+/// Rust implementation of process_uart_tx_task
+#[no_mangle]
+pub unsafe extern "C" fn rust_process_uart_tx_task(dev: *mut c_void) {
+    if device::hal_dma_channel_is_busy(dev) { return; }
+    let mut packet = [0u8; 10]; // uart_packet_t size
+    if !device::hal_uart_tx_queue_remove(dev, packet.as_mut_ptr()) { return; }
+    // write_raw_packet + DMA send
+    let pkt = crate::app::packet::UartPacket {
+        ptype: packet[0],
+        data: {
+            let mut d = [0u8; 8];
+            d.copy_from_slice(&packet[1..9]);
+            d
+        },
+        checksum: packet[9],
+    };
+    let raw = crate::app::packet::write_raw_packet(&pkt);
+    device::hal_dma_tx_send(dev, raw.as_ptr(), crate::app::constants::RAW_PACKET_LENGTH as u32);
+}
+
 static mut LAST_POINTER_MOVE: u32 = 0;
 
 /// Rust implementation of screensaver_task

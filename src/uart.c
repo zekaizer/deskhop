@@ -26,14 +26,8 @@ void send_value(const uint8_t value, enum packet_type_e packet_type) {
     queue_packet(&value, packet_type, sizeof(uint8_t));
 }
 
-/* HAL-dependent: DMA + queue_t */
-void process_uart_tx_task(device_t *state) {
-    uart_packet_t packet = {0};
-    if (dma_channel_is_busy(state->dma_tx_channel)) return;
-    if (!queue_try_remove(&state->uart_tx_queue, &packet)) return;
-    write_raw_packet(uart_txbuf, &packet);
-    dma_channel_transfer_from_buffer_now(state->dma_tx_channel, uart_txbuf, RAW_PACKET_LENGTH);
-}
+extern void rust_process_uart_tx_task(device_t *);
+void process_uart_tx_task(device_t *s) { rust_process_uart_tx_task(s); }
 
 /* Packet dispatch — routes to Rust handlers or HAL-dependent C handlers */
 void process_packet(uart_packet_t *packet, device_t *state) {

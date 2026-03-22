@@ -85,6 +85,7 @@ extern "C" {
     ) -> i32;
 
     pub fn hal_toggle_led();
+    pub fn hal_uart_tx_queue_remove(dev: *mut c_void, out: *mut u8) -> bool;
     pub fn hal_set_config_mode_scratch();
 
     // ---- DMA ----

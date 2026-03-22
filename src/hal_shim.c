@@ -227,6 +227,10 @@ int hal_check_all_hotkeys(const uint8_t *report, uint8_t *out_pass_to_os,
 
 void hal_toggle_led(void) { toggle_led(); }
 
+bool hal_uart_tx_queue_remove(device_t *dev, uint8_t *out) {
+    return queue_try_remove(&dev->uart_tx_queue, out);
+}
+
 void hal_set_config_mode_scratch(void) {
     watchdog_hw->scratch[5] = MAGIC_WORD_1;
     watchdog_hw->scratch[6] = MAGIC_WORD_2;
