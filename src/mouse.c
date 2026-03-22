@@ -83,55 +83,14 @@ void switch_to_another_pc(
     rust_switch_to_another_pc(state, output->number, output_to, direction);
 }
 
+extern void rust_switch_virtual_desktop(device_t *dev, uint8_t os, int new_index, int direction);
+
 void switch_virtual_desktop_macos(device_t *state, int direction) {
-    /*
-     * Fix for MACOS: Before sending new absolute report setting X to 0:
-     * 1. Move the cursor to the edge of the screen directly in the middle to handle screens
-     *    of different heights
-     * 2. Send relative mouse movement one or two pixels in the direction of movement to get
-     *    the cursor onto the next screen
-     */
-    mouse_report_t edge_position = {
-        .x = (direction == LEFT) ? MIN_SCREEN_COORD : MAX_SCREEN_COORD,
-        .y = MAX_SCREEN_COORD / 2,
-        .mode = ABSOLUTE,
-        .buttons = state->mouse_buttons,
-    };
-
-    uint16_t move = (direction == LEFT) ? -MACOS_SWITCH_MOVE_X : MACOS_SWITCH_MOVE_X;
-    mouse_report_t move_relative_one = {
-        .x = move,
-        .mode = RELATIVE,
-        .buttons = state->mouse_buttons,
-    };
-
-    output_mouse_report(&edge_position, state);
-
-    /* Once doesn't seem reliable enough, do it a few times */
-    for (int i = 0; i < MACOS_SWITCH_MOVE_COUNT; i++)
-        output_mouse_report(&move_relative_one, state);
+    /* Delegated to Rust */
 }
 
 void switch_virtual_desktop(device_t *state, output_t *output, int new_index, int direction) {
-    switch (output->os) {
-        case MACOS:
-            switch_virtual_desktop_macos(state, direction);
-            break;
-
-        case WINDOWS:
-            /* TODO: Switch to relative-only if index > 1, but keep tabs to switch back */
-            state->relative_mouse = (new_index > 1);
-            break;
-
-        case LINUX:
-        case ANDROID:
-        case OTHER:
-            /* Linux should treat all desktops as a single virtual screen, so you should leave
-            screen_count at 1 and it should just work */
-            break;
-    }
-
-    state->pointer_x       = (direction == RIGHT) ? MIN_SCREEN_COORD : MAX_SCREEN_COORD;
+    rust_switch_virtual_desktop(state, output->os, new_index, direction);
     output->screen_index = new_index;
 }
 

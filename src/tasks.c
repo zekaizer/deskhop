@@ -69,94 +69,21 @@ mouse_report_t *screensaver_jitter(device_t *state) {
     return &report;
 }
 
-/* Have something fun and entertaining when idle. */
+extern void rust_screensaver_task(device_t *dev);
+
 void screensaver_task(device_t *state) {
-    const uint32_t delays[] = {
-        0,        /* DISABLED, unused index 0 */
-        5000,     /* PONG, move mouse every 5 ms for a high framerate */
-        10000000, /* JITTER, once every 10 sec is more than enough */
-    };
-    static int last_pointer_move = 0;
-    screensaver_t *screensaver = &state->config.output[BOARD_ROLE].screensaver;
-    uint64_t inactivity_period = time_us_64() - state->last_activity[BOARD_ROLE];
-
-    /* If we're not enabled, nothing to do here. */
-    if (screensaver->mode == DISABLED)
-        return;
-
-    /* System is still not idle for long enough to activate or screensaver mode is not supported */
-    if (inactivity_period < screensaver->idle_time_us || screensaver->mode > MAX_SS_VAL)
-        return;
-
-    /* We exceeded the maximum permitted screensaver runtime */
-    if (screensaver->max_time_us
-        && inactivity_period > (screensaver->max_time_us + screensaver->idle_time_us))
-        return;
-
-    /* If we're the selected output and we can only run on inactive output, nothing to do here. */
-    if (screensaver->only_if_inactive && CURRENT_BOARD_IS_ACTIVE_OUTPUT)
-        return;
-
-    /* We're active! Now check if it's time to move the cursor yet. */
-    if (time_us_32() - last_pointer_move < delays[screensaver->mode])
-        return;
-
-    /* Return, if we're not connected or the host is suspended */
-    if(!tud_ready()) {
-        return;
-    }
-
-    mouse_report_t *report;
-    switch (screensaver->mode) {
-        case PONG:
-            report = screensaver_pong(state);
-            break;
-
-        case JITTER:
-            report = screensaver_jitter(state);
-            break;
-
-        default:
-            return;
-    }
-
-    /* Move mouse pointer */
-    queue_mouse_report(report, state);
-
-    /* Update timer of the last pointer move */
-    last_pointer_move = time_us_32();
+    rust_screensaver_task(state);
 }
 
-/* Periodically emit heartbeat packets */
+extern void rust_heartbeat_output_task(device_t *dev);
+
 void heartbeat_output_task(device_t *state) {
-    /* If firmware upgrade is in progress, don't touch flash_cs */
-    if (state->fw.upgrade_in_progress)
-        return;
-
-    if (state->config_mode_active) {
-        /* Leave config mode if timeout expired and user didn't click exit */
-        if (time_us_64() > state->config_mode_timer)
-            reboot();
-
-        /* Keep notifying the user we're still in config mode */
-        blink_led(state);
-    }
+    rust_heartbeat_output_task(state);
 
 #ifdef DH_DEBUG
-    /* Holding the button invokes bootsel firmware upgrade */
     if (is_bootsel_pressed())
         reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0);
 #endif
-
-    uart_packet_t packet = {
-        .type = HEARTBEAT_MSG,
-        .data16 = {
-            [0] = state->_running_fw.version,
-            [2] = state->active_output,
-        },
-    };
-
-    queue_try_add(&global_state.uart_tx_queue, &packet);
 }
 
 

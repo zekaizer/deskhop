@@ -13,3 +13,4 @@ mod packet;
 mod screen_switch;
 mod screensaver;
 mod state;
+mod tasks;

@@ -1,7 +1,10 @@
 use core::ffi::c_void;
-use crate::app::constants::{MAX_SCREEN_COORD, MIN_SCREEN_COORD};
+use crate::app::constants::{MAX_SCREEN_COORD, MIN_SCREEN_COORD, ABSOLUTE, RELATIVE};
 use crate::app::mouse;
 use crate::hal::device;
+
+const MACOS_SWITCH_MOVE_X: i16 = 10;
+const MACOS_SWITCH_MOVE_COUNT: usize = 5;
 
 /// Replace C's switch_to_another_pc
 #[no_mangle]
@@ -60,4 +63,60 @@ pub unsafe extern "C" fn rust_switch_to_another_pc(
             (to.border.top, to.border.bottom),
         );
     }
+}
+
+/// Helper to output a mouse report via the routing logic
+unsafe fn output_report(dev: *mut c_void, report: &[u8; 8]) {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    if state.is_active_output() {
+        device::hal_queue_mouse_report(dev, report.as_ptr());
+    } else {
+        device::hal_queue_packet(
+            report.as_ptr(), crate::app::constants::PacketType::MouseReport as u8, 8,
+        );
+    }
+}
+
+/// Replace C's switch_virtual_desktop_macos
+#[no_mangle]
+pub unsafe extern "C" fn rust_switch_virtual_desktop_macos(dev: *mut c_void, direction: i32) {
+    let state = &*crate::app::state::rust_get_app_state();
+    let left = direction == 1;
+
+    let edge_x = if left { MIN_SCREEN_COORD } else { MAX_SCREEN_COORD };
+    let edge = [
+        state.mouse_buttons as u8,
+        edge_x.to_le_bytes()[0], edge_x.to_le_bytes()[1],
+        (MAX_SCREEN_COORD / 2).to_le_bytes()[0], (MAX_SCREEN_COORD / 2).to_le_bytes()[1],
+        0, 0, ABSOLUTE,
+    ];
+    output_report(dev, &edge);
+
+    let move_x: i16 = if left { -MACOS_SWITCH_MOVE_X } else { MACOS_SWITCH_MOVE_X };
+    let rel = [
+        state.mouse_buttons as u8,
+        move_x.to_le_bytes()[0], move_x.to_le_bytes()[1],
+        0, 0, 0, 0, RELATIVE,
+    ];
+    for _ in 0..MACOS_SWITCH_MOVE_COUNT {
+        output_report(dev, &rel);
+    }
+}
+
+/// Replace C's switch_virtual_desktop
+#[no_mangle]
+pub unsafe extern "C" fn rust_switch_virtual_desktop(
+    dev: *mut c_void, os: u8, new_index: i32, direction: i32,
+) {
+    let state = &mut *crate::app::state::rust_get_app_state();
+    const MACOS: u8 = 2;
+    const WINDOWS: u8 = 3;
+
+    match os {
+        MACOS => rust_switch_virtual_desktop_macos(dev, direction),
+        WINDOWS => { state.relative_mouse = new_index > 1; }
+        _ => {} // Linux/Android/Other — no special handling
+    }
+
+    state.pointer_x = if direction == 2 { MIN_SCREEN_COORD } else { MAX_SCREEN_COORD }; // RIGHT=2
 }

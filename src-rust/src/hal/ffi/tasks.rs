@@ -1,0 +1,69 @@
+use core::ffi::c_void;
+use crate::hal::device;
+
+static mut LAST_POINTER_MOVE: u32 = 0;
+
+/// Rust implementation of screensaver_task
+#[no_mangle]
+pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
+    let state = &*crate::app::state::rust_get_app_state();
+    let role = state.board_role as usize;
+    if role >= state.config.output.len() { return; }
+
+    let ss = &state.config.output[role].screensaver;
+    let inactivity = device::hal_time_us_64() - state.last_activity[role];
+    let current_time = device::hal_time_us_32();
+
+    if !crate::app::screensaver::should_activate(
+        &crate::app::screensaver::ScreensaverConfig {
+            mode: ss.mode,
+            only_if_inactive: ss.only_if_inactive != 0,
+            idle_time_us: ss.idle_time_us,
+            max_time_us: ss.max_time_us,
+        },
+        inactivity,
+        state.is_active_output(),
+        device::hal_tud_ready(),
+        LAST_POINTER_MOVE,
+        current_time,
+    ) {
+        return;
+    }
+
+    // Generate report
+    let mut report_bytes = [0u8; 8];
+    match ss.mode {
+        1 => super::screensaver::rust_screensaver_pong(report_bytes.as_mut_ptr()),  // PONG
+        2 => super::screensaver::rust_screensaver_jitter(report_bytes.as_mut_ptr()), // JITTER
+        _ => return,
+    }
+
+    // Queue mouse report
+    device::hal_queue_mouse_report(dev, report_bytes.as_ptr());
+    LAST_POINTER_MOVE = device::hal_time_us_32();
+}
+
+/// Rust implementation of heartbeat_output_task
+#[no_mangle]
+pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
+    let state = &*crate::app::state::rust_get_app_state();
+
+    if state.fw.upgrade_in_progress { return; }
+
+    if state.config_mode_active {
+        if device::hal_time_us_64() > state.config_mode_timer {
+            device::hal_reboot();
+        }
+        device::hal_blink_led(dev);
+    }
+
+    // Build heartbeat packet: type=HEARTBEAT, data16[0]=version, data16[2]=active_output
+    let version = state.running_fw.version;
+    let mut packet = [0u8; 10]; // uart_packet_t: type(1) + data(8) + checksum(1)
+    packet[0] = crate::app::constants::PacketType::Heartbeat as u8;
+    packet[1] = (version & 0xFF) as u8;
+    packet[2] = ((version >> 8) & 0xFF) as u8;
+    packet[5] = state.active_output; // data16[2] = bytes 5-6
+
+    device::hal_queue_uart_packet(dev, packet.as_ptr());
+}
