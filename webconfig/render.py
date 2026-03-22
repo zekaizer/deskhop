@@ -45,6 +45,7 @@ if __name__ == "__main__":
         screen_B=output_B(),
         status=output_status(),
         config=output_config(),
+        semiddm=output_semiddm(),
     )
 
     # Compress file and encode to base64

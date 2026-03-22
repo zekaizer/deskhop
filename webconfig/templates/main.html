@@ -117,6 +117,12 @@
               {% include "form.html" with context %}
             {% endfor %}
 
+          <h3>Semi-DDM Extension</h3>
+
+            {% for item in semiddm %}
+              {% include "form.html" with context %}
+            {% endfor %}
+
           <input type="submit" value="Save" id="submitButton">
         </div>
 

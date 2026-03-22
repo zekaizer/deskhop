@@ -11,7 +11,7 @@
 #include "main.h"
 
 /*********  Global Variables  **********/
-device_t global_state     = {.gaming_mode = true};
+device_t global_state     = {.gaming_mode = GAMING_MODE_DEFAULT};
 device_t *device          = &global_state;
 
 firmware_metadata_t _firmware_metadata __attribute__((section(".section_metadata"))) = {

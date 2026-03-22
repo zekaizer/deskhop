@@ -78,5 +78,15 @@ def output_B(base=40):
 def output_status():
     return generate_output(0, data=STATUS_)
 
+SEMIDDM_ = [
+    FormField(1004, "Semi-DDM Extension", elem="label"),
+    FormField(90, "Passthrough Enabled", None, {}, "uint8", "checkbox"),
+    FormField(91, "Gaming Mode Default", None, {}, "uint8", "checkbox"),
+    FormField(92, "SmartShift Double-Click (ms)", 500, {"min": 200, "max": 1000}, "uint32", "range"),
+]
+
 def output_config():
     return generate_output(0, data=CONFIG_)
+
+def output_semiddm():
+    return generate_output(0, data=SEMIDDM_)

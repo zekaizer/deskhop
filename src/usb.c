@@ -228,14 +228,16 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
 
     /* Capture raw descriptor for Semi-DDM passthrough */
     passthrough_state_t *pt = passthrough_get_state();
-    passthrough_capture_descriptor(pt, dev_addr, instance, itf_protocol, desc_report, desc_len);
-    pt->last_capture_us = time_us_64();
+    if (global_state.config.passthrough_enabled) {
+        passthrough_capture_descriptor(pt, dev_addr, instance, itf_protocol, desc_report, desc_len);
+        pt->last_capture_us = time_us_64();
 
-    /* Capture upstream VID/PID once per device (FR-PT-009) */
-    if (pt->upstream_vid == 0) {
-        tuh_vid_pid_get(dev_addr, &pt->upstream_vid, &pt->upstream_pid);
-        dh_debug_printf("[PT] Upstream device VID=%04X PID=%04X\n",
-                        pt->upstream_vid, pt->upstream_pid);
+        /* Capture upstream VID/PID once per device (FR-PT-009) */
+        if (pt->upstream_vid == 0) {
+            tuh_vid_pid_get(dev_addr, &pt->upstream_vid, &pt->upstream_pid);
+            dh_debug_printf("[PT] Upstream device VID=%04X PID=%04X\n",
+                            pt->upstream_vid, pt->upstream_pid);
+        }
     }
 
     dh_debug_printf("[PT] Mount dev=%d inst=%d proto=%d\n",
@@ -341,7 +343,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
                         static uint64_t last_press_us = 0;
                         uint64_t now = time_us_64();
                         if (last_press_us > 0
-                            && (now - last_press_us) < SMARTSHIFT_DOUBLE_CLICK_US) {
+                            && (now - last_press_us) < (uint64_t)global_state.config.smartshift_double_click_ms * 1000) {
                             global_state.switch_requested = true;
                             last_press_us = 0;
                         } else {

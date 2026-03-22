@@ -81,7 +81,12 @@ typedef struct {
     uint16_t jump_threshold;
 
     output_t output[NUM_SCREENS];
-    uint32_t _reserved;
+
+    /* Semi-DDM extension settings */
+    uint8_t  passthrough_enabled;
+    uint8_t  gaming_mode_default;
+    uint16_t _reserved;
+    uint32_t smartshift_double_click_ms;
 
     // Keep checksum at the end of the struct
     uint32_t checksum;

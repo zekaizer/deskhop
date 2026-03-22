@@ -254,6 +254,9 @@ void initial_setup(device_t *state) {
     configure_tx_dma(state);
     configure_rx_dma(state);
 
+    /* Apply Semi-DDM extension config to runtime state */
+    state->gaming_mode = state->config.gaming_mode_default;
+
     /* Initialize key remap engine with default mappings */
     remap_engine_init(&state->remap_engine,
                        state->config.output[OUTPUT_A].os,
