@@ -53,7 +53,7 @@ typedef struct {
 *  Lookup Tables
 *==============================================================================*/
 
-extern const uint32_t crc32_lookup_table[];
+/* crc32_lookup_table removed — now internal to Rust crc module */
 
 /*==============================================================================
  *  UF2 Firmware Format Structure

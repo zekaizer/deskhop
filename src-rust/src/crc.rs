@@ -1,7 +1,7 @@
 // CRC32 implementation (polynomial 0xEDB88320)
 
 #[rustfmt::skip]
-const CRC32_TABLE: [u32; 256] = [
+static CRC32_TABLE: [u32; 256] = [
     0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f, 0xe963a535, 0x9e6495a3,
     0x0edb8832, 0x79dcb8a4, 0xe0d5e91e, 0x97d2d988, 0x09b64c2b, 0x7eb17cbd, 0xe7b82d07, 0x90bf1d91,
     0x1db71064, 0x6ab020f2, 0xf3b97148, 0x84be41de, 0x1adad47d, 0x6ddde4eb, 0xf4d4b551, 0x83d385c7,
@@ -53,47 +53,6 @@ pub fn calc_crc32(data: &[u8]) -> u32 {
 /// XOR checksum over a byte slice (used for UART packets)
 pub fn calc_checksum(data: &[u8]) -> u8 {
     data.iter().fold(0u8, |acc, &b| acc ^ b)
-}
-
-// ---- FFI exports: callable from C, replacing C implementations ----
-
-/// C-callable: calc_checksum(data, length) -> uint8_t
-#[no_mangle]
-pub unsafe extern "C" fn rust_calc_checksum(data: *const u8, length: i32) -> u8 {
-    if data.is_null() || length <= 0 {
-        return 0;
-    }
-    let slice = core::slice::from_raw_parts(data, length as usize);
-    calc_checksum(slice)
-}
-
-/// C-callable: calc_crc32(data, length) -> uint32_t
-#[no_mangle]
-pub unsafe extern "C" fn rust_calc_crc32(data: *const u8, length: usize) -> u32 {
-    if data.is_null() {
-        return 0;
-    }
-    let slice = core::slice::from_raw_parts(data, length);
-    calc_crc32(slice)
-}
-
-/// C-callable: crc32_iter(crc, byte) -> uint32_t
-#[no_mangle]
-pub extern "C" fn rust_crc32_iter(crc: u32, byte: u8) -> u32 {
-    crc32_iter(crc, byte)
-}
-
-/// C-callable: verify_checksum on a uart_packet_t
-/// packet points to: [type(1) + data(8) + checksum(1)] = 10 bytes
-#[no_mangle]
-pub unsafe extern "C" fn rust_verify_checksum(packet: *const u8) -> bool {
-    if packet.is_null() {
-        return false;
-    }
-    // data is at offset 1, length 8; checksum at offset 9
-    let data = core::slice::from_raw_parts(packet.add(1), 8);
-    let checksum = *packet.add(9);
-    calc_checksum(data) == checksum
 }
 
 #[cfg(test)]

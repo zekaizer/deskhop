@@ -1,8 +1,8 @@
 #![no_std]
 
+// ---- Internal modules (Rust-only, not exposed to C) ----
 pub mod constants;
 pub mod crc;
-pub mod device;
 pub mod dispatch;
 pub mod handlers;
 pub mod hid_parser;
@@ -11,11 +11,15 @@ pub mod keyboard;
 pub mod mouse;
 pub mod mouse_logic;
 pub mod packet;
-pub mod scheduler;
 pub mod screensaver;
 pub mod structs;
-pub mod trace;
 pub mod usb;
+
+// ---- HAL layer (C↔Rust boundary) ----
+pub mod device;   // Opaque device_t handle + C HAL extern declarations
+pub mod ffi;       // #[no_mangle] exports callable from C
+pub mod scheduler; // Task scheduler (calls C task functions)
+pub mod trace;     // Trace macro (calls C hal_trace_write)
 
 #[cfg(not(test))]
 use core::panic::PanicInfo;
