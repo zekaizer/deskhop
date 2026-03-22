@@ -282,4 +282,60 @@ mod tests {
         // We are NOT the active output — should activate
         assert!(should_activate(&config, 1_000_000, false, true, 0, 100_000));
     }
+
+    #[test]
+    fn test_should_activate_too_soon_after_last_move() {
+        let config = ScreensaverConfig {
+            mode: 1, // PONG delay = 5000 us
+            only_if_inactive: false,
+            idle_time_us: 0,
+            max_time_us: 0,
+        };
+        // last_move = 99000, current = 100000, delta = 1000 < 5000
+        assert!(!should_activate(&config, 1_000_000, false, true, 99000, 100000));
+        // last_move = 90000, current = 100000, delta = 10000 > 5000
+        assert!(should_activate(&config, 1_000_000, false, true, 90000, 100000));
+    }
+
+    #[test]
+    fn test_jitter_mode_delay() {
+        let config = ScreensaverConfig {
+            mode: 2, // JITTER delay = 10_000_000 us
+            only_if_inactive: false,
+            idle_time_us: 0,
+            max_time_us: 0,
+        };
+        // Too soon
+        assert!(!should_activate(&config, 1_000_000, false, true, 5_000_000, 10_000_000));
+        // Enough time passed
+        assert!(should_activate(&config, 1_000_000, false, true, 0, 10_000_001));
+    }
+
+    #[test]
+    fn test_mode_invalid() {
+        let config = ScreensaverConfig {
+            mode: 99, // Invalid
+            only_if_inactive: false,
+            idle_time_us: 0,
+            max_time_us: 0,
+        };
+        assert!(!should_activate(&config, 1_000_000, false, true, 0, 100_000));
+    }
+
+    #[test]
+    fn test_pong_direction_change() {
+        let mut pong = PongState::new();
+        // Run until first x bounce
+        let mut prev_x = 0i16;
+        let mut bounced = false;
+        for _ in 0..2000 {
+            let r = pong.step();
+            if r.x < prev_x && prev_x > 0 {
+                bounced = true;
+                break;
+            }
+            prev_x = r.x;
+        }
+        assert!(bounced, "Pong should bounce");
+    }
 }
