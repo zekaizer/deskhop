@@ -210,20 +210,10 @@ void extract_data(hid_interface_t *iface, report_val_t *val) {
     }
 }
 
+extern int32_t rust_extract_bit_variable(const uint8_t *kbd, const uint8_t *raw_report, int len, uint8_t *dst);
+
 int32_t extract_bit_variable(report_val_t *kbd, uint8_t *raw_report, int len, uint8_t *dst) {
-    int key_count = 0;
-    int bit_offset = kbd->offset & 0b111;
-
-    for (int i = kbd->usage_min, j = bit_offset; i <= kbd->usage_max && key_count < len; i++, j++) {
-        int byte_index = j >> 3;
-        int bit_index  = j & 0b111;
-
-        if (raw_report[byte_index] & (1 << bit_index)) {
-            dst[key_count++] = i;
-        }
-    }
-
-    return key_count;
+    return rust_extract_bit_variable((const uint8_t *)kbd, raw_report, len, dst);
 }
 
 int32_t _extract_kbd_boot(uint8_t *raw_report, int len, hid_keyboard_report_t *report) {

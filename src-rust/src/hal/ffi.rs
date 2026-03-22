@@ -105,6 +105,28 @@ pub unsafe extern "C" fn rust_get_report_value(
     crate::app::hid_report::get_report_value(report_slice, offset, size)
 }
 
+/// C-callable: extract_bit_variable(kbd, raw_report, len, dst) -> int32_t
+/// kbd is report_val_t* — we need offset(u16 at +0) and usage_min/max(i32 at +6/+10)
+#[no_mangle]
+pub unsafe extern "C" fn rust_extract_bit_variable(
+    kbd: *const u8,
+    raw_report: *const u8,
+    len: i32,
+    dst: *mut u8,
+) -> i32 {
+    if kbd.is_null() || raw_report.is_null() || dst.is_null() || len <= 0 {
+        return 0;
+    }
+    let report = core::slice::from_raw_parts(raw_report, len as usize);
+    let dst_slice = core::slice::from_raw_parts_mut(dst, len as usize);
+
+    let offset = u16::from_le_bytes([*kbd, *kbd.add(1)]);
+    let usage_min = i32::from_le_bytes([*kbd.add(6), *kbd.add(7), *kbd.add(8), *kbd.add(9)]);
+    let usage_max = i32::from_le_bytes([*kbd.add(10), *kbd.add(11), *kbd.add(12), *kbd.add(13)]);
+
+    crate::app::hid_report::extract_bit_variable(report, usage_min, usage_max, offset, dst_slice) as i32
+}
+
 // ---- Keyboard ----
 
 /// C-callable: key_in_report(key, report) -> bool
