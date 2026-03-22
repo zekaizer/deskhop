@@ -2,266 +2,119 @@
  * This file is part of DeskHop (https://github.com/hrvach/deskhop).
  * Copyright (c) 2025 Hrvoje Cavrak
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, version 3.
- *
- * See the file LICENSE for the full license text.
+ * Keyboard logic ported to Rust. This file contains hotkey data,
+ * thin wrappers, and HAL-dependent queue functions.
  */
-
 #include "main.h"
 
-/* ==================================================== *
- * Hotkeys to trigger actions via the keyboard.
- * ==================================================== */
+/* Rust FFI */
+extern bool rust_key_in_report(uint8_t, const uint8_t *);
+extern bool rust_check_specific_hotkey(uint8_t, const uint8_t *, uint8_t, const uint8_t *);
+extern void rust_update_kbd_state(const uint8_t *, uint8_t);
+extern void rust_update_remote_kbd_state(const uint8_t *);
+extern void rust_combine_kbd_states(uint8_t *);
+extern void rust_send_key(device_t *);
+extern void rust_release_all_keys_state(device_t *);
+extern void rust_process_keyboard_report(uint8_t *, int, uint8_t, void *, void *);
+extern void rust_process_consumer_report(const uint8_t *, int, uint8_t, void *, void *);
+extern void rust_process_system_report(const uint8_t *, int, uint8_t, void *, void *);
 
+/* ---- Hotkey definitions (C function pointers required) ---- */
 hotkey_combo_t hotkeys[] = {
-    /* Main keyboard switching hotkey */
-    {.modifier       = HOTKEY_MODIFIER,
-     .keys           = {HOTKEY_TOGGLE},
-     .key_count      = 1,
-     .pass_to_os     = false,
-     .action_handler = &output_toggle_hotkey_handler},
-
-    /* Pressing right ALT + right CTRL toggles the slow mouse mode */
-    {.modifier       = KEYBOARD_MODIFIER_RIGHTALT | KEYBOARD_MODIFIER_RIGHTCTRL,
-     .keys           = {},
-     .key_count      = 0,
-     .pass_to_os     = true,
-     .acknowledge    = true,
+    {.modifier = HOTKEY_MODIFIER, .keys = {HOTKEY_TOGGLE}, .key_count = 1,
+     .pass_to_os = false, .action_handler = &output_toggle_hotkey_handler},
+    {.modifier = KEYBOARD_MODIFIER_RIGHTALT | KEYBOARD_MODIFIER_RIGHTCTRL,
+     .keys = {}, .key_count = 0, .pass_to_os = true, .acknowledge = true,
      .action_handler = &mouse_zoom_hotkey_handler},
-
-    /* Switch lock */
-    {.modifier       = KEYBOARD_MODIFIER_RIGHTCTRL,
-     .keys           = {HID_KEY_K},
-     .key_count      = 1,
-     .acknowledge    = true,
-     .action_handler = &switchlock_hotkey_handler},
-
-    /* Screen lock */
-    {.modifier       = KEYBOARD_MODIFIER_RIGHTCTRL,
-     .keys           = {HID_KEY_L},
-     .key_count      = 1,
-     .acknowledge    = true,
-     .action_handler = &screenlock_hotkey_handler},
-
-    /* Toggle gaming mode */
-    {.modifier       = KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT,
-     .keys           = {HID_KEY_G},
-     .key_count      = 1,
-     .acknowledge    = true,
+    {.modifier = KEYBOARD_MODIFIER_RIGHTCTRL, .keys = {HID_KEY_K}, .key_count = 1,
+     .acknowledge = true, .action_handler = &switchlock_hotkey_handler},
+    {.modifier = KEYBOARD_MODIFIER_RIGHTCTRL, .keys = {HID_KEY_L}, .key_count = 1,
+     .acknowledge = true, .action_handler = &screenlock_hotkey_handler},
+    {.modifier = KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT,
+     .keys = {HID_KEY_G}, .key_count = 1, .acknowledge = true,
      .action_handler = &toggle_gaming_mode_handler},
-
-    /* Enable screensaver pong for active output */
-    {.modifier       = KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT,
-     .keys           = {HID_KEY_S},
-     .key_count      = 1,
-     .acknowledge    = true,
+    {.modifier = KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT,
+     .keys = {HID_KEY_S}, .key_count = 1, .acknowledge = true,
      .action_handler = &enable_screensaver_pong_hotkey_handler},
-
-    /* Enable screensaver jitter for active output */
-    {.modifier       = KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT,
-     .keys           = {HID_KEY_J},
-     .key_count      = 1,
-     .acknowledge    = true,
+    {.modifier = KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT,
+     .keys = {HID_KEY_J}, .key_count = 1, .acknowledge = true,
      .action_handler = &enable_screensaver_jitter_hotkey_handler},
-
-    /* Disable screensaver for active output */
-    {.modifier       = KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT,
-     .keys           = {HID_KEY_X},
-     .key_count      = 1,
-     .acknowledge    = true,
+    {.modifier = KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT,
+     .keys = {HID_KEY_X}, .key_count = 1, .acknowledge = true,
      .action_handler = &disable_screensaver_hotkey_handler},
-
-    /* Erase stored config */
-    {.modifier       = KEYBOARD_MODIFIER_RIGHTSHIFT,
-     .keys           = {HID_KEY_F12, HID_KEY_D},
-     .key_count      = 2,
-     .acknowledge    = true,
-     .action_handler = &wipe_config_hotkey_handler},
-
-    /* Record switch y coordinate  */
-    {.modifier       = KEYBOARD_MODIFIER_RIGHTSHIFT,
-     .keys           = {HID_KEY_F12, HID_KEY_Y},
-     .key_count      = 2,
-     .acknowledge    = true,
-     .action_handler = &screen_border_hotkey_handler},
-
-    /* Switch to configuration mode  */
-    {.modifier       = KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT,
-     .keys           = {HID_KEY_C, HID_KEY_O},
-     .key_count      = 2,
-     .acknowledge    = true,
+    {.modifier = KEYBOARD_MODIFIER_RIGHTSHIFT, .keys = {HID_KEY_F12, HID_KEY_D},
+     .key_count = 2, .acknowledge = true, .action_handler = &wipe_config_hotkey_handler},
+    {.modifier = KEYBOARD_MODIFIER_RIGHTSHIFT, .keys = {HID_KEY_F12, HID_KEY_Y},
+     .key_count = 2, .acknowledge = true, .action_handler = &screen_border_hotkey_handler},
+    {.modifier = KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT,
+     .keys = {HID_KEY_C, HID_KEY_O}, .key_count = 2, .acknowledge = true,
      .action_handler = &config_enable_hotkey_handler},
-
-    /* Hold down left shift + right shift + F12 + A ==> firmware upgrade mode for board A (kbd) */
-    {.modifier       = KEYBOARD_MODIFIER_RIGHTSHIFT | KEYBOARD_MODIFIER_LEFTSHIFT,
-     .keys           = {HID_KEY_A},
-     .key_count      = 1,
-     .acknowledge    = true,
+    {.modifier = KEYBOARD_MODIFIER_RIGHTSHIFT | KEYBOARD_MODIFIER_LEFTSHIFT,
+     .keys = {HID_KEY_A}, .key_count = 1, .acknowledge = true,
      .action_handler = &fw_upgrade_hotkey_handler_A},
+    {.modifier = KEYBOARD_MODIFIER_RIGHTSHIFT | KEYBOARD_MODIFIER_LEFTSHIFT,
+     .keys = {HID_KEY_B}, .key_count = 1, .acknowledge = true,
+     .action_handler = &fw_upgrade_hotkey_handler_B},
+};
 
-    /* Hold down left shift + right shift + F12 + B ==> firmware upgrade mode for board B (mouse) */
-    {.modifier       = KEYBOARD_MODIFIER_RIGHTSHIFT | KEYBOARD_MODIFIER_LEFTSHIFT,
-     .keys           = {HID_KEY_B},
-     .key_count      = 1,
-     .acknowledge    = true,
-     .action_handler = &fw_upgrade_hotkey_handler_B}};
-
-/* ============================================================ *
- * Detect if any hotkeys were pressed
- * ============================================================ */
-
-/* Now implemented in Rust (src-rust/src/hal/ffi.rs) */
-extern bool rust_key_in_report(uint8_t key, const uint8_t *report);
-
-bool key_in_report(uint8_t key, const hid_keyboard_report_t *report) {
-    return rust_key_in_report(key, (const uint8_t *)report);
+/* ---- Wrappers ---- */
+bool key_in_report(uint8_t k, const hid_keyboard_report_t *r) { return rust_key_in_report(k, (const uint8_t *)r); }
+bool check_specific_hotkey(hotkey_combo_t h, const hid_keyboard_report_t *r) {
+    return rust_check_specific_hotkey(h.modifier, h.keys, h.key_count, (const uint8_t *)r);
 }
 
-/* Now implemented in Rust (src-rust/src/hal/ffi.rs) */
-extern bool rust_check_specific_hotkey(uint8_t modifier, const uint8_t *keys, uint8_t key_count, const uint8_t *report);
-
-bool check_specific_hotkey(hotkey_combo_t keypress, const hid_keyboard_report_t *report) {
-    return rust_check_specific_hotkey(keypress.modifier, keypress.keys, keypress.key_count, (const uint8_t *)report);
-}
-
-/* Go through the list of hotkeys, check if any of them match. */
 hotkey_combo_t *check_all_hotkeys(hid_keyboard_report_t *report, device_t *state) {
-    for (int n = 0; n < ARRAY_SIZE(hotkeys); n++) {
-        if (check_specific_hotkey(hotkeys[n], report)) {
-            return &hotkeys[n];
-        }
-    }
-
+    for (int n = 0; n < ARRAY_SIZE(hotkeys); n++)
+        if (check_specific_hotkey(hotkeys[n], report)) return &hotkeys[n];
     return NULL;
 }
 
-/* ==================================================== *
- * Keyboard State Management
- * ==================================================== */
-
-/* Now implemented in Rust (src-rust/src/app/kbd_state.rs) */
-extern void rust_update_kbd_state(const uint8_t *report, uint8_t device_idx);
-extern void rust_update_remote_kbd_state(const uint8_t *report);
-extern void rust_combine_kbd_states(uint8_t *out);
-extern void rust_send_key(device_t *dev);
-extern void rust_release_all_keys_state(device_t *dev);
-
-void update_kbd_state(device_t *state, hid_keyboard_report_t *report, uint8_t device_idx) {
-    rust_update_kbd_state((const uint8_t *)report, device_idx);
+void update_kbd_state(device_t *s, hid_keyboard_report_t *r, uint8_t i) { rust_update_kbd_state((const uint8_t *)r, i); }
+void update_remote_kbd_state(device_t *s, hid_keyboard_report_t *r) { rust_update_remote_kbd_state((const uint8_t *)r); }
+void release_all_keys(device_t *s) { rust_release_all_keys_state(s); }
+void combine_kbd_states(device_t *s, hid_keyboard_report_t *o) { rust_combine_kbd_states((uint8_t *)o); }
+void send_key(hid_keyboard_report_t *r, device_t *s) { rust_send_key(s); }
+void process_keyboard_report(uint8_t *r, int l, uint8_t i, hid_interface_t *f) {
+    rust_process_keyboard_report(r, l, i, (void *)f, (void *)&global_state);
+}
+void process_consumer_report(uint8_t *r, int l, uint8_t i, hid_interface_t *f) {
+    rust_process_consumer_report(r, l, i, (void *)f, (void *)&global_state);
+}
+void process_system_report(uint8_t *r, int l, uint8_t i, hid_interface_t *f) {
+    rust_process_system_report(r, l, i, (void *)f, (void *)&global_state);
 }
 
-void update_remote_kbd_state(device_t *state, hid_keyboard_report_t *report) {
-    rust_update_remote_kbd_state((const uint8_t *)report);
+/* HAL-dependent: hid_interface_t access */
+keyboard_t *get_keyboard(hid_interface_t *iface, uint8_t report_id) {
+    if (iface->num_keyboards == 1 || !iface->uses_report_id)
+        return &iface->keyboards[PRIMARY_KEYBOARD];
+    for (int i = 0; i < iface->num_keyboards && i < MAX_KEYBOARDS; i++)
+        if (iface->keyboards[i].report_id == report_id) return &iface->keyboards[i];
+    return &iface->keyboards[PRIMARY_KEYBOARD];
 }
 
-void release_all_keys(device_t *state) {
-    rust_release_all_keys_state(state);
-}
-
-void combine_kbd_states(device_t *state, hid_keyboard_report_t *combined_report) {
-    rust_combine_kbd_states((uint8_t *)combined_report);
-}
-
-/* ==================================================== *
- * Keyboard Queue Section
- * ==================================================== */
-
+/* HAL-dependent: queue_t + TinyUSB */
 void process_kbd_queue_task(device_t *state) {
     hid_keyboard_report_t report;
-
-    /* If we're not connected, we have nowhere to send reports to. */
-    if (!state->tud_connected)
-        return;
-
-    /* Peek first, if there is anything there... */
-    if (!queue_try_peek(&state->kbd_queue, &report))
-        return;
-
-    /* If we are suspended, let's wake the host up */
-    if (tud_suspended())
-        tud_remote_wakeup();
-
-    /* If it's not ok to send yet, we'll try on the next pass */
-    if (!tud_hid_n_ready(ITF_NUM_HID))
-        return;
-
-    /* ... try sending it to the host, if it's successful */
-    bool succeeded = tud_hid_keyboard_report(REPORT_ID_KEYBOARD, report.modifier, report.keycode);
-
-    /* ... then we can remove it from the queue. Race conditions shouldn't happen [tm] */
-    if (succeeded)
-        queue_try_remove(&state->kbd_queue, &report);
+    if (!state->tud_connected) return;
+    if (!queue_try_peek(&state->kbd_queue, &report)) return;
+    if (tud_suspended()) tud_remote_wakeup();
+    if (!tud_hid_n_ready(ITF_NUM_HID)) return;
+    bool ok = tud_hid_keyboard_report(REPORT_ID_KEYBOARD, report.modifier, report.keycode);
+    if (ok) queue_try_remove(&state->kbd_queue, &report);
 }
 
 void queue_kbd_report(hid_keyboard_report_t *report, device_t *state) {
-    /* It wouldn't be fun to queue up a bunch of messages and then dump them all on host */
-    if (!state->tud_connected)
-        return;
-
+    if (!state->tud_connected) return;
     queue_try_add(&state->kbd_queue, report);
 }
 
-void send_key(hid_keyboard_report_t *report, device_t *state) {
-    rust_send_key(state);
+/* HAL-dependent: queue_t routing */
+void send_consumer_control(uint8_t *r, device_t *s) {
+    if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) { queue_cc_packet(r, s); s->last_activity[BOARD_ROLE] = time_us_64(); }
+    else queue_packet(r, CONSUMER_CONTROL_MSG, CONSUMER_CONTROL_LENGTH);
 }
-
-/* Decide if consumer control reports go local or to the other board */
-void send_consumer_control(uint8_t *raw_report, device_t *state) {
-    if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
-        queue_cc_packet(raw_report, state);
-        state->last_activity[BOARD_ROLE] = time_us_64();
-    } else {
-        queue_packet((uint8_t *)raw_report, CONSUMER_CONTROL_MSG, CONSUMER_CONTROL_LENGTH);
-    }
-}
-
-/* Decide if consumer control reports go local or to the other board */
-void send_system_control(uint8_t *raw_report, device_t *state) {
-    if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) {
-        queue_system_packet(raw_report, state);
-        state->last_activity[BOARD_ROLE] = time_us_64();
-    } else {
-        queue_packet((uint8_t *)raw_report, SYSTEM_CONTROL_MSG, SYSTEM_CONTROL_LENGTH);
-    }
-}
-
-/* ==================================================== *
- * Parse and interpret the keys pressed on the keyboard
- * ==================================================== */
-
-/* Now implemented in Rust (src-rust/src/hal/ffi/kbd_process.rs) */
-extern void rust_process_keyboard_report(uint8_t *raw_report, int length, uint8_t itf,
-                                          void *iface, void *dev);
-
-void process_keyboard_report(uint8_t *raw_report, int length, uint8_t itf, hid_interface_t *iface) {
-    rust_process_keyboard_report(raw_report, length, itf, (void *)iface, (void *)&global_state);
-}
-
-extern void rust_process_consumer_report(const uint8_t *raw, int len, uint8_t itf, void *iface, void *dev);
-extern void rust_process_system_report(const uint8_t *raw, int len, uint8_t itf, void *iface, void *dev);
-
-void process_consumer_report(uint8_t *raw_report, int length, uint8_t itf, hid_interface_t *iface) {
-    rust_process_consumer_report(raw_report, length, itf, (void *)iface, (void *)&global_state);
-}
-
-void process_system_report(uint8_t *raw_report, int length, uint8_t itf, hid_interface_t *iface) {
-    rust_process_system_report(raw_report, length, itf, (void *)iface, (void *)&global_state);
-}
-
-keyboard_t *get_keyboard(hid_interface_t *iface, uint8_t report_id) {
-    /* When we have just one keyboard (most cases), or don't use report ID */
-    if (iface->num_keyboards == 1 || !iface->uses_report_id)
-        return &iface->keyboards[PRIMARY_KEYBOARD];
-
-    /* Go through known keyboards and match on report ID, return pointer to keyboard_t */
-    for (int i = 0; i < iface->num_keyboards && i < MAX_KEYBOARDS; i++) {
-        if (iface->keyboards[i].report_id == report_id) {
-            return &iface->keyboards[i];
-        }
-    }
-
-    /* If nothing else is matched, return the primary keyboard. */
-    return &iface->keyboards[PRIMARY_KEYBOARD];
+void send_system_control(uint8_t *r, device_t *s) {
+    if (CURRENT_BOARD_IS_ACTIVE_OUTPUT) { queue_system_packet(r, s); s->last_activity[BOARD_ROLE] = time_us_64(); }
+    else queue_packet(r, SYSTEM_CONTROL_MSG, SYSTEM_CONTROL_LENGTH);
 }
