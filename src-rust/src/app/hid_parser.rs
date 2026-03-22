@@ -582,6 +582,157 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_5button_wheel_mouse() {
+        // 5-button mouse with wheel (common Logitech-style)
+        #[rustfmt::skip]
+        let desc: &[u8] = &[
+            0x05, 0x01,       // Usage Page (Generic Desktop)
+            0x09, 0x02,       // Usage (Mouse)
+            0xA1, 0x01,       // Collection (Application)
+            0x09, 0x01,       //   Usage (Pointer)
+            0xA1, 0x00,       //   Collection (Physical)
+            0x05, 0x09,       //     Usage Page (Button)
+            0x19, 0x01,       //     Usage Minimum (1)
+            0x29, 0x05,       //     Usage Maximum (5)
+            0x15, 0x00,       //     Logical Minimum (0)
+            0x25, 0x01,       //     Logical Maximum (1)
+            0x95, 0x05,       //     Report Count (5)
+            0x75, 0x01,       //     Report Size (1)
+            0x81, 0x02,       //     Input (Data, Variable, Abs) -> 5 buttons
+            0x95, 0x01,       //     Report Count (1)
+            0x75, 0x03,       //     Report Size (3)
+            0x81, 0x01,       //     Input (Constant) -> 3-bit padding
+            0x05, 0x01,       //     Usage Page (Generic Desktop)
+            0x09, 0x30,       //     Usage (X)
+            0x09, 0x31,       //     Usage (Y)
+            0x15, 0x81,       //     Logical Minimum (-127)
+            0x25, 0x7F,       //     Logical Maximum (127)
+            0x75, 0x08,       //     Report Size (8)
+            0x95, 0x02,       //     Report Count (2)
+            0x81, 0x06,       //     Input (Data, Variable, Relative) -> X, Y
+            0x09, 0x38,       //     Usage (Wheel)
+            0x15, 0x81,       //     Logical Minimum (-127)
+            0x25, 0x7F,       //     Logical Maximum (127)
+            0x75, 0x08,       //     Report Size (8)
+            0x95, 0x01,       //     Report Count (1)
+            0x81, 0x06,       //     Input (Data, Variable, Relative) -> Wheel
+            0xC0,             //   End Collection (Physical)
+            0xC0,             // End Collection (Application)
+        ];
+
+        let (parser, results) = parse_descriptor(desc);
+
+        // 4 INPUT items: 5 buttons, 3-bit padding, X+Y, Wheel
+        assert_eq!(results.len(), 4);
+
+        // Buttons: 5 bits (size=1, count=5 -> swapped to size=5, count=1)
+        let buttons = results.iter().next().unwrap();
+        assert_eq!(buttons.vals[0].size, 5);
+        assert_eq!(buttons.vals[0].usage_page, HID_USAGE_PAGE_BUTTON);
+
+        // X+Y: 2 items of 8 bits
+        let xy = results.iter().nth(2).unwrap();
+        assert_eq!(xy.count, 2);
+        assert_eq!(xy.vals[0].usage, HID_USAGE_DESKTOP_X);
+        assert_eq!(xy.vals[1].usage, HID_USAGE_DESKTOP_Y);
+
+        // Wheel: 1 item of 8 bits
+        let wheel = results.iter().nth(3).unwrap();
+        assert_eq!(wheel.count, 1);
+        assert_eq!(wheel.vals[0].usage, HID_USAGE_DESKTOP_WHEEL);
+
+        // Nested collections tracked
+        assert_eq!(parser.collection.start, 2);
+        assert_eq!(parser.collection.end, 2);
+    }
+
+    #[test]
+    fn test_parse_keyboard_with_nkro() {
+        // Simplified keyboard descriptor with NKRO bitmap
+        #[rustfmt::skip]
+        let desc: &[u8] = &[
+            0x05, 0x01,       // Usage Page (Generic Desktop)
+            0x09, 0x06,       // Usage (Keyboard)
+            0xA1, 0x01,       // Collection (Application)
+            // Modifier keys (8 bits)
+            0x05, 0x07,       //   Usage Page (Keyboard)
+            0x19, 0xE0,       //   Usage Minimum (Left Control)
+            0x29, 0xE7,       //   Usage Maximum (Right GUI)
+            0x15, 0x00,       //   Logical Minimum (0)
+            0x25, 0x01,       //   Logical Maximum (1)
+            0x75, 0x01,       //   Report Size (1)
+            0x95, 0x08,       //   Report Count (8)
+            0x81, 0x02,       //   Input (Data, Variable, Absolute) -> modifiers
+            // Reserved byte
+            0x75, 0x08,       //   Report Size (8)
+            0x95, 0x01,       //   Report Count (1)
+            0x81, 0x01,       //   Input (Constant) -> reserved
+            // Key array (6 keys)
+            0x05, 0x07,       //   Usage Page (Keyboard)
+            0x19, 0x00,       //   Usage Minimum (0)
+            0x29, 0xFF,       //   Usage Maximum (255)
+            0x15, 0x00,       //   Logical Minimum (0)
+            0x26, 0xFF, 0x00, //   Logical Maximum (255)
+            0x75, 0x08,       //   Report Size (8)
+            0x95, 0x06,       //   Report Count (6)
+            0x81, 0x00,       //   Input (Data, Array) -> keycodes
+            0xC0,             // End Collection
+        ];
+
+        let (_parser, results) = parse_descriptor(desc);
+
+        // 3 INPUT items: modifiers, reserved, key array
+        assert_eq!(results.len(), 3);
+
+        // Modifiers: 8 bits (1-bit × 8, swapped)
+        let modifiers = results.iter().next().unwrap();
+        assert_eq!(modifiers.vals[0].size, 8);
+        assert_eq!(modifiers.vals[0].data_type, VARIABLE);
+        assert_eq!(modifiers.vals[0].usage_page, HID_USAGE_PAGE_KEYBOARD);
+
+        // Key array: 6 items, each 8 bits, type ARRAY
+        let keys = results.iter().nth(2).unwrap();
+        assert_eq!(keys.count, 6);
+        assert_eq!(keys.vals[0].size, 8);
+        assert_eq!(keys.vals[0].data_type, ARRAY);
+    }
+
+    #[test]
+    fn test_parse_multiple_report_ids() {
+        // Two reports with different IDs
+        #[rustfmt::skip]
+        let desc: &[u8] = &[
+            0xA1, 0x01,       // Collection
+            0x85, 0x01,       //   Report ID (1)
+            0x75, 0x08,       //   Report Size (8)
+            0x95, 0x02,       //   Report Count (2)
+            0x81, 0x00,       //   Input
+            0x85, 0x02,       //   Report ID (2)
+            0x75, 0x10,       //   Report Size (16)
+            0x95, 0x01,       //   Report Count (1)
+            0x81, 0x00,       //   Input
+            0xC0,             // End Collection
+        ];
+
+        let (_parser, results) = parse_descriptor(desc);
+        assert_eq!(results.len(), 2);
+
+        let r1 = results.iter().next().unwrap();
+        assert_eq!(r1.vals[0].report_id, 1);
+        assert_eq!(r1.vals[0].size, 8);
+        assert_eq!(r1.count, 2);
+
+        let r2 = results.iter().nth(1).unwrap();
+        assert_eq!(r2.vals[0].report_id, 2);
+        assert_eq!(r2.vals[0].size, 16);
+        assert_eq!(r2.count, 1);
+
+        // Offsets should be independent per report ID
+        assert_eq!(r1.vals[0].offset, 0);
+        assert_eq!(r2.vals[0].offset, 0);
+    }
+
+    #[test]
     fn test_report_id_tracking() {
         // Report ID (1)
         // Report Size (8)

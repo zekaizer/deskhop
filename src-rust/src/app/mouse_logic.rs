@@ -288,6 +288,92 @@ mod tests {
     }
 
     #[test]
+    fn test_decide_gaming_mode_blocks_switch() {
+        let ctx = SwitchContext {
+            switch_lock: false,
+            gaming_mode: true,
+            mouse_buttons: 0,
+            screen_pos: 2,
+            screen_index: 1,
+            screen_count: 1,
+        };
+
+        assert_eq!(
+            decide_screen_switch(SwitchDirection::Left, &ctx),
+            ScreenSwitchAction::Nothing,
+        );
+    }
+
+    #[test]
+    fn test_decide_virtual_desktop_backward() {
+        // On screen_index=2, moving toward other PC should go to index 1
+        let ctx = SwitchContext {
+            switch_lock: false,
+            gaming_mode: false,
+            mouse_buttons: 0,
+            screen_pos: 2, // RIGHT — other PC is LEFT
+            screen_index: 2,
+            screen_count: 3,
+        };
+
+        assert_eq!(
+            decide_screen_switch(SwitchDirection::Left, &ctx),
+            ScreenSwitchAction::SwitchVirtualDesktop { new_index: 1 },
+        );
+    }
+
+    #[test]
+    fn test_decide_at_last_screen_no_more() {
+        // At last screen, trying to go further should do nothing
+        let ctx = SwitchContext {
+            switch_lock: false,
+            gaming_mode: false,
+            mouse_buttons: 0,
+            screen_pos: 2, // RIGHT
+            screen_index: 3,
+            screen_count: 3,
+        };
+
+        assert_eq!(
+            decide_screen_switch(SwitchDirection::Right, &ctx),
+            ScreenSwitchAction::Nothing,
+        );
+    }
+
+    #[test]
+    fn test_update_mouse_position_zoom() {
+        let values = MouseValues {
+            move_x: 100,
+            move_y: 0,
+            ..Default::default()
+        };
+
+        // With zoom enabled, speed is halved (shift right by 2)
+        let (x_zoom, _, _) = update_mouse_position(
+            16000, 16000, &values, 16, 28, true, false, 0,
+        );
+        let (x_normal, _, _) = update_mouse_position(
+            16000, 16000, &values, 16, 28, false, false, 0,
+        );
+
+        assert!(x_zoom < x_normal); // zoom should move less
+    }
+
+    #[test]
+    fn test_create_report_relative_mode() {
+        let values = MouseValues {
+            move_x: 5,
+            move_y: -3,
+            ..Default::default()
+        };
+
+        let report = create_mouse_report(1000, 2000, &values, true, false);
+        assert_eq!(report.mode, RELATIVE);
+        assert_eq!(report.x, 5);
+        assert_eq!(report.y, -3);
+    }
+
+    #[test]
     fn test_decide_switch_none_direction() {
         let ctx = SwitchContext {
             switch_lock: false,

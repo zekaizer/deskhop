@@ -101,4 +101,37 @@ mod tests {
         }
         assert_eq!(!crc, calc_crc32(data));
     }
+
+    #[test]
+    fn test_crc32_all_ones() {
+        assert_eq!(calc_crc32(&[0xFF]), 0xFF000000);
+    }
+
+    #[test]
+    fn test_crc32_incremental_equals_batch() {
+        let data = b"hello world";
+        let batch = calc_crc32(data);
+
+        let mut crc: u32 = 0xffff_ffff;
+        for &b in data.iter() {
+            crc = crc32_iter(crc, b);
+        }
+        assert_eq!(!crc, batch);
+    }
+
+    #[test]
+    fn test_checksum_all_zeros() {
+        assert_eq!(calc_checksum(&[0, 0, 0, 0, 0, 0, 0, 0]), 0);
+    }
+
+    #[test]
+    fn test_checksum_packet_data() {
+        // Simulate a real packet data field
+        let data = [0x01, 0x00, 0x10, 0x27, 0x00, 0x00, 0x00, 0x00];
+        let checksum = calc_checksum(&data);
+        // Verify re-checking gives same result
+        assert_eq!(calc_checksum(&data), checksum);
+        // XOR with checksum should give 0
+        assert_eq!(calc_checksum(&data) ^ checksum, 0);
+    }
 }
