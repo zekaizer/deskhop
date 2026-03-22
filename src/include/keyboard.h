@@ -47,6 +47,7 @@ void     queue_kbd_report(hid_keyboard_report_t *, device_t *);
 void     queue_system_packet(uint8_t *, device_t *);
 void     release_all_keys(device_t *);
 void     send_consumer_control(uint8_t *, device_t *);
+void     route_kbd_report(hid_keyboard_report_t *, device_t *);
 void     send_key(hid_keyboard_report_t *, device_t *);
 
 /* ==================================================== *

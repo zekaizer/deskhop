@@ -128,9 +128,8 @@ remap_result_t remap_engine_process(remap_engine_t *engine,
                 report_remove_key(report, e->trigger);
                 result = REMAP_MODIFIED;
             } else if (key_pressed && r->state == RS_HELD) {
-                /* In hold mode: replace with hold action */
-                report_replace_key(report, e->trigger, e->tap_hold.hold_action.keycode);
-                apply_action_modifier(report, &e->tap_hold.hold_action);
+                /* Remove trigger — hold key is injected via get_active_output */
+                report_remove_key(report, e->trigger);
                 result = REMAP_MODIFIED;
             } else if (!key_pressed && r->state == RS_WAITING) {
                 /* Released before threshold: emit tap */
@@ -149,9 +148,11 @@ remap_result_t remap_engine_process(remap_engine_t *engine,
     return result;
 }
 
-void remap_engine_tick(remap_engine_t *engine, uint64_t now_us) {
+bool remap_engine_tick(remap_engine_t *engine, uint64_t now_us) {
     if (!engine)
-        return;
+        return false;
+
+    bool state_changed = false;
 
     for (uint8_t i = 0; i < engine->config.count; i++) {
         remap_entry_t *e = &engine->config.entries[i];
@@ -166,9 +167,12 @@ void remap_engine_tick(remap_engine_t *engine, uint64_t now_us) {
                 threshold = TAP_HOLD_DEFAULT_US;
             if (now_us - r->timestamp >= threshold) {
                 r->state = RS_HELD;
+                state_changed = true;
             }
         }
     }
+
+    return state_changed;
 }
 
 bool remap_engine_get_pending(remap_engine_t *engine,
@@ -190,4 +194,27 @@ bool remap_engine_get_pending(remap_engine_t *engine,
         }
     }
     return false;
+}
+
+void remap_engine_get_active_output(remap_engine_t *engine,
+                                    hid_keyboard_report_t *out) {
+    memset(out, 0, sizeof(hid_keyboard_report_t));
+    if (!engine)
+        return;
+
+    for (uint8_t i = 0; i < engine->config.count; i++) {
+        remap_entry_t *e = &engine->config.entries[i];
+        remap_runtime_t *r = &engine->runtime[i];
+
+        if (e->type == REMAP_TAP_HOLD && r->state == RS_HELD) {
+            /* Add hold action key to output — find first empty slot */
+            for (int k = 0; k < 6; k++) {
+                if (out->keycode[k] == 0) {
+                    out->keycode[k] = e->tap_hold.hold_action.keycode;
+                    break;
+                }
+            }
+            out->modifier |= e->tap_hold.hold_action.modifier;
+        }
+    }
 }

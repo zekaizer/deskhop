@@ -80,8 +80,12 @@ void remap_engine_init(remap_engine_t *engine);
 remap_result_t remap_engine_process(remap_engine_t *engine,
                                     hid_keyboard_report_t *report,
                                     uint8_t active_output);
-void remap_engine_tick(remap_engine_t *engine, uint64_t now_us);
+bool remap_engine_tick(remap_engine_t *engine, uint64_t now_us);
 
 /* Get pending key report if tick generated one (tap-hold timeout) */
 bool remap_engine_get_pending(remap_engine_t *engine,
                               hid_keyboard_report_t *out);
+
+/* Get combined output of all active remap entries (e.g., hold keys in RS_HELD) */
+void remap_engine_get_active_output(remap_engine_t *engine,
+                                    hid_keyboard_report_t *out);

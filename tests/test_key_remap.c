@@ -13,6 +13,8 @@ static remap_engine_t engine;
 void setUp(void) {
     memset(&engine, 0, sizeof(engine));
     remap_engine_init(&engine);
+    /* Clear default entries so each test controls its own config */
+    engine.config.count = 0;
 }
 
 void tearDown(void) {}
@@ -171,18 +173,61 @@ void test_tap_hold_becomes_hold_after_threshold(void) {
     TEST_ASSERT_EQUAL(RS_HELD, engine.runtime[0].state);
 }
 
-void test_tap_hold_held_replaces_key(void) {
+void test_tap_hold_held_removes_trigger(void) {
     add_tap_hold(0x2B, 0x90, 0, 0x2B, 0, 200000, 0xFF);
 
     /* Force into HELD state */
     engine.runtime[0].state = RS_HELD;
 
-    /* Report with trigger key held */
+    /* Report with trigger key held — trigger is removed from report,
+     * hold key is injected via get_active_output (not in report itself) */
     hid_keyboard_report_t report = make_report(0x2B, 0);
     remap_result_t r = remap_engine_process(&engine, &report, 0);
 
     TEST_ASSERT_EQUAL(REMAP_MODIFIED, r);
-    TEST_ASSERT_EQUAL_UINT8(0x2B, report.keycode[0]); /* Tab (hold action) */
+    TEST_ASSERT_EQUAL_UINT8(0, report.keycode[0]); /* trigger removed */
+}
+
+void test_get_active_output_held(void) {
+    add_tap_hold(0x2B, 0x90, 0, 0x2B, 0x02, 200000, 0xFF);
+    engine.runtime[0].state = RS_HELD;
+
+    hid_keyboard_report_t out = {0};
+    remap_engine_get_active_output(&engine, &out);
+
+    TEST_ASSERT_EQUAL_UINT8(0x2B, out.keycode[0]); /* hold action key */
+    TEST_ASSERT_EQUAL_UINT8(0x02, out.modifier);    /* hold action modifier */
+}
+
+void test_get_active_output_idle_empty(void) {
+    add_tap_hold(0x2B, 0x90, 0, 0x2B, 0, 200000, 0xFF);
+    /* state is RS_IDLE (default) */
+
+    hid_keyboard_report_t out = {0};
+    remap_engine_get_active_output(&engine, &out);
+
+    TEST_ASSERT_EQUAL_UINT8(0, out.keycode[0]); /* no active output */
+}
+
+void test_tick_returns_true_on_hold_transition(void) {
+    add_tap_hold(0x2B, 0x90, 0, 0x2B, 0, 200000, 0xFF);
+
+    hid_keyboard_report_t report = make_report(0x2B, 0);
+    remap_engine_process(&engine, &report, 0);
+    engine.runtime[0].timestamp = 1000000;
+
+    /* Before threshold: returns false */
+    bool changed = remap_engine_tick(&engine, 1100000);
+    TEST_ASSERT_FALSE(changed);
+
+    /* At threshold: returns true */
+    changed = remap_engine_tick(&engine, 1200000);
+    TEST_ASSERT_TRUE(changed);
+    TEST_ASSERT_EQUAL(RS_HELD, engine.runtime[0].state);
+
+    /* Already held: returns false */
+    changed = remap_engine_tick(&engine, 1300000);
+    TEST_ASSERT_FALSE(changed);
 }
 
 void test_tap_hold_release_after_hold(void) {
@@ -267,7 +312,10 @@ int main(void) {
     RUN_TEST(test_tap_hold_consumes_on_press);
     RUN_TEST(test_tap_hold_tap_emits_on_release);
     RUN_TEST(test_tap_hold_becomes_hold_after_threshold);
-    RUN_TEST(test_tap_hold_held_replaces_key);
+    RUN_TEST(test_tap_hold_held_removes_trigger);
+    RUN_TEST(test_get_active_output_held);
+    RUN_TEST(test_get_active_output_idle_empty);
+    RUN_TEST(test_tick_returns_true_on_hold_transition);
     RUN_TEST(test_tap_hold_release_after_hold);
     RUN_TEST(test_tap_hold_tick_no_crash_on_idle);
     RUN_TEST(test_tap_hold_default_threshold);

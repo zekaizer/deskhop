@@ -50,12 +50,30 @@ void usb_device_task(device_t *state) {
 
 /* Key remap engine periodic tick — check tap-hold timeouts */
 void remap_engine_tick_task(device_t *state) {
-    remap_engine_tick(&state->remap_engine, time_us_64());
+    bool hold_entered = remap_engine_tick(&state->remap_engine, time_us_64());
 
-    /* If tick generated a pending tap report, queue it */
+    /* Safety net: tap pending from previous process_keyboard_report */
     hid_keyboard_report_t pending = {0};
-    if (remap_engine_get_pending(&state->remap_engine, &pending))
+    if (remap_engine_get_pending(&state->remap_engine, &pending)) {
+        hid_keyboard_report_t tap_press;
+        combine_kbd_states(state, &tap_press);
+        /* Inject tap key into first empty slot */
+        for (int k = 0; k < KEYS_IN_USB_REPORT; k++) {
+            if (tap_press.keycode[k] == 0) {
+                tap_press.keycode[k] = pending.keycode[0];
+                break;
+            }
+        }
+        tap_press.modifier |= pending.modifier;
+        route_kbd_report(&tap_press, state);
+        /* Immediately send release (combined without tap key) */
         send_key(&pending, state);
+    }
+
+    if (hold_entered) {
+        /* RS_HELD entered — combined report now includes hold key via get_active_output */
+        send_key(&pending, state);
+    }
 }
 
 /* Check if passthrough needs activation and handle re-enumeration sequence.
