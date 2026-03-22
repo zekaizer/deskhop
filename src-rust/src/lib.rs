@@ -2,6 +2,7 @@
 
 pub mod constants;
 pub mod crc;
+pub mod hid_report;
 pub mod packet;
 pub mod trace;
 
