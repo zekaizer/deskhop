@@ -233,4 +233,44 @@ mod tests {
         assert_eq!(state.local_kbd_states[0].modifier, 0x01);
         assert_eq!(state.local_kbd_states[1].modifier, 0x02);
     }
+
+    #[test]
+    fn test_all_feature_flags_default_false() {
+        let s = AppState::new();
+        assert!(!s.mouse_zoom);
+        assert!(!s.switch_lock);
+        assert!(!s.gaming_mode);
+        assert!(!s.relative_mouse);
+        assert!(!s.config_mode_active);
+        assert!(!s.digitizer_active);
+        assert!(!s.onboard_led_state);
+        assert!(!s.reboot_requested);
+        assert!(!s.tud_connected);
+        assert!(!s.keyboard_connected);
+        assert!(!s.mouse_connected);
+    }
+
+    #[test]
+    fn test_fw_state_default() {
+        let s = AppState::new();
+        assert!(!s.fw.upgrade_in_progress);
+        assert!(!s.fw.byte_done);
+        assert_eq!(s.fw.address, 0);
+        assert_eq!(s.fw.checksum, 0);
+    }
+
+    #[test]
+    fn test_page_buffer_size() {
+        let s = AppState::new();
+        assert_eq!(s.page_buffer.len(), crate::app::structs::FLASH_PAGE_SIZE);
+    }
+
+    #[test]
+    fn test_output_config_default() {
+        let s = AppState::new();
+        assert_eq!(s.config.output[0].speed_x, 0);
+        assert_eq!(s.config.output[0].border.top, 0);
+        assert_eq!(s.config.output[0].screensaver.mode, 0);
+        assert_eq!(s.config.output[1].speed_y, 0);
+    }
 }
