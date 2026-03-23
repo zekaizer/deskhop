@@ -283,18 +283,50 @@ mod tests {
     fn test_screen_switch_matrix() {
         use mouse_logic::*;
 
-        // At border, no button → switch
         let ctx = SwitchContext { switch_lock: false, gaming_mode: false, mouse_buttons: 0,
             screen_pos: 2, screen_index: 1, screen_count: 1 };
         assert_eq!(decide_screen_switch(SwitchDirection::Left, &ctx), ScreenSwitchAction::SwitchToOtherPc);
 
-        // At border, button held → nothing
         let ctx2 = SwitchContext { mouse_buttons: 1, ..ctx };
         assert_eq!(decide_screen_switch(SwitchDirection::Left, &ctx2), ScreenSwitchAction::Nothing);
 
-        // Not at border, multiple screens → virtual desktop
         let ctx3 = SwitchContext { screen_index: 2, screen_count: 3, ..ctx };
         assert_eq!(decide_screen_switch(SwitchDirection::Left, &ctx3),
             ScreenSwitchAction::SwitchVirtualDesktop { new_index: 1 });
+    }
+
+    /// Test CRC32 of known firmware metadata pattern
+    #[test]
+    fn test_crc32_firmware_pattern() {
+        let metadata = [0x0d, 0xf0, 0x00, 0x00, 0x01, 0x00]; // magic + version
+        let crc = crc::calc_crc32(&metadata);
+        assert_ne!(crc, 0);
+        // Same data should always produce same CRC
+        assert_eq!(crc, crc::calc_crc32(&metadata));
+    }
+
+    /// Test all packet types are dispatchable
+    #[test]
+    fn test_all_valid_packet_types_dispatch() {
+        let valid_types: &[u8] = &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,18,19,20,21,22,23,24,25];
+        for &t in valid_types {
+            let data = [0u8; 8];
+            let checksum = crc::calc_checksum(&data);
+            let pkt = packet::UartPacket { ptype: t, data, checksum };
+            assert!(dispatch::process_packet(&pkt).is_ok(), "Type {} failed", t);
+        }
+    }
+
+    /// Test mouse Y scaling symmetry
+    #[test]
+    fn test_y_scale_symmetry() {
+        // Same borders → identity
+        let y = mouse::scale_y_coordinate(16383, (0, 32767), (0, 32767));
+        assert_eq!(y, 16383);
+
+        // Different borders → value changes
+        let y2 = mouse::scale_y_coordinate(16383, (0, 32767), (8000, 24000));
+        assert_ne!(y2, 16383);
+        assert!(y2 > 8000 && y2 < 24000);
     }
 }
