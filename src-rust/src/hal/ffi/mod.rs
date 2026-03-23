@@ -2,6 +2,7 @@
 // Split into sub-modules by domain for maintainability.
 
 mod checksum;
+mod extract_data;
 mod handlers;
 mod hid;
 mod hid_parser_ffi;

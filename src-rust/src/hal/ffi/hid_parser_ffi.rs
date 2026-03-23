@@ -41,7 +41,7 @@ pub unsafe extern "C" fn rust_parse_report_descriptor(
             packed[19..21].copy_from_slice(&val.usage_page.to_le_bytes());
             packed[21..23].copy_from_slice(&val.usage.to_le_bytes());
 
-            device::hal_extract_data(iface, packed.as_ptr());
+            super::extract_data::rust_extract_data(iface, packed.as_ptr());
         }
     }
 }
