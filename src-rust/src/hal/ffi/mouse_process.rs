@@ -119,16 +119,11 @@ pub unsafe extern "C" fn rust_process_mouse_report(
         mouse_logic::SwitchDirection::Right => 2u8,
     };
 
-    // Delegate screen switch to C (needs set_active_output + virtual desktop logic)
-    // For now, call the C do_screen_switch via HAL
-    extern "C" {
-        fn do_screen_switch(dev: *mut c_void, direction: i32);
-    }
-
+    // Call Rust's do_screen_switch directly (no C roundtrip)
     let c_dir = match dir {
-        mouse_logic::SwitchDirection::Left => 1i32,  // LEFT enum
-        mouse_logic::SwitchDirection::Right => 2i32,  // RIGHT enum
+        mouse_logic::SwitchDirection::Left => 1i32,
+        mouse_logic::SwitchDirection::Right => 2i32,
         _ => return,
     };
-    do_screen_switch(dev, c_dir);
+    super::screen_switch::rust_do_screen_switch(dev, c_dir);
 }
