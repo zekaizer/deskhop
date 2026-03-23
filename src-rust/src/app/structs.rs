@@ -290,6 +290,26 @@ pub struct Device {
     pub last_led_change: i32,
 }
 
+impl Device {
+    pub fn is_active_output(&self) -> bool {
+        self.active_output == self.board_role
+    }
+}
+
+/// Cast a C device_t* pointer to a Rust Device reference.
+/// SAFETY: caller must ensure ptr is valid and layout matches.
+pub unsafe fn device_from_ptr<'a>(dev: *mut core::ffi::c_void) -> &'a mut Device {
+    &mut *(dev as *mut Device)
+}
+
+// sizeof/offset exports for C static_assert verification
+#[no_mangle] pub static RUST_SIZEOF_DEVICE: u32 = core::mem::size_of::<Device>() as u32;
+#[no_mangle] pub static RUST_OFFSET_TUD_CONNECTED: u32 = core::mem::offset_of!(Device, tud_connected) as u32;
+#[no_mangle] pub static RUST_OFFSET_ACTIVE_OUTPUT: u32 = core::mem::offset_of!(Device, active_output) as u32;
+#[no_mangle] pub static RUST_OFFSET_CORE1_TIMESTAMP: u32 = core::mem::offset_of!(Device, core1_last_loop_pass) as u32;
+#[no_mangle] pub static RUST_OFFSET_REBOOT_REQUESTED: u32 = core::mem::offset_of!(Device, reboot_requested) as u32;
+#[no_mangle] pub static RUST_OFFSET_BLINKS_LEFT: u32 = core::mem::offset_of!(Device, blinks_left) as u32;
+
 #[cfg(test)]
 mod tests {
     use super::*;

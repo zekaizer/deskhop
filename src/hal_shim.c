@@ -8,6 +8,24 @@
 _Static_assert(sizeof(queue_t) == 16,
     "queue_t size changed — update QUEUE_T_SIZE in src-rust/src/app/structs.rs");
 
+/* Verify Rust Device struct matches C device_t — called from initial_setup */
+extern const uint32_t RUST_SIZEOF_DEVICE;
+extern const uint32_t RUST_OFFSET_TUD_CONNECTED;
+extern const uint32_t RUST_OFFSET_ACTIVE_OUTPUT;
+extern const uint32_t RUST_OFFSET_CORE1_TIMESTAMP;
+extern const uint32_t RUST_OFFSET_REBOOT_REQUESTED;
+extern const uint32_t RUST_OFFSET_BLINKS_LEFT;
+
+bool hal_verify_device_layout(void) {
+    if (RUST_SIZEOF_DEVICE != sizeof(device_t)) return false;
+    if (RUST_OFFSET_TUD_CONNECTED != offsetof(device_t, tud_connected)) return false;
+    if (RUST_OFFSET_ACTIVE_OUTPUT != offsetof(device_t, active_output)) return false;
+    if (RUST_OFFSET_CORE1_TIMESTAMP != offsetof(device_t, core1_last_loop_pass)) return false;
+    if (RUST_OFFSET_REBOOT_REQUESTED != offsetof(device_t, reboot_requested)) return false;
+    if (RUST_OFFSET_BLINKS_LEFT != offsetof(device_t, blinks_left)) return false;
+    return true;
+}
+
 /* ==================================================== *
  * Timestamp
  * ==================================================== */
@@ -280,6 +298,22 @@ int hal_check_all_hotkeys(const uint8_t *report, uint8_t *out_pass_to_os,
 
 void hal_toggle_led(void) { toggle_led(); }
 void hal_set_core1_timestamp(device_t *dev, uint64_t ts) { dev->core1_last_loop_pass = ts; }
+
+/* Debug: LED blink N times with delay */
+/* device_t field readers for Rust (AppState doesn't sync with device_t) */
+bool hal_dev_get_tud_connected(device_t *dev) { return dev->tud_connected; }
+bool hal_dev_get_reboot_requested(device_t *dev) { return dev->reboot_requested; }
+uint8_t hal_dev_get_active_output(device_t *dev) { return dev->active_output; }
+uint8_t hal_dev_get_board_role(device_t *dev) { return dev->board_role; }
+bool hal_dev_get_keyboard_connected(device_t *dev) { return dev->keyboard_connected; }
+int16_t hal_dev_get_mouse_buttons(device_t *dev) { return dev->mouse_buttons; }
+
+void hal_debug_blink(int count, int delay_ms) {
+    for (int i = 0; i < count; i++) {
+        gpio_put(GPIO_LED_PIN, 1); sleep_ms(delay_ms);
+        gpio_put(GPIO_LED_PIN, 0); sleep_ms(delay_ms);
+    }
+}
 
 /* Read 4 bytes from firmware running image at given address */
 uint32_t hal_read_fw_running_u32(uint32_t address) {
