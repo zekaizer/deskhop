@@ -69,7 +69,11 @@ pub extern "C" fn rust_core1_loop(dev: *mut c_void) -> ! {
     ];
 
     loop {
-        state.core1_last_loop_pass = unsafe { device::hal_time_us_64() };
+        // Write to device_t via HAL (C reads from device_t->core1_last_loop_pass)
+        unsafe {
+            extern "C" { fn hal_set_core1_timestamp(dev: *mut c_void, ts: u64); }
+            hal_set_core1_timestamp(dev, device::hal_time_us_64());
+        }
         scheduler::run_all_tasks(&mut tasks, dev);
     }
 }

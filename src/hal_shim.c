@@ -279,6 +279,7 @@ int hal_check_all_hotkeys(const uint8_t *report, uint8_t *out_pass_to_os,
 }
 
 void hal_toggle_led(void) { toggle_led(); }
+void hal_set_core1_timestamp(device_t *dev, uint64_t ts) { dev->core1_last_loop_pass = ts; }
 
 /* Read 4 bytes from firmware running image at given address */
 uint32_t hal_read_fw_running_u32(uint32_t address) {
