@@ -317,6 +317,48 @@ mod tests {
         }
     }
 
+    /// Test AppState feature flag toggle sequence
+    #[test]
+    fn test_feature_flag_sequence() {
+        let mut state = AppState::new();
+        // Toggle gaming mode multiple times
+        msg_handlers::apply_action(&msg_handlers::HandlerAction::SetGamingMode(true), &mut state);
+        assert!(state.gaming_mode);
+        msg_handlers::apply_action(&msg_handlers::HandlerAction::SetGamingMode(false), &mut state);
+        assert!(!state.gaming_mode);
+        // Switch lock
+        msg_handlers::apply_action(&msg_handlers::HandlerAction::SetSwitchLock(true), &mut state);
+        assert!(state.switch_lock);
+        // Toggle output should be blocked
+        msg_handlers::apply_action(&msg_handlers::HandlerAction::ToggleOutput, &mut state);
+        assert_eq!(state.active_output, 0); // unchanged due to lock
+    }
+
+    /// Test HID report extraction with different bit sizes
+    #[test]
+    fn test_hid_extract_various_sizes() {
+        let report = [0xFF, 0x80, 0x7F, 0x00];
+        // 1 bit at offset 0
+        assert_eq!(hid_report::get_report_value(&report, 0, 1), -1);
+        // 4 bits at offset 0
+        assert_eq!(hid_report::get_report_value(&report, 0, 4), -1); // 0xF sign-extended
+        // 16 bits at offset 0
+        assert_eq!(hid_report::get_report_value(&report, 0, 16), -32513); // 0x80FF sign-extended
+    }
+
+    /// Test mouse acceleration at exact curve points
+    #[test]
+    fn test_acceleration_curve_points() {
+        // At 0 movement
+        assert_eq!(mouse::calculate_mouse_acceleration_factor(0, 0, true), 1.0);
+        // At very small movement (below first point)
+        let f = mouse::calculate_mouse_acceleration_factor(1, 0, true);
+        assert!((f - 1.0).abs() < 0.1);
+        // Very large movement (above last point)
+        let f = mouse::calculate_mouse_acceleration_factor(100, 0, true);
+        assert!((f - 4.0).abs() < 0.1);
+    }
+
     /// Test mouse Y scaling symmetry
     #[test]
     fn test_y_scale_symmetry() {
