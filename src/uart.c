@@ -13,6 +13,7 @@ extern void rust_handle_response_byte(const uint8_t *);
 extern void rust_handle_api_msgs(uint8_t, const uint8_t *, device_t *);
 extern void rust_handle_api_read_all_msgs(device_t *);
 extern void rust_handle_request_byte(uint8_t *);
+extern bool rust_verify_checksum(const uint8_t *);
 
 void write_raw_packet(uint8_t *d, uart_packet_t *p) { rust_write_raw_packet(d, (const uint8_t *)p); }
 void process_uart_tx_task(device_t *s) { rust_process_uart_tx_task(s); }
@@ -24,7 +25,7 @@ void queue_packet(const uint8_t *d, enum packet_type_e t, int l) {
 void send_value(const uint8_t v, enum packet_type_e t) { queue_packet(&v, t, sizeof(uint8_t)); }
 
 void process_packet(uart_packet_t *p, device_t *s) {
-    if (!verify_checksum(p)) return;
+    if (!rust_verify_checksum((const uint8_t *)p)) return;
     switch (p->type) {
         case CONSUMER_CONTROL_MSG: handle_consumer_control_msg(p,s); return;
         case SYNC_BORDERS_MSG:     rust_handle_sync_borders(s, p->data); return;
