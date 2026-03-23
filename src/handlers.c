@@ -13,8 +13,8 @@ extern void rust_output_toggle(device_t *), rust_screen_border_hotkey(device_t *
     rust_handle_set_report(device_t *, uint8_t),
     rust_handle_sync_borders(device_t *, const uint8_t *),
     rust_handle_response_byte(const uint8_t *);
-extern uint8_t rust_handle_simple_msg(uint8_t, const uint8_t *);
 
+/* Hotkey handlers (referenced by hotkeys[] fn ptrs in keyboard.c) */
 void output_toggle_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_output_toggle(s); }
 void screen_border_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_screen_border_hotkey(s); }
 void fw_upgrade_hotkey_handler_A(device_t *s, hid_keyboard_report_t *r) { rust_fw_upgrade_a(); }
@@ -28,23 +28,16 @@ void enable_screensaver_pong_hotkey_handler(device_t *s, hid_keyboard_report_t *
 void enable_screensaver_jitter_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_screensaver_jitter_enable(); }
 void disable_screensaver_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_screensaver_disable(); }
 void config_enable_hotkey_handler(device_t *s, hid_keyboard_report_t *r) { rust_config_enable(s); }
+
+/* UART handlers (referenced by process_packet switch in uart.c) */
 void handle_keyboard_uart_msg(uart_packet_t *p, device_t *s) { rust_handle_keyboard_uart_full(s, p->data); }
 void handle_mouse_abs_uart_msg(uart_packet_t *p, device_t *s) { rust_handle_mouse_uart_full(s, p->data); }
 void handle_output_select_msg(uart_packet_t *p, device_t *s) { rust_handle_output_select(s, p->data[0]); }
 void handle_fw_upgrade_msg(uart_packet_t *p, device_t *s) { reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0); }
-void handle_mouse_zoom_msg(uart_packet_t *p, device_t *s) { rust_handle_simple_msg(p->type, p->data); }
 void handle_set_report_msg(uart_packet_t *p, device_t *s) { rust_handle_set_report(s, p->data[0]); }
-void handle_switch_lock_msg(uart_packet_t *p, device_t *s) { rust_handle_simple_msg(p->type, p->data); }
 void handle_sync_borders_msg(uart_packet_t *p, device_t *s) { rust_handle_sync_borders(s, p->data); }
-void handle_flash_led_msg(uart_packet_t *p, device_t *s) { hal_blink_led(s); }
-void handle_wipe_config_msg(uart_packet_t *p, device_t *s) { hal_wipe_config(); hal_load_config(s); }
-void handle_screensaver_msg(uart_packet_t *p, device_t *s) { rust_handle_simple_msg(p->type, p->data); }
 void handle_consumer_control_msg(uart_packet_t *p, device_t *s) { queue_cc_packet(p->data, s); }
-void handle_save_config_msg(uart_packet_t *p, device_t *s) { hal_save_config(s); }
-void handle_reboot_msg(uart_packet_t *p, device_t *s) { hal_reboot(); }
 void handle_proxy_msg(uart_packet_t *p, device_t *s) { hal_queue_packet(&p->data[1], p->data[0], PACKET_DATA_LENGTH-1); }
-void handle_toggle_gaming_msg(uart_packet_t *p, device_t *s) { rust_handle_simple_msg(p->type, p->data); }
-void handle_heartbeat_msg(uart_packet_t *p, device_t *s) { rust_handle_simple_msg(p->type, p->data); }
 void handle_response_byte_msg(uart_packet_t *p, device_t *s) { rust_handle_response_byte(p->data); }
 
 /* HAL: offsetof + queue */
