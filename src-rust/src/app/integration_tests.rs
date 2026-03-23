@@ -228,6 +228,56 @@ mod tests {
         }
     }
 
+    /// Test full keyboard report → handler → state update chain
+    #[test]
+    fn test_kbd_report_to_state_update() {
+        let mut state = AppState::new();
+        let data = [0x01, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00]; // LEFT_CTRL + 'a'
+        msg_handlers::handle_keyboard_uart(&data, &mut state);
+        assert_eq!(state.remote_kbd_state.modifier, 0x01);
+        assert_eq!(state.remote_kbd_state.keycode[0], 0x04);
+    }
+
+    /// Test mouse zoom toggle via handler
+    #[test]
+    fn test_zoom_toggle_roundtrip() {
+        let mut state = AppState::new();
+        assert!(!state.mouse_zoom);
+        msg_handlers::apply_action(&msg_handlers::HandlerAction::SetMouseZoom(true), &mut state);
+        assert!(state.mouse_zoom);
+        msg_handlers::apply_action(&msg_handlers::HandlerAction::SetMouseZoom(false), &mut state);
+        assert!(!state.mouse_zoom);
+    }
+
+    /// Test HID parser with keyboard + mouse composite descriptor
+    #[test]
+    fn test_hid_parse_composite() {
+        // Minimal keyboard descriptor followed by mouse
+        #[rustfmt::skip]
+        let desc: &[u8] = &[
+            // Keyboard
+            0x05, 0x01, 0x09, 0x06, 0xA1, 0x01,
+            0x85, 0x01, // Report ID 1
+            0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7,
+            0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x08,
+            0x81, 0x02, // modifiers
+            0xC0,
+            // Mouse
+            0x05, 0x01, 0x09, 0x02, 0xA1, 0x01,
+            0x85, 0x02, // Report ID 2
+            0x05, 0x09, 0x19, 0x01, 0x29, 0x03,
+            0x15, 0x00, 0x25, 0x01, 0x95, 0x03, 0x75, 0x01,
+            0x81, 0x02, // buttons
+            0xC0,
+        ];
+        let (_, results) = hid_parser::parse_descriptor(desc);
+        assert!(results.len() >= 2);
+        // Both should have uses_report_id set
+        for input in results.iter() {
+            assert!(input.uses_report_id);
+        }
+    }
+
     /// Test screen switch decision matrix
     #[test]
     fn test_screen_switch_matrix() {
