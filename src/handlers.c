@@ -44,10 +44,8 @@ extern void rust_handle_api_msgs(uint8_t, const uint8_t *, device_t *);
 extern void rust_handle_api_read_all_msgs(device_t *);
 void handle_api_msgs(uart_packet_t *p, device_t *s) { rust_handle_api_msgs(p->type, p->data, s); }
 void handle_api_read_all_msg(uart_packet_t *p, device_t *s) { rust_handle_api_read_all_msgs(s); }
-void handle_request_byte_msg(uart_packet_t *p, device_t *s) {
-    uint32_t a=p->data32[0]; if(a>STAGING_IMAGE_SIZE) return;
-    p->data32[1]=*(uint32_t*)&ADDR_FW_RUNNING[a]; queue_packet(p->data, RESPONSE_BYTE_MSG, PACKET_DATA_LENGTH);
-}
+extern void rust_handle_request_byte(uint8_t *data);
+void handle_request_byte_msg(uart_packet_t *p, device_t *s) { rust_handle_request_byte(p->data); }
 void set_active_output(device_t *s, uint8_t o) {
     s->active_output=o; restore_leds(s); send_value(o, OUTPUT_SELECT_MSG); release_all_keys(s);
 }

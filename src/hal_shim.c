@@ -280,6 +280,11 @@ int hal_check_all_hotkeys(const uint8_t *report, uint8_t *out_pass_to_os,
 
 void hal_toggle_led(void) { toggle_led(); }
 
+/* Read 4 bytes from firmware running image at given address */
+uint32_t hal_read_fw_running_u32(uint32_t address) {
+    return *(uint32_t *)&ADDR_FW_RUNNING[address];
+}
+
 void hal_queue_cfg_packet(device_t *dev, const uint8_t *packet) {
     queue_cfg_packet((uart_packet_t *)packet, dev);
 }

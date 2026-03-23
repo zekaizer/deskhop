@@ -263,6 +263,22 @@ pub unsafe extern "C" fn rust_get_border_position(pointer_y: i16, top: *mut i32,
     }
 }
 
+/// Rust implementation of handle_request_byte_msg
+#[no_mangle]
+pub unsafe extern "C" fn rust_handle_request_byte(data: *mut u8) {
+    if data.is_null() { return; }
+    let address = u32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
+    const STAGING_IMAGE_SIZE: u32 = 262144;
+    if address > STAGING_IMAGE_SIZE { return; }
+    let fw_data = crate::hal::device::hal_read_fw_running_u32(address);
+    let bytes = fw_data.to_le_bytes();
+    *data.add(4) = bytes[0]; *data.add(5) = bytes[1];
+    *data.add(6) = bytes[2]; *data.add(7) = bytes[3];
+    crate::hal::device::hal_queue_packet(
+        data, crate::app::constants::PacketType::ResponseByte as u8, 8,
+    );
+}
+
 /// Rust implementation of handle_api_msgs
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_api_msgs(ptype: u8, data: *const u8, dev: *mut core::ffi::c_void) {
