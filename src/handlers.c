@@ -40,21 +40,10 @@ void handle_consumer_control_msg(uart_packet_t *p, device_t *s) { queue_cc_packe
 void handle_proxy_msg(uart_packet_t *p, device_t *s) { hal_queue_packet(&p->data[1], p->data[0], PACKET_DATA_LENGTH-1); }
 void handle_response_byte_msg(uart_packet_t *p, device_t *s) { rust_handle_response_byte(p->data); }
 
-/* HAL: offsetof + queue */
-void handle_api_msgs(uart_packet_t *p, device_t *s) {
-    uint8_t i = p->data[0]; const field_map_t *m = get_field_map_entry(i);
-    if (!m) return; uint8_t *ptr = ((uint8_t *)&global_state) + m->offset;
-    if (p->type == SET_VAL_MSG) { if (m->readonly) return; memcpy(ptr, &p->data[1], m->len); }
-    else if (p->type == GET_VAL_MSG) {
-        uart_packet_t r = {.type=GET_VAL_MSG, .data={[0]=i}};
-        memcpy(&r.data[1], ptr, m->len); queue_cfg_packet(&r, s);
-    }
-    reset_config_timer(s);
-}
-void handle_api_read_all_msg(uart_packet_t *p, device_t *s) {
-    uart_packet_t r = {.type=GET_VAL_MSG};
-    for (int i=0; i<get_field_map_length(); i++) { r.data[0]=get_field_map_index(i)->idx; handle_api_msgs(&r,s); }
-}
+extern void rust_handle_api_msgs(uint8_t, const uint8_t *, device_t *);
+extern void rust_handle_api_read_all_msgs(device_t *);
+void handle_api_msgs(uart_packet_t *p, device_t *s) { rust_handle_api_msgs(p->type, p->data, s); }
+void handle_api_read_all_msg(uart_packet_t *p, device_t *s) { rust_handle_api_read_all_msgs(s); }
 void handle_request_byte_msg(uart_packet_t *p, device_t *s) {
     uint32_t a=p->data32[0]; if(a>STAGING_IMAGE_SIZE) return;
     p->data32[1]=*(uint32_t*)&ADDR_FW_RUNNING[a]; queue_packet(p->data, RESPONSE_BYTE_MSG, PACKET_DATA_LENGTH);

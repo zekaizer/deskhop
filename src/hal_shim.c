@@ -280,6 +280,27 @@ int hal_check_all_hotkeys(const uint8_t *report, uint8_t *out_pass_to_os,
 
 void hal_toggle_led(void) { toggle_led(); }
 
+void hal_queue_cfg_packet(device_t *dev, const uint8_t *packet) {
+    queue_cfg_packet((uart_packet_t *)packet, dev);
+}
+
+/* API field access — read/write device_t at computed offset */
+void hal_api_read_field(uint32_t offset, uint32_t len, uint8_t *out) {
+    memcpy(out, ((uint8_t *)&global_state) + offset, len);
+}
+void hal_api_write_field(uint32_t offset, uint32_t len, const uint8_t *data) {
+    memcpy(((uint8_t *)&global_state) + offset, data, len);
+}
+/* Field map access */
+int32_t hal_get_field_map(uint8_t api_idx, uint32_t *offset, uint32_t *len, bool *readonly) {
+    const field_map_t *m = get_field_map_entry(api_idx);
+    if (!m) return -1;
+    *offset = m->offset; *len = m->len; *readonly = m->readonly;
+    return 0;
+}
+uint32_t hal_get_field_map_length(void) { return get_field_map_length(); }
+uint8_t hal_get_field_map_idx(uint32_t i) { return get_field_map_index(i)->idx; }
+
 /* Queue peek/remove for kbd and mouse */
 bool hal_kbd_queue_peek(device_t *dev, uint8_t *out) {
     return queue_try_peek(&dev->kbd_queue, out);
