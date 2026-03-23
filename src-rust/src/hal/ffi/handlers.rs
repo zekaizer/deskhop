@@ -4,25 +4,25 @@ use crate::app::handlers::{get_border_position, BorderUpdate};
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_output_toggle(dev: *mut core::ffi::c_void) {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     crate::app::hotkey_handlers::output_toggle(dev, state);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_mouse_zoom_toggle() {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     crate::app::hotkey_handlers::mouse_zoom_toggle(state);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_switch_lock_toggle() {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     crate::app::hotkey_handlers::switch_lock_toggle(state);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_gaming_mode_toggle() {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     crate::app::hotkey_handlers::gaming_mode_toggle(state);
 }
 
@@ -34,31 +34,31 @@ pub unsafe extern "C" fn rust_fw_upgrade_b() { crate::app::hotkey_handlers::fw_u
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_wipe_config_hotkey(dev: *mut core::ffi::c_void) {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     crate::app::hotkey_handlers::wipe_config(dev, state);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_pong_enable() {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     crate::app::hotkey_handlers::screensaver_pong_enable(state);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_jitter_enable() {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     crate::app::hotkey_handlers::screensaver_jitter_enable(state);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_disable() {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     crate::app::hotkey_handlers::screensaver_disable(state);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_set(value: u8) {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     if state.is_active_output() {
         let role = state.board_role as usize;
         if role < state.config.output.len() {
@@ -71,7 +71,7 @@ pub unsafe extern "C" fn rust_screensaver_set(value: u8) {
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screen_border_hotkey(dev: *mut core::ffi::c_void) {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     let idx = state.active_output as usize;
     if idx >= state.config.output.len() { return; }
     if state.is_active_output() {
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn rust_screen_border_hotkey(dev: *mut core::ffi::c_void) 
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screenlock_handler(dev: *mut core::ffi::c_void) {
-    let state = &*crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     for out in 0..2u8 {
         if let Some((modifier, key)) = crate::app::handlers::screenlock_keys(state.config.output[out as usize].os) {
             let mut report = [0u8; 8];
@@ -116,7 +116,7 @@ pub unsafe extern "C" fn rust_screenlock_handler(dev: *mut core::ffi::c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_simple_msg(ptype: u8, data: *const u8) -> u8 {
     if data.is_null() { return 0; }
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
     let action = crate::app::msg_handlers::handle_simple_msg(ptype, &arr, state);
@@ -126,7 +126,7 @@ pub unsafe extern "C" fn rust_handle_simple_msg(ptype: u8, data: *const u8) -> u
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_mouse_uart(data: *const u8) {
     if data.is_null() { return; }
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
     crate::app::msg_handlers::handle_mouse_uart(&arr, state);
@@ -135,7 +135,7 @@ pub unsafe extern "C" fn rust_handle_mouse_uart(data: *const u8) {
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_keyboard_uart(data: *const u8) {
     if data.is_null() { return; }
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
     crate::app::msg_handlers::handle_keyboard_uart(&arr, state);
@@ -143,7 +143,7 @@ pub unsafe extern "C" fn rust_handle_keyboard_uart(data: *const u8) {
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_output_select(dev: *mut core::ffi::c_void, output: u8) {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     state.active_output = output;
     if state.tud_connected { crate::hal::device::hal_release_all_keys(dev); }
     crate::hal::device::hal_restore_leds(dev);
@@ -152,7 +152,7 @@ pub unsafe extern "C" fn rust_handle_output_select(dev: *mut core::ffi::c_void, 
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_keyboard_uart_full(dev: *mut core::ffi::c_void, data: *const u8) {
     if data.is_null() { return; }
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
     crate::app::msg_handlers::handle_keyboard_uart(&arr, state);
@@ -166,7 +166,7 @@ pub unsafe extern "C" fn rust_handle_keyboard_uart_full(dev: *mut core::ffi::c_v
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_mouse_uart_full(dev: *mut core::ffi::c_void, data: *const u8) {
     if data.is_null() { return; }
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     crate::hal::device::hal_queue_mouse_report(dev, data);
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
@@ -179,7 +179,7 @@ pub unsafe extern "C" fn rust_handle_mouse_uart_full(dev: *mut core::ffi::c_void
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_set_report(dev: *mut core::ffi::c_void, led_value: u8) {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     let other = 1 - state.board_role as usize;
     if other < state.keyboard_leds.len() { state.keyboard_leds[other] = led_value; }
     if state.keyboard_connected && !state.is_active_output() {
@@ -190,7 +190,7 @@ pub unsafe extern "C" fn rust_handle_set_report(dev: *mut core::ffi::c_void, led
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_sync_borders(dev: *mut core::ffi::c_void, data: *const u8) {
     if data.is_null() { return; }
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     let idx = state.active_output as usize;
     if idx >= state.config.output.len() { return; }
     if state.is_active_output() {
@@ -220,7 +220,7 @@ pub unsafe extern "C" fn rust_handle_sync_borders(dev: *mut core::ffi::c_void, d
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_response_byte(data: *const u8) {
     if data.is_null() { return; }
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
 
     // data is uart_packet_t.data (8 bytes): data32[0]=address, data[0]=offset, data32[1]=fw_data
     let address = u32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
@@ -309,7 +309,7 @@ pub unsafe extern "C" fn rust_handle_api_msgs(ptype: u8, data: *const u8, dev: *
     }
 
     // Reset config timer
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     state.config_mode_timer = crate::hal::device::hal_time_us_64() + 300_000_000; // CONFIG_MODE_TIMEOUT
 }
 
@@ -326,6 +326,6 @@ pub unsafe extern "C" fn rust_handle_api_read_all_msgs(dev: *mut core::ffi::c_vo
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_config_enable(dev: *mut core::ffi::c_void) {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     crate::app::hotkey_handlers::config_enable(dev, state);
 }

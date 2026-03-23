@@ -32,12 +32,16 @@ extern "C" {
     fn heartbeat_output_task(dev: *mut c_void);
 }
 
-/// Core0 main loop — called from C main() after initial_setup().
-/// Receives C device_t* for passing to C task functions.
-/// Rust app state is accessed via AppState global.
+extern "C" { fn hal_debug_blink(count: i32, delay_ms: i32); }
+
+/// Core0 main loop
 #[no_mangle]
 pub extern "C" fn rust_main_loop(dev: *mut c_void) -> ! {
-    traceln!("rust_main_loop: core0 active");
+    // Store device pointer for FFI functions without dev parameter
+    unsafe { app::structs::set_global_device(dev); }
+
+    // Debug: 3 fast blinks = Rust main loop entered
+    unsafe { hal_debug_blink(3, 100); }
 
     let mut tasks = [
         scheduler::Task::new(usb_device_task, scheduler::top()),
@@ -54,11 +58,9 @@ pub extern "C" fn rust_main_loop(dev: *mut c_void) -> ! {
 }
 
 /// Core1 main loop — receives C device_t* for C task functions.
-/// Updates core1_last_loop_pass in AppState directly.
+/// Updates core1_last_loop_pass in Device directly.
 #[no_mangle]
 pub extern "C" fn rust_core1_loop(dev: *mut c_void) -> ! {
-    let state = unsafe { &mut *app::state::rust_get_app_state() };
-
     let mut tasks = [
         scheduler::Task::new(usb_host_task, scheduler::top()),
         scheduler::Task::new(packet_receiver_task, scheduler::top()),
@@ -69,10 +71,10 @@ pub extern "C" fn rust_core1_loop(dev: *mut c_void) -> ! {
     ];
 
     loop {
-        // Write to device_t via HAL (C reads from device_t->core1_last_loop_pass)
+        // Write directly to device_t->core1_last_loop_pass
         unsafe {
-            extern "C" { fn hal_set_core1_timestamp(dev: *mut c_void, ts: u64); }
-            hal_set_core1_timestamp(dev, device::hal_time_us_64());
+            let device = app::structs::device_from_ptr(dev);
+            device.core1_last_loop_pass = device::hal_time_us_64();
         }
         scheduler::run_all_tasks(&mut tasks, dev);
     }

@@ -24,7 +24,7 @@ pub extern "C" fn rust_scale_y_coordinate(y: i16, ft: i32, fb: i32, tt: i32, tb:
 pub unsafe extern "C" fn rust_update_mouse_position(
     move_x: i32, move_y: i32, wheel: i32, pan: i32, buttons: i32,
 ) -> u8 {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     let idx = state.active_output as usize;
     if idx >= state.config.output.len() { return 0; }
     let output = &state.config.output[idx];
@@ -49,7 +49,7 @@ pub unsafe extern "C" fn rust_create_mouse_report(
     wheel: i32, pan: i32, buttons: i32, move_x: i32, move_y: i32, out: *mut u8,
 ) {
     if out.is_null() { return; }
-    let state = &*crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     let values = crate::app::mouse_logic::MouseValues { move_x, move_y, wheel, pan, buttons };
     let r = crate::app::mouse_logic::create_mouse_report(
         state.pointer_x, state.pointer_y, &values, state.relative_mouse, state.gaming_mode,
@@ -63,7 +63,7 @@ pub unsafe extern "C" fn rust_create_mouse_report(
 #[no_mangle]
 pub unsafe extern "C" fn rust_decide_screen_switch(direction: u8) -> u8 {
     use crate::app::mouse_logic::*;
-    let state = &*crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     let idx = state.active_output as usize;
     if idx >= state.config.output.len() { return 0; }
     let output = &state.config.output[idx];
@@ -83,7 +83,7 @@ pub unsafe extern "C" fn rust_decide_screen_switch(direction: u8) -> u8 {
 #[no_mangle]
 pub unsafe extern "C" fn rust_output_mouse_report(dev: *mut core::ffi::c_void, report: *const u8) {
     if report.is_null() { return; }
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     if state.is_active_output() {
         crate::hal::device::hal_queue_mouse_report(dev, report);
         let role = state.board_role as usize;

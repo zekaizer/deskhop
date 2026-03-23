@@ -14,7 +14,7 @@ pub unsafe extern "C" fn rust_switch_to_another_pc(
     output_to: i32,
     direction: i32,  // LEFT=1, RIGHT=2
 ) {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     let output_idx = state.active_output as usize;
     if output_idx >= state.config.output.len() { return; }
 
@@ -67,7 +67,7 @@ pub unsafe extern "C" fn rust_switch_to_another_pc(
 
 /// Helper to output a mouse report via the routing logic
 unsafe fn output_report(dev: *mut c_void, report: &[u8; 8]) {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     if state.is_active_output() {
         device::hal_queue_mouse_report(dev, report.as_ptr());
     } else {
@@ -80,7 +80,7 @@ unsafe fn output_report(dev: *mut c_void, report: &[u8; 8]) {
 /// Replace C's switch_virtual_desktop_macos
 #[no_mangle]
 pub unsafe extern "C" fn rust_switch_virtual_desktop_macos(dev: *mut c_void, direction: i32) {
-    let state = &*crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     let left = direction == 1;
 
     let edge_x = if left { MIN_SCREEN_COORD } else { MAX_SCREEN_COORD };
@@ -108,7 +108,7 @@ pub unsafe extern "C" fn rust_switch_virtual_desktop_macos(dev: *mut c_void, dir
 pub unsafe extern "C" fn rust_switch_virtual_desktop(
     dev: *mut c_void, os: u8, new_index: i32, direction: i32,
 ) {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
     const MACOS: u8 = 2;
     const WINDOWS: u8 = 3;
 
@@ -124,7 +124,7 @@ pub unsafe extern "C" fn rust_switch_virtual_desktop(
 /// Replace C's do_screen_switch
 #[no_mangle]
 pub unsafe extern "C" fn rust_do_screen_switch(dev: *mut c_void, direction: i32) {
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     let output_idx = state.active_output as usize;
     if output_idx >= state.config.output.len() { return; }
 
@@ -152,14 +152,14 @@ pub unsafe extern "C" fn rust_do_screen_switch(dev: *mut c_void, direction: i32)
             // Multiple desktops, go toward main
             rust_switch_virtual_desktop(dev, os, (screen_index - 1) as i32, direction);
             // Update screen_index on the actual config
-            let state2 = &mut *crate::app::state::rust_get_app_state();
+            let state2 = crate::app::structs::device_from_ptr(dev);
             state2.config.output[output_idx].screen_index = screen_index - 1;
         }
     }
     // Jump away from other computer
     else if screen_index < screen_count {
         rust_switch_virtual_desktop(dev, os, (screen_index + 1) as i32, direction);
-        let state2 = &mut *crate::app::state::rust_get_app_state();
+        let state2 = crate::app::structs::device_from_ptr(dev);
         state2.config.output[output_idx].screen_index = screen_index + 1;
     }
 }

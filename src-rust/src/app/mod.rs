@@ -17,6 +17,5 @@ pub mod mouse_logic;
 pub mod msg_handlers;
 pub mod packet;
 pub mod screensaver;
-pub mod state;
 pub mod structs;
 pub mod usb;

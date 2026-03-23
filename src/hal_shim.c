@@ -16,14 +16,40 @@ extern const uint32_t RUST_OFFSET_CORE1_TIMESTAMP;
 extern const uint32_t RUST_OFFSET_REBOOT_REQUESTED;
 extern const uint32_t RUST_OFFSET_BLINKS_LEFT;
 
-bool hal_verify_device_layout(void) {
-    if (RUST_SIZEOF_DEVICE != sizeof(device_t)) return false;
-    if (RUST_OFFSET_TUD_CONNECTED != offsetof(device_t, tud_connected)) return false;
-    if (RUST_OFFSET_ACTIVE_OUTPUT != offsetof(device_t, active_output)) return false;
-    if (RUST_OFFSET_CORE1_TIMESTAMP != offsetof(device_t, core1_last_loop_pass)) return false;
-    if (RUST_OFFSET_REBOOT_REQUESTED != offsetof(device_t, reboot_requested)) return false;
-    if (RUST_OFFSET_BLINKS_LEFT != offsetof(device_t, blinks_left)) return false;
-    return true;
+/* Returns 0=OK, 1=sizeof, 2=tud_connected, 3=active_output,
+   4=core1_timestamp, 5=reboot_requested, 6=blinks_left */
+int hal_verify_device_layout(void) {
+    if (RUST_SIZEOF_DEVICE != sizeof(device_t)) return 1;
+    if (RUST_OFFSET_TUD_CONNECTED != offsetof(device_t, tud_connected)) return 2;
+    if (RUST_OFFSET_ACTIVE_OUTPUT != offsetof(device_t, active_output)) return 3;
+    if (RUST_OFFSET_CORE1_TIMESTAMP != offsetof(device_t, core1_last_loop_pass)) return 4;
+    if (RUST_OFFSET_REBOOT_REQUESTED != offsetof(device_t, reboot_requested)) return 5;
+    if (RUST_OFFSET_BLINKS_LEFT != offsetof(device_t, blinks_left)) return 6;
+    return 0;
+}
+
+/* Debug: output C sizeof/offsetof values via CDC */
+void hal_dump_layout(void) {
+    dh_debug_printf("C sizeof(device_t)=%u Rust=%u\n", (unsigned)sizeof(device_t), (unsigned)RUST_SIZEOF_DEVICE);
+    dh_debug_printf("C tud_connected=%u Rust=%u\n", (unsigned)offsetof(device_t, tud_connected), (unsigned)RUST_OFFSET_TUD_CONNECTED);
+    dh_debug_printf("C active_output=%u Rust=%u\n", (unsigned)offsetof(device_t, active_output), (unsigned)RUST_OFFSET_ACTIVE_OUTPUT);
+    dh_debug_printf("C core1_ts=%u Rust=%u\n", (unsigned)offsetof(device_t, core1_last_loop_pass), (unsigned)RUST_OFFSET_CORE1_TIMESTAMP);
+    dh_debug_printf("C reboot=%u Rust=%u\n", (unsigned)offsetof(device_t, reboot_requested), (unsigned)RUST_OFFSET_REBOOT_REQUESTED);
+    dh_debug_printf("C blinks=%u Rust=%u\n", (unsigned)offsetof(device_t, blinks_left), (unsigned)RUST_OFFSET_BLINKS_LEFT);
+
+    /* Also dump intermediate offsets to find where mismatch starts */
+    dh_debug_printf("C kbd_leds=%u\n", (unsigned)offsetof(device_t, keyboard_leds));
+    dh_debug_printf("C last_activity=%u\n", (unsigned)offsetof(device_t, last_activity));
+    dh_debug_printf("C config=%u\n", (unsigned)offsetof(device_t, config));
+    dh_debug_printf("C hid_queue_out=%u\n", (unsigned)offsetof(device_t, hid_queue_out));
+    dh_debug_printf("C iface=%u\n", (unsigned)offsetof(device_t, iface));
+    dh_debug_printf("C in_packet=%u\n", (unsigned)offsetof(device_t, in_packet));
+    dh_debug_printf("C dma_ptr=%u\n", (unsigned)offsetof(device_t, dma_ptr));
+    dh_debug_printf("C fw=%u\n", (unsigned)offsetof(device_t, fw));
+    dh_debug_printf("C page_buffer=%u\n", (unsigned)offsetof(device_t, page_buffer));
+    dh_debug_printf("sizeof queue_t=%u\n", (unsigned)sizeof(queue_t));
+    dh_debug_printf("sizeof hid_interface_t=%u\n", (unsigned)sizeof(hid_interface_t));
+    dh_debug_printf("sizeof config_t=%u\n", (unsigned)sizeof(config_t));
 }
 
 /* ==================================================== *

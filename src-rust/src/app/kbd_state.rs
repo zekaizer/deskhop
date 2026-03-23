@@ -3,12 +3,12 @@
 
 use core::ffi::c_void;
 use crate::app::constants::PacketType;
-use crate::app::state::AppState;
+use crate::app::structs::Device;
 use crate::app::structs::{HidKeyboardReport, MAX_DEVICES, KEYS_IN_USB_REPORT, KBD_REPORT_LENGTH};
 use crate::hal::device;
 
 /// Update keyboard state for a specific device index
-pub fn update_kbd_state(state: &mut AppState, report: &HidKeyboardReport, device_idx: u8) {
+pub fn update_kbd_state(state: &mut Device, report: &HidKeyboardReport, device_idx: u8) {
     let idx = device_idx as usize;
     if idx >= MAX_DEVICES {
         return;
@@ -20,7 +20,7 @@ pub fn update_kbd_state(state: &mut AppState, report: &HidKeyboardReport, device
 }
 
 /// Update remote keyboard state (from other board via UART)
-pub fn update_remote_kbd_state(state: &mut AppState, report: &HidKeyboardReport) {
+pub fn update_remote_kbd_state(state: &mut Device, report: &HidKeyboardReport) {
     state.remote_kbd_state = *report;
 }
 
@@ -42,7 +42,7 @@ fn add_keys(dest: &mut HidKeyboardReport, src: &HidKeyboardReport) {
 }
 
 /// Combine all keyboard states into a single report
-pub fn combine_kbd_states(state: &AppState) -> HidKeyboardReport {
+pub fn combine_kbd_states(state: &Device) -> HidKeyboardReport {
     let mut combined = HidKeyboardReport::default();
 
     // Combine all local keyboards
@@ -62,7 +62,7 @@ pub fn combine_kbd_states(state: &AppState) -> HidKeyboardReport {
 }
 
 /// Release all keys — clear all keyboard states and send empty report
-pub unsafe fn release_all_keys(dev: *mut c_void, state: &mut AppState) {
+pub unsafe fn release_all_keys(dev: *mut c_void, state: &mut Device) {
     for i in 0..MAX_DEVICES {
         state.local_kbd_states[i] = HidKeyboardReport::default();
     }
@@ -73,7 +73,7 @@ pub unsafe fn release_all_keys(dev: *mut c_void, state: &mut AppState) {
 }
 
 /// Send key report — combine all states and route to local queue or UART
-pub unsafe fn send_key(dev: *mut c_void, state: &mut AppState) {
+pub unsafe fn send_key(dev: *mut c_void, state: &mut Device) {
     let combined = combine_kbd_states(state);
 
     if state.is_active_output() {
@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_update_kbd_state() {
-        let mut state = AppState::new();
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
         let report = HidKeyboardReport {
             modifier: 0x01,
             reserved: 0,
@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_update_kbd_state_bounds() {
-        let mut state = AppState::new();
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
         let report = HidKeyboardReport::default();
         update_kbd_state(&mut state, &report, 255); // out of bounds
         // Should not crash
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn test_combine_kbd_states() {
-        let mut state = AppState::new();
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
         state.local_kbd_states[0] = HidKeyboardReport {
             modifier: 0x01, reserved: 0, keycode: [0x04, 0, 0, 0, 0, 0],
         };
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn test_combine_no_duplicates() {
-        let mut state = AppState::new();
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
         state.local_kbd_states[0] = HidKeyboardReport {
             modifier: 0, reserved: 0, keycode: [0x04, 0x05, 0, 0, 0, 0],
         };

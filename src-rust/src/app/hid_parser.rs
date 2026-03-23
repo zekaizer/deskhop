@@ -80,10 +80,9 @@ pub const HID_USAGE_DESKTOP_MOUSE: u16 = 0x02;
 pub const HID_USAGE_DESKTOP_KEYBOARD: u16 = 0x06;
 
 /// Parsed report value descriptor — describes where a value lives in a HID report
-// WORKAROUND(c-compat): C's report_val_t is TU_ATTR_PACKED. When passing to
-// C's extract_data, we serialize to packed bytes. Rust-internal use is non-packed.
-#[derive(Debug, Clone, Copy, Default)]
-#[repr(C)]
+// Must be packed to match C's TU_ATTR_PACKED report_val_t (23 bytes).
+#[derive(Clone, Copy, Default)]
+#[repr(C, packed)]
 pub struct ReportVal {
     pub offset: u16,      // In bits
     pub offset_idx: u16,  // In bytes
@@ -471,8 +470,8 @@ mod tests {
     #[test]
     fn test_report_val_default() {
         let val = ReportVal::default();
-        assert_eq!(val.offset, 0);
-        assert_eq!(val.size, 0);
+        assert_eq!({ val.offset }, 0);
+        assert_eq!({ val.size }, 0);
         assert_eq!(val.report_id, 0);
     }
 
@@ -546,22 +545,22 @@ mod tests {
         let input0 = results.iter().next().unwrap();
         assert_eq!(input0.count, 1); // size=1, count=3 -> swapped to size=3, count=1
         let btn_val = &input0.vals[0];
-        assert_eq!(btn_val.size, 3);
+        assert_eq!({ btn_val.size }, 3);
         assert_eq!(btn_val.data_type, VARIABLE);
-        assert_eq!(btn_val.usage_page, HID_USAGE_PAGE_BUTTON);
-        assert_eq!(btn_val.global_usage, HID_USAGE_DESKTOP_MOUSE);
+        assert_eq!({ btn_val.usage_page }, HID_USAGE_PAGE_BUTTON);
+        assert_eq!({ btn_val.global_usage }, HID_USAGE_DESKTOP_MOUSE);
 
         // Third input: X and Y (8 bits each, 2 items)
         let input2 = results.iter().nth(2).unwrap();
         assert_eq!(input2.count, 2);
         let x_val = &input2.vals[0];
-        assert_eq!(x_val.size, 8);
-        assert_eq!(x_val.usage, HID_USAGE_DESKTOP_X);
+        assert_eq!({ x_val.size }, 8);
+        assert_eq!({ x_val.usage }, HID_USAGE_DESKTOP_X);
         assert_eq!(x_val.data_type, VARIABLE);
 
         let y_val = &input2.vals[1];
-        assert_eq!(y_val.usage, HID_USAGE_DESKTOP_Y);
-        assert_eq!(y_val.size, 8);
+        assert_eq!({ y_val.usage }, HID_USAGE_DESKTOP_Y);
+        assert_eq!({ y_val.size }, 8);
     }
 
     #[test]
@@ -630,19 +629,19 @@ mod tests {
 
         // Buttons: 5 bits (size=1, count=5 -> swapped to size=5, count=1)
         let buttons = results.iter().next().unwrap();
-        assert_eq!(buttons.vals[0].size, 5);
-        assert_eq!(buttons.vals[0].usage_page, HID_USAGE_PAGE_BUTTON);
+        assert_eq!({ buttons.vals[0].size }, 5);
+        assert_eq!({ buttons.vals[0].usage_page }, HID_USAGE_PAGE_BUTTON);
 
         // X+Y: 2 items of 8 bits
         let xy = results.iter().nth(2).unwrap();
         assert_eq!(xy.count, 2);
-        assert_eq!(xy.vals[0].usage, HID_USAGE_DESKTOP_X);
-        assert_eq!(xy.vals[1].usage, HID_USAGE_DESKTOP_Y);
+        assert_eq!({ xy.vals[0].usage }, HID_USAGE_DESKTOP_X);
+        assert_eq!({ xy.vals[1].usage }, HID_USAGE_DESKTOP_Y);
 
         // Wheel: 1 item of 8 bits
         let wheel = results.iter().nth(3).unwrap();
         assert_eq!(wheel.count, 1);
-        assert_eq!(wheel.vals[0].usage, HID_USAGE_DESKTOP_WHEEL);
+        assert_eq!({ wheel.vals[0].usage }, HID_USAGE_DESKTOP_WHEEL);
 
         // Nested collections tracked
         assert_eq!(parser.collection.start, 2);
@@ -689,14 +688,14 @@ mod tests {
 
         // Modifiers: 8 bits (1-bit × 8, swapped)
         let modifiers = results.iter().next().unwrap();
-        assert_eq!(modifiers.vals[0].size, 8);
+        assert_eq!({ modifiers.vals[0].size }, 8);
         assert_eq!(modifiers.vals[0].data_type, VARIABLE);
-        assert_eq!(modifiers.vals[0].usage_page, HID_USAGE_PAGE_KEYBOARD);
+        assert_eq!({ modifiers.vals[0].usage_page }, HID_USAGE_PAGE_KEYBOARD);
 
         // Key array: 6 items, each 8 bits, type ARRAY
         let keys = results.iter().nth(2).unwrap();
         assert_eq!(keys.count, 6);
-        assert_eq!(keys.vals[0].size, 8);
+        assert_eq!({ keys.vals[0].size }, 8);
         assert_eq!(keys.vals[0].data_type, ARRAY);
     }
 
@@ -722,17 +721,17 @@ mod tests {
 
         let r1 = results.iter().next().unwrap();
         assert_eq!(r1.vals[0].report_id, 1);
-        assert_eq!(r1.vals[0].size, 8);
+        assert_eq!({ r1.vals[0].size }, 8);
         assert_eq!(r1.count, 2);
 
         let r2 = results.iter().nth(1).unwrap();
         assert_eq!(r2.vals[0].report_id, 2);
-        assert_eq!(r2.vals[0].size, 16);
+        assert_eq!({ r2.vals[0].size }, 16);
         assert_eq!(r2.count, 1);
 
         // Offsets should be independent per report ID
-        assert_eq!(r1.vals[0].offset, 0);
-        assert_eq!(r2.vals[0].offset, 0);
+        assert_eq!({ r1.vals[0].offset }, 0);
+        assert_eq!({ r2.vals[0].offset }, 0);
     }
 
     #[test]

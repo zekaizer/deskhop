@@ -5,8 +5,8 @@ const CORE1_HANG_TIMEOUT_US: u64 = 500_000; // 500ms
 
 /// Rust implementation of kick_watchdog_task
 #[no_mangle]
-pub unsafe extern "C" fn rust_kick_watchdog_task(_dev: *mut c_void) {
-    let state = &*crate::app::state::rust_get_app_state();
+pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
+    let state = crate::app::structs::device_from_ptr(dev);
     if state.reboot_requested { return; }
     let c1 = state.core1_last_loop_pass;
     let now = device::hal_time_us_64();
@@ -38,7 +38,7 @@ pub unsafe extern "C" fn rust_process_uart_tx_task(dev: *mut c_void) {
 /// Rust implementation of process_kbd_queue_task
 #[no_mangle]
 pub unsafe extern "C" fn rust_process_kbd_queue_task(dev: *mut c_void) {
-    let state = &*crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     if !state.tud_connected { return; }
     let mut report = [0u8; 8]; // hid_keyboard_report_t
     if !device::hal_kbd_queue_peek(dev, report.as_mut_ptr()) { return; }
@@ -52,7 +52,7 @@ pub unsafe extern "C" fn rust_process_kbd_queue_task(dev: *mut c_void) {
 /// Rust implementation of process_mouse_queue_task
 #[no_mangle]
 pub unsafe extern "C" fn rust_process_mouse_queue_task(dev: *mut c_void) {
-    let state = &*crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     if !state.tud_connected { return; }
     let mut r = [0u8; 8]; // mouse_report_t
     if !device::hal_mouse_queue_peek(dev, r.as_mut_ptr()) { return; }
@@ -75,7 +75,7 @@ static mut LAST_POINTER_MOVE: u32 = 0;
 /// Rust implementation of screensaver_task
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
-    let state = &*crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
     let role = state.board_role as usize;
     if role >= state.config.output.len() { return; }
 
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
 /// Rust implementation of heartbeat_output_task
 #[no_mangle]
 pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
-    let state = &*crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::device_from_ptr(dev);
 
     if state.fw.upgrade_in_progress { return; }
 

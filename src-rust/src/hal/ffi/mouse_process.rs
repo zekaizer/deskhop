@@ -15,7 +15,7 @@ pub unsafe extern "C" fn rust_process_mouse_report(
         return;
     }
 
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
 
     // Extract mouse values — use HAL getters for hid_interface_t mouse fields
     let mut values = [0i32; 5];

@@ -13,7 +13,7 @@ mod tests {
     use crate::app::msg_handlers;
     use crate::app::packet;
     use crate::app::screensaver;
-    use crate::app::state::AppState;
+    use crate::app::structs::Device;
 
     /// Test full packet roundtrip: create → serialize → parse → validate
     #[test]
@@ -66,7 +66,7 @@ mod tests {
     /// Test keyboard hotkey → handler action chain
     #[test]
     fn test_hotkey_to_handler_action() {
-        let mut state = AppState::new();
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
         state.active_output = 0;
 
         // Simulate output select message
@@ -127,7 +127,7 @@ mod tests {
         use crate::app::kbd_state;
         use crate::app::structs::HidKeyboardReport;
 
-        let mut state = AppState::new();
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
         // Fill all 6 slots in keyboard 0
         state.local_kbd_states[0] = HidKeyboardReport {
             modifier: 0xFF, reserved: 0,
@@ -149,7 +149,7 @@ mod tests {
     /// Test full message handler chain for firmware upgrade
     #[test]
     fn test_fw_upgrade_chain() {
-        let mut state = AppState::new();
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
         state.running_fw.version = 100;
 
         // Heartbeat with newer version triggers upgrade
@@ -184,10 +184,10 @@ mod tests {
         }
     }
 
-    /// Test AppState is_active_output helper
+    /// Test Device is_active_output helper
     #[test]
     fn test_app_state_active_output() {
-        let mut state = AppState::new();
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
         state.board_role = 0;
         state.active_output = 0;
         assert!(state.is_active_output());
@@ -231,7 +231,7 @@ mod tests {
     /// Test full keyboard report → handler → state update chain
     #[test]
     fn test_kbd_report_to_state_update() {
-        let mut state = AppState::new();
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
         let data = [0x01, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00]; // LEFT_CTRL + 'a'
         msg_handlers::handle_keyboard_uart(&data, &mut state);
         assert_eq!(state.remote_kbd_state.modifier, 0x01);
@@ -241,7 +241,7 @@ mod tests {
     /// Test mouse zoom toggle via handler
     #[test]
     fn test_zoom_toggle_roundtrip() {
-        let mut state = AppState::new();
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
         assert!(!state.mouse_zoom);
         msg_handlers::apply_action(&msg_handlers::HandlerAction::SetMouseZoom(true), &mut state);
         assert!(state.mouse_zoom);
@@ -317,10 +317,10 @@ mod tests {
         }
     }
 
-    /// Test AppState feature flag toggle sequence
+    /// Test Device feature flag toggle sequence
     #[test]
     fn test_feature_flag_sequence() {
-        let mut state = AppState::new();
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
         // Toggle gaming mode multiple times
         msg_handlers::apply_action(&msg_handlers::HandlerAction::SetGamingMode(true), &mut state);
         assert!(state.gaming_mode);

@@ -143,7 +143,7 @@ pub struct FwUpgradeState {
  * hid_parser.h — keyboard_t, mouse_t, hid_interface_t
  * ================================================================== */
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Default)]
 #[repr(C)]
 pub struct MouseDescriptor {
     pub buttons: ReportVal,
@@ -156,7 +156,7 @@ pub struct MouseDescriptor {
     pub uses_report_id: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Default)]
 #[repr(C)]
 pub struct KeyboardDescriptor {
     pub modifier: ReportVal,
@@ -171,7 +171,7 @@ pub struct KeyboardDescriptor {
     pub is_nkro: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Default)]
 #[repr(C)]
 pub struct ReportDescriptor {
     pub val: ReportVal,
@@ -265,7 +265,7 @@ pub struct Device {
 
     // Firmware
     pub fw: FwUpgradeState,
-    pub _running_fw: FirmwareMetadata,
+    pub running_fw: FirmwareMetadata,
     pub reboot_requested: bool,
     pub config_mode_timer: u64,
 
@@ -300,6 +300,24 @@ impl Device {
 /// SAFETY: caller must ensure ptr is valid and layout matches.
 pub unsafe fn device_from_ptr<'a>(dev: *mut core::ffi::c_void) -> &'a mut Device {
     &mut *(dev as *mut Device)
+}
+
+// Global device pointer — set once during rust_main_loop entry.
+// Used by FFI functions that don't receive a dev parameter
+// (e.g., hotkey handlers with action_handler_t = void(*)()).
+static mut GLOBAL_DEVICE_PTR: *mut Device = core::ptr::null_mut();
+
+/// Store the device pointer for functions that can't receive it as a parameter.
+/// SAFETY: must be called exactly once with a valid device_t* before any
+/// get_global_device() calls.
+pub unsafe fn set_global_device(dev: *mut core::ffi::c_void) {
+    GLOBAL_DEVICE_PTR = dev as *mut Device;
+}
+
+/// Get device reference from the stored global pointer.
+/// SAFETY: set_global_device must have been called first.
+pub unsafe fn get_global_device<'a>() -> &'a mut Device {
+    &mut *GLOBAL_DEVICE_PTR
 }
 
 // sizeof/offset exports for C static_assert verification

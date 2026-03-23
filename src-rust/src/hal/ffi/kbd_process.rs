@@ -17,7 +17,7 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
         return;
     }
 
-    let state = &mut *crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
 
     if length < KBD_REPORT_LENGTH as i32 {
         return;
@@ -66,7 +66,7 @@ pub unsafe extern "C" fn rust_process_consumer_report(
     dev: *mut c_void,
 ) {
     if raw_report.is_null() || iface.is_null() || length < 2 { return; }
-    let state = &*crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
 
     let mut new_report = [0u8; 4]; // CONSUMER_CONTROL_LENGTH
 
@@ -109,7 +109,7 @@ pub unsafe extern "C" fn rust_process_system_report(
     dev: *mut c_void,
 ) {
     if raw_report.is_null() || length < 2 { return; }
-    let state = &*crate::app::state::rust_get_app_state();
+    let state = crate::app::structs::get_global_device();
 
     let report = [*raw_report.add(1), 0];
 
