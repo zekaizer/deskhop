@@ -6,6 +6,7 @@ extern uint32_t rust_calc_crc32(const uint8_t *, size_t), rust_crc32_iter(uint32
     rust_get_ptr_delta(uint32_t, uint32_t, uint32_t);
 extern bool rust_verify_checksum(const uint8_t *), rust_validate_packet(const uint8_t *);
 
+/* calc_checksum: called only via header decl — linker resolves to rust_calc_checksum if needed */
 uint8_t calc_checksum(const uint8_t *d, int l) { return rust_calc_checksum(d, l); }
 bool verify_checksum(const uart_packet_t *p) { return rust_verify_checksum((const uint8_t *)p); }
 uint32_t crc32_iter(uint32_t c, const uint8_t b) { return rust_crc32_iter(c, b); }

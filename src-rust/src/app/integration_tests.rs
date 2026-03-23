@@ -183,4 +183,68 @@ mod tests {
             prev = factor;
         }
     }
+
+    /// Test AppState is_active_output helper
+    #[test]
+    fn test_app_state_active_output() {
+        let mut state = AppState::new();
+        state.board_role = 0;
+        state.active_output = 0;
+        assert!(state.is_active_output());
+        state.active_output = 1;
+        assert!(!state.is_active_output());
+        state.board_role = 1;
+        assert!(state.is_active_output());
+    }
+
+    /// Test screensaver jitter alternation over many cycles
+    #[test]
+    fn test_jitter_stability() {
+        let mut jitter = screensaver::JitterState::new();
+        for i in 0..1000 {
+            let r = jitter.step();
+            let expected = if i % 2 == 0 { -2 } else { 2 };
+            assert_eq!(r.y, expected, "Jitter failed at step {}", i);
+        }
+    }
+
+    /// Test extract classify covers all HID usage types
+    #[test]
+    fn test_extract_classify_all_types() {
+        use crate::app::extract::*;
+        use crate::app::hid_parser::*;
+
+        let types = [
+            (HID_USAGE_PAGE_BUTTON, HID_USAGE_DESKTOP_MOUSE, 0, ExtractedType::MouseButtons),
+            (HID_USAGE_PAGE_DESKTOP, HID_USAGE_DESKTOP_MOUSE, HID_USAGE_DESKTOP_X, ExtractedType::MouseX),
+            (HID_USAGE_PAGE_DESKTOP, HID_USAGE_DESKTOP_MOUSE, HID_USAGE_DESKTOP_Y, ExtractedType::MouseY),
+            (HID_USAGE_PAGE_DESKTOP, HID_USAGE_DESKTOP_MOUSE, HID_USAGE_DESKTOP_WHEEL, ExtractedType::MouseWheel),
+            (HID_USAGE_PAGE_KEYBOARD, HID_USAGE_DESKTOP_KEYBOARD, 0, ExtractedType::Keyboard),
+        ];
+
+        for (up, gu, u, expected) in types {
+            let val = ReportVal { usage_page: up, global_usage: gu, usage: u, ..ReportVal::default() };
+            assert_eq!(classify_report_val(&val), expected);
+        }
+    }
+
+    /// Test screen switch decision matrix
+    #[test]
+    fn test_screen_switch_matrix() {
+        use mouse_logic::*;
+
+        // At border, no button → switch
+        let ctx = SwitchContext { switch_lock: false, gaming_mode: false, mouse_buttons: 0,
+            screen_pos: 2, screen_index: 1, screen_count: 1 };
+        assert_eq!(decide_screen_switch(SwitchDirection::Left, &ctx), ScreenSwitchAction::SwitchToOtherPc);
+
+        // At border, button held → nothing
+        let ctx2 = SwitchContext { mouse_buttons: 1, ..ctx };
+        assert_eq!(decide_screen_switch(SwitchDirection::Left, &ctx2), ScreenSwitchAction::Nothing);
+
+        // Not at border, multiple screens → virtual desktop
+        let ctx3 = SwitchContext { screen_index: 2, screen_count: 3, ..ctx };
+        assert_eq!(decide_screen_switch(SwitchDirection::Left, &ctx3),
+            ScreenSwitchAction::SwitchVirtualDesktop { new_index: 1 });
+    }
 }
