@@ -106,7 +106,14 @@ static void cdc_write_str(const char *str) {
 int dh_debug_printf(const char *fmt, ...) {
     va_list a; va_start(a, fmt); char b[512];
     int l = vsnprintf(b, 512, fmt, a);
-    cdc_write_str(b); tud_cdc_write_flush(); va_end(a); return l;
+    /* Convert \n to \r\n for CDC terminal compatibility */
+    char cr[1024]; int j = 0;
+    for (int i = 0; i < l && j < 1022; i++) {
+        if (b[i] == '\n' && (i == 0 || b[i-1] != '\r')) cr[j++] = '\r';
+        cr[j++] = b[i];
+    }
+    cr[j] = '\0';
+    cdc_write_str(cr); tud_cdc_write_flush(); va_end(a); return l;
 }
 #else
 int dh_debug_printf(const char *fmt, ...) { return 0; }
