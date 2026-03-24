@@ -34,17 +34,16 @@ pub unsafe extern "C" fn rust_process_mouse_report(
         let uses_id = device::hal_get_iface_uses_report_id(iface);
         let report_slice = core::slice::from_raw_parts(raw_report, len as usize);
 
+        // ReportVal is #[repr(C, packed)] = same layout as C report_val_t
         fn extract_val(report: &[u8], uses_id: bool, val_ptr: *const u8) -> Option<i32> {
             if val_ptr.is_null() { return None; }
             unsafe {
-                let report_id = *val_ptr.add(16); // report_val_t.report_id at offset 16
+                let rv = core::ptr::read_unaligned(val_ptr as *const crate::app::hid_parser::ReportVal);
                 let src = if uses_id {
-                    if report[0] != report_id { return None; }
+                    if report[0] != rv.report_id { return None; }
                     &report[1..]
                 } else { report };
-                let offset = u16::from_le_bytes([*val_ptr, *val_ptr.add(1)]);
-                let size = u16::from_le_bytes([*val_ptr.add(4), *val_ptr.add(5)]);
-                Some(crate::app::hid_report::get_report_value(src, offset, size))
+                Some(crate::app::hid_report::get_report_value(src, rv.offset, rv.size))
             }
         }
 
