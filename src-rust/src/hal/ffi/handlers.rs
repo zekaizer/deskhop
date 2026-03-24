@@ -9,20 +9,20 @@ pub unsafe extern "C" fn rust_output_toggle(dev: *mut core::ffi::c_void) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rust_mouse_zoom_toggle() {
-    let state = crate::app::structs::get_global_device();
+pub unsafe extern "C" fn rust_mouse_zoom_toggle(dev: *mut core::ffi::c_void) {
+    let state = crate::app::structs::device_from_ptr(dev);
     crate::app::hotkey_handlers::mouse_zoom_toggle(state);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rust_switch_lock_toggle() {
-    let state = crate::app::structs::get_global_device();
+pub unsafe extern "C" fn rust_switch_lock_toggle(dev: *mut core::ffi::c_void) {
+    let state = crate::app::structs::device_from_ptr(dev);
     crate::app::hotkey_handlers::switch_lock_toggle(state);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rust_gaming_mode_toggle() {
-    let state = crate::app::structs::get_global_device();
+pub unsafe extern "C" fn rust_gaming_mode_toggle(dev: *mut core::ffi::c_void) {
+    let state = crate::app::structs::device_from_ptr(dev);
     crate::app::hotkey_handlers::gaming_mode_toggle(state);
 }
 
@@ -39,20 +39,20 @@ pub unsafe extern "C" fn rust_wipe_config_hotkey(dev: *mut core::ffi::c_void) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rust_screensaver_pong_enable() {
-    let state = crate::app::structs::get_global_device();
+pub unsafe extern "C" fn rust_screensaver_pong_enable(dev: *mut core::ffi::c_void) {
+    let state = crate::app::structs::device_from_ptr(dev);
     crate::app::hotkey_handlers::screensaver_pong_enable(state);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rust_screensaver_jitter_enable() {
-    let state = crate::app::structs::get_global_device();
+pub unsafe extern "C" fn rust_screensaver_jitter_enable(dev: *mut core::ffi::c_void) {
+    let state = crate::app::structs::device_from_ptr(dev);
     crate::app::hotkey_handlers::screensaver_jitter_enable(state);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rust_screensaver_disable() {
-    let state = crate::app::structs::get_global_device();
+pub unsafe extern "C" fn rust_screensaver_disable(dev: *mut core::ffi::c_void) {
+    let state = crate::app::structs::device_from_ptr(dev);
     crate::app::hotkey_handlers::screensaver_disable(state);
 }
 
