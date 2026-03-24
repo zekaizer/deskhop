@@ -101,31 +101,13 @@ pub unsafe extern "C" fn rust_screenlock_handler(dev: *mut core::ffi::c_void) {
 // ---- UART message handlers ----
 
 #[no_mangle]
-pub unsafe extern "C" fn rust_handle_simple_msg(ptype: u8, data: *const u8) -> u8 {
+pub unsafe extern "C" fn rust_handle_simple_msg(ptype: u8, data: *const u8, dev: *mut core::ffi::c_void) -> u8 {
     if data.is_null() { return 0; }
-    let state = crate::app::structs::get_global_device();
+    let state = crate::app::structs::device_from_ptr(dev);
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
     let action = crate::app::msg_handlers::handle_simple_msg(ptype, &arr, state);
     if crate::app::msg_handlers::apply_action(&action, state) { 1 } else { 0 }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_handle_mouse_uart(data: *const u8) {
-    if data.is_null() { return; }
-    let state = crate::app::structs::get_global_device();
-    let mut arr = [0u8; 8];
-    core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
-    crate::app::msg_handlers::handle_mouse_uart(&arr, state);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_handle_keyboard_uart(data: *const u8) {
-    if data.is_null() { return; }
-    let state = crate::app::structs::get_global_device();
-    let mut arr = [0u8; 8];
-    core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
-    crate::app::msg_handlers::handle_keyboard_uart(&arr, state);
 }
 
 #[no_mangle]
@@ -205,9 +187,9 @@ pub unsafe extern "C" fn rust_handle_sync_borders(dev: *mut core::ffi::c_void, d
 
 /// Handle FW response byte — update checksum, page buffer, advance address.
 #[no_mangle]
-pub unsafe extern "C" fn rust_handle_response_byte(data: *const u8) {
+pub unsafe extern "C" fn rust_handle_response_byte(data: *const u8, dev: *mut core::ffi::c_void) {
     if data.is_null() { return; }
-    let state = crate::app::structs::get_global_device();
+    let state = crate::app::structs::device_from_ptr(dev);
 
     // data is uart_packet_t.data (8 bytes): data32[0]=address, data[0]=offset, data32[1]=fw_data
     let address = u32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
