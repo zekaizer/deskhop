@@ -4,12 +4,26 @@ use crate::hal::device;
 const CORE1_HANG_TIMEOUT_US: u64 = 500_000; // 500ms
 
 /// Rust implementation of kick_watchdog_task
+static mut DBG_COUNT: u32 = 0;
 #[no_mangle]
 pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
     if state.reboot_requested { return; }
-    // Always kick watchdog — core1 timestamp check disabled until core1 is verified
-    device::hal_watchdog_update();
+
+    // Only kick watchdog if core1 is alive (timestamp updated within 500ms)
+    let c1 = state.core1_last_loop_pass;
+    let now = device::hal_time_us_64();
+    if now - c1 < CORE1_HANG_TIMEOUT_US {
+        device::hal_watchdog_update();
+    }
+
+    // Debug: dump state every ~5s (30Hz × 150)
+    DBG_COUNT += 1;
+    if DBG_COUNT >= 150 {
+        DBG_COUNT = 0;
+        extern "C" { fn hal_debug_dump_state(dev: *mut c_void); }
+        hal_debug_dump_state(dev);
+    }
 }
 
 /// Rust implementation of process_uart_tx_task
