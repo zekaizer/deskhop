@@ -71,11 +71,14 @@ uint32_t hal_time_us_32(void) { return time_us_32(); }
  * ==================================================== */
 
 void hal_queue_mouse_report(device_t *dev, const uint8_t *report) {
-    queue_mouse_report((mouse_report_t *)report, dev);
+    // Call queue_try_add directly — do NOT call queue_mouse_report
+    // which routes to rust_queue_mouse_report, causing infinite recursion.
+    queue_try_add(&dev->mouse_queue, report);
 }
 
 void hal_queue_kbd_report(device_t *dev, const uint8_t *report) {
-    queue_kbd_report((hid_keyboard_report_t *)report, dev);
+    // Same: avoid queue_kbd_report → rust_queue_kbd_report → here recursion.
+    queue_try_add(&dev->kbd_queue, report);
 }
 
 void hal_queue_uart_packet(device_t *dev, const uint8_t *packet) {
@@ -340,6 +343,12 @@ uint8_t hal_dev_get_active_output(device_t *dev) { return dev->active_output; }
 uint8_t hal_dev_get_board_role(device_t *dev) { return dev->board_role; }
 bool hal_dev_get_keyboard_connected(device_t *dev) { return dev->keyboard_connected; }
 int16_t hal_dev_get_mouse_buttons(device_t *dev) { return dev->mouse_buttons; }
+
+void hal_debug_dump_state(device_t *dev) {
+    dh_debug_printf("tud=%d kbd=%d mse=%d role=%d out=%d c1=%llu\n",
+        dev->tud_connected, dev->keyboard_connected, dev->mouse_connected,
+        dev->board_role, dev->active_output, dev->core1_last_loop_pass);
+}
 
 void hal_debug_blink(int count, int delay_ms) {
     for (int i = 0; i < count; i++) {
