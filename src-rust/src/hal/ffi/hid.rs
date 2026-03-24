@@ -10,7 +10,7 @@ pub unsafe extern "C" fn rust_get_descriptor_value(report: *const u8, size: i32)
 pub unsafe extern "C" fn rust_get_report_value(report: *const u8, len: i32, val: *const u8) -> i32 {
     if report.is_null() || val.is_null() || len <= 0 { return 0; }
     let slice = core::slice::from_raw_parts(report, len as usize);
-    let offset = u16::from_le_bytes([*val, *val.add(1)]);
-    let size = u16::from_le_bytes([*val.add(4), *val.add(5)]);
-    crate::app::hid_report::get_report_value(slice, offset, size)
+    // ReportVal is #[repr(C, packed)] = same as C report_val_t
+    let rv = core::ptr::read_unaligned(val as *const crate::app::hid_parser::ReportVal);
+    crate::app::hid_report::get_report_value(slice, rv.offset, rv.size)
 }

@@ -383,4 +383,36 @@ mod tests {
             assert_eq!(hid_iface_size, 932, "HidInterface on 32-bit");
         }
     }
+
+    #[test]
+    fn test_config_struct_sizes() {
+        // Screensaver: mode(1) + only_if_inactive(1) + pad(6) + idle(8) + max(8) = 24
+        assert_eq!(mem::size_of::<Screensaver>(), 24, "Screensaver");
+
+        // FwUpgradeState: address(4) + checksum(4) + version(2) + byte_done(1) + upgrade(1) = 12
+        assert_eq!(mem::size_of::<FwUpgradeState>(), 12, "FwUpgradeState");
+
+        // FirmwareMetadata: magic(4) + version(2) + pad(2) + checksum(4) = 12
+        assert_eq!(mem::size_of::<FirmwareMetadata>(), 12, "FirmwareMetadata");
+
+        // QueueOpaque: 16 bytes
+        assert_eq!(mem::size_of::<QueueOpaque>(), 16, "QueueOpaque");
+    }
+
+    #[test]
+    fn test_report_val_field_offsets() {
+        use crate::app::hid_parser::ReportVal;
+        // Verify packed layout matches C report_val_t
+        assert_eq!(mem::offset_of!(ReportVal, offset), 0);
+        assert_eq!(mem::offset_of!(ReportVal, offset_idx), 2);
+        assert_eq!(mem::offset_of!(ReportVal, size), 4);
+        assert_eq!(mem::offset_of!(ReportVal, usage_min), 6);
+        assert_eq!(mem::offset_of!(ReportVal, usage_max), 10);
+        assert_eq!(mem::offset_of!(ReportVal, item_type), 14);
+        assert_eq!(mem::offset_of!(ReportVal, data_type), 15);
+        assert_eq!(mem::offset_of!(ReportVal, report_id), 16);
+        assert_eq!(mem::offset_of!(ReportVal, global_usage), 17);
+        assert_eq!(mem::offset_of!(ReportVal, usage_page), 19);
+        assert_eq!(mem::offset_of!(ReportVal, usage), 21);
+    }
 }
