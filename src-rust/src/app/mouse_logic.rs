@@ -1,4 +1,4 @@
-use crate::app::constants::{MAX_SCREEN_COORD, MIN_SCREEN_COORD, ABSOLUTE, RELATIVE};
+use crate::app::constants::{ABSOLUTE, RELATIVE};
 use crate::app::mouse;
 use crate::app::screensaver::MouseReport;
 

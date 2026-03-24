@@ -1,7 +1,6 @@
 use core::ffi::c_void;
 use crate::hal::device;
 use crate::app::structs::KBD_REPORT_LENGTH;
-use crate::app::constants::PacketType;
 
 /// Full keyboard report processing pipeline — replaces C process_keyboard_report.
 /// Called from TinyUSB callback context via C shim.
@@ -66,7 +65,7 @@ pub unsafe extern "C" fn rust_process_consumer_report(
     dev: *mut c_void,
 ) {
     if raw_report.is_null() || iface.is_null() || length < 2 { return; }
-    let state = crate::app::structs::device_from_ptr(dev);
+    let _state = crate::app::structs::device_from_ptr(dev);
 
     let mut new_report = [0u8; 4]; // CONSUMER_CONTROL_LENGTH
 

@@ -44,7 +44,7 @@ pub unsafe fn fw_upgrade_b() {
 }
 
 /// Wipe config and reload
-pub unsafe fn wipe_config(dev: *mut c_void, state: &mut Device) {
+pub unsafe fn wipe_config(dev: *mut c_void, _state: &mut Device) {
     device::hal_wipe_config();
     device::hal_load_config(dev);
     device::hal_send_value(1, PacketType::WipeConfig as u8);

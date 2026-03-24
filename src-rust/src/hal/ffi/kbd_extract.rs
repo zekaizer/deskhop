@@ -58,7 +58,7 @@ unsafe fn extract_kbd_boot(raw_report: *const u8, len: i32, out: *mut u8) -> i32
 }
 
 unsafe fn extract_kbd_other(
-    raw_report: *const u8, len: usize, iface: *mut c_void,
+    raw_report: *const u8, _len: usize, iface: *mut c_void,
     report_id: u8, out: *mut u8,
 ) -> i32 {
     let mut src = raw_report;

@@ -4,7 +4,7 @@
 use core::ffi::c_void;
 use crate::app::constants::PacketType;
 use crate::app::structs::Device;
-use crate::app::structs::{HidKeyboardReport, MAX_DEVICES, KEYS_IN_USB_REPORT, KBD_REPORT_LENGTH};
+use crate::app::structs::{HidKeyboardReport, MAX_DEVICES, KBD_REPORT_LENGTH};
 use crate::hal::device;
 
 /// Update keyboard state for a specific device index

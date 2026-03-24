@@ -5,12 +5,14 @@ static mut JITTER_STATE: JitterState = JitterState::new();
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_pong(out: *mut u8) {
-    write_report(out, &PONG_STATE.step());
+    let state = &mut *core::ptr::addr_of_mut!(PONG_STATE);
+    write_report(out, &state.step());
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_jitter(out: *mut u8) {
-    write_report(out, &JITTER_STATE.step());
+    let state = &mut *core::ptr::addr_of_mut!(JITTER_STATE);
+    write_report(out, &state.step());
 }
 
 unsafe fn write_report(out: *mut u8, r: &SSMouseReport) {

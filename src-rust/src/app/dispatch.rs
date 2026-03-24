@@ -1,7 +1,6 @@
 use crate::app::constants::PacketType;
 use crate::app::crc::calc_checksum;
 use crate::app::packet::UartPacket;
-use crate::app::constants::PACKET_DATA_LENGTH;
 
 /// Result of packet validation
 #[derive(Debug, PartialEq, Eq)]
@@ -94,6 +93,7 @@ pub fn process_packet(packet: &UartPacket) -> Result<DispatchAction, PacketError
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::constants::PACKET_DATA_LENGTH;
 
     fn make_valid_packet(ptype: u8) -> UartPacket {
         let data = [0u8; PACKET_DATA_LENGTH];
