@@ -15,6 +15,10 @@ extern const uint32_t RUST_OFFSET_ACTIVE_OUTPUT;
 extern const uint32_t RUST_OFFSET_CORE1_TIMESTAMP;
 extern const uint32_t RUST_OFFSET_REBOOT_REQUESTED;
 extern const uint32_t RUST_OFFSET_BLINKS_LEFT;
+extern const uint32_t RUST_SIZEOF_HID_INTERFACE;
+extern const uint32_t RUST_SIZEOF_KEYBOARD_DESC;
+extern const uint32_t RUST_SIZEOF_MOUSE_DESC;
+extern const uint32_t RUST_SIZEOF_REPORT_VAL;
 
 /* Returns 0=OK, 1=sizeof, 2=tud_connected, 3=active_output,
    4=core1_timestamp, 5=reboot_requested, 6=blinks_left */
@@ -48,7 +52,10 @@ void hal_dump_layout(void) {
     dh_debug_printf("C fw=%u\n", (unsigned)offsetof(device_t, fw));
     dh_debug_printf("C page_buffer=%u\n", (unsigned)offsetof(device_t, page_buffer));
     dh_debug_printf("sizeof queue_t=%u\n", (unsigned)sizeof(queue_t));
-    dh_debug_printf("sizeof hid_interface_t=%u\n", (unsigned)sizeof(hid_interface_t));
+    dh_debug_printf("sizeof hid_interface_t=%u Rust=%u\n", (unsigned)sizeof(hid_interface_t), (unsigned)RUST_SIZEOF_HID_INTERFACE);
+    dh_debug_printf("sizeof keyboard_t=%u Rust=%u\n", (unsigned)sizeof(keyboard_t), (unsigned)RUST_SIZEOF_KEYBOARD_DESC);
+    dh_debug_printf("sizeof mouse_t=%u Rust=%u\n", (unsigned)sizeof(mouse_t), (unsigned)RUST_SIZEOF_MOUSE_DESC);
+    dh_debug_printf("sizeof report_val_t=%u Rust=%u\n", (unsigned)sizeof(report_val_t), (unsigned)RUST_SIZEOF_REPORT_VAL);
     dh_debug_printf("sizeof config_t=%u\n", (unsigned)sizeof(config_t));
 }
 

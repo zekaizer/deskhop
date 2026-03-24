@@ -322,6 +322,10 @@ pub unsafe fn get_global_device<'a>() -> &'a mut Device {
 
 // sizeof/offset exports for C static_assert verification
 #[no_mangle] pub static RUST_SIZEOF_DEVICE: u32 = core::mem::size_of::<Device>() as u32;
+#[no_mangle] pub static RUST_SIZEOF_HID_INTERFACE: u32 = core::mem::size_of::<HidInterface>() as u32;
+#[no_mangle] pub static RUST_SIZEOF_KEYBOARD_DESC: u32 = core::mem::size_of::<KeyboardDescriptor>() as u32;
+#[no_mangle] pub static RUST_SIZEOF_MOUSE_DESC: u32 = core::mem::size_of::<MouseDescriptor>() as u32;
+#[no_mangle] pub static RUST_SIZEOF_REPORT_VAL: u32 = core::mem::size_of::<crate::app::hid_parser::ReportVal>() as u32;
 #[no_mangle] pub static RUST_OFFSET_TUD_CONNECTED: u32 = core::mem::offset_of!(Device, tud_connected) as u32;
 #[no_mangle] pub static RUST_OFFSET_ACTIVE_OUTPUT: u32 = core::mem::offset_of!(Device, active_output) as u32;
 #[no_mangle] pub static RUST_OFFSET_CORE1_TIMESTAMP: u32 = core::mem::offset_of!(Device, core1_last_loop_pass) as u32;
@@ -353,5 +357,30 @@ mod tests {
         // magic(4) + version(2) + checksum(4) = 10, but C may pad
         let size = mem::size_of::<FirmwareMetadata>();
         assert!(size >= 10);
+    }
+
+    #[test]
+    fn test_intermediate_struct_sizes() {
+        use crate::app::hid_parser::ReportVal;
+
+        // ReportVal must be packed = 23 bytes
+        assert_eq!(mem::size_of::<ReportVal>(), 23, "ReportVal");
+
+        // Structs containing packed ReportVal
+        assert_eq!(mem::size_of::<MouseDescriptor>(), 118, "MouseDescriptor");
+        assert_eq!(mem::size_of::<KeyboardDescriptor>(), 132, "KeyboardDescriptor");
+        assert_eq!(mem::size_of::<ReportDescriptor>(), 26, "ReportDescriptor");
+
+        // HidInterface (contains fn ptrs — size differs 32-bit vs 64-bit)
+        // On x86_64 test: ptrs are 8 bytes so HidInterface will be larger than ARM
+        // On ARM32: ptrs are 4 bytes, HidInterface should be 932
+        let ptr_size = mem::size_of::<usize>();
+        let hid_iface_size = mem::size_of::<HidInterface>();
+        let fn_ptr_size = mem::size_of::<ProcessReportFn>();
+        assert_eq!(fn_ptr_size, ptr_size, "ProcessReportFn should be pointer-sized");
+        // On ARM32 (4-byte ptrs): HidInterface = 932
+        if ptr_size == 4 {
+            assert_eq!(hid_iface_size, 932, "HidInterface on 32-bit");
+        }
     }
 }

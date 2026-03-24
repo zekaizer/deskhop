@@ -17,7 +17,7 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
         return;
     }
 
-    let state = crate::app::structs::get_global_device();
+    let state = crate::app::structs::device_from_ptr(dev);
 
     if length < KBD_REPORT_LENGTH as i32 {
         return;
@@ -66,7 +66,7 @@ pub unsafe extern "C" fn rust_process_consumer_report(
     dev: *mut c_void,
 ) {
     if raw_report.is_null() || iface.is_null() || length < 2 { return; }
-    let state = crate::app::structs::get_global_device();
+    let state = crate::app::structs::device_from_ptr(dev);
 
     let mut new_report = [0u8; 4]; // CONSUMER_CONTROL_LENGTH
 
@@ -91,12 +91,8 @@ pub unsafe extern "C" fn rust_process_consumer_report(
         }
     }
 
-    if state.is_active_output() {
-        // Queue locally via HAL (need queue_cc_packet)
-        device::hal_queue_packet(new_report.as_ptr(), PacketType::ConsumerControl as u8, 4);
-    } else {
-        device::hal_queue_packet(new_report.as_ptr(), PacketType::ConsumerControl as u8, 4);
-    }
+    // Route: local queue if active output, UART if not
+    crate::hal::ffi::state::rust_send_consumer_control(dev, new_report.as_ptr());
 }
 
 /// Rust implementation of process_system_report
@@ -109,13 +105,9 @@ pub unsafe extern "C" fn rust_process_system_report(
     dev: *mut c_void,
 ) {
     if raw_report.is_null() || length < 2 { return; }
-    let state = crate::app::structs::get_global_device();
 
     let report = [*raw_report.add(1), 0];
 
-    if state.is_active_output() {
-        device::hal_queue_packet(report.as_ptr(), PacketType::SystemControl as u8, 1);
-    } else {
-        device::hal_queue_packet(report.as_ptr(), PacketType::SystemControl as u8, 1);
-    }
+    // Route: local queue if active output, UART if not
+    crate::hal::ffi::state::rust_send_system_control(dev, report.as_ptr());
 }

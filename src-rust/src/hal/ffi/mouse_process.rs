@@ -15,7 +15,7 @@ pub unsafe extern "C" fn rust_process_mouse_report(
         return;
     }
 
-    let state = crate::app::structs::get_global_device();
+    let state = crate::app::structs::device_from_ptr(dev);
 
     // Extract mouse values — use HAL getters for hid_interface_t mouse fields
     let mut values = [0i32; 5];
@@ -113,17 +113,10 @@ pub unsafe extern "C" fn rust_process_mouse_report(
     }
 
     // Screen switch handling
-    let dir_code = match dir {
-        mouse_logic::SwitchDirection::None => return,
-        mouse_logic::SwitchDirection::Left => 1u8,
-        mouse_logic::SwitchDirection::Right => 2u8,
-    };
-
-    // Call Rust's do_screen_switch directly (no C roundtrip)
     let c_dir = match dir {
+        mouse_logic::SwitchDirection::None => return,
         mouse_logic::SwitchDirection::Left => 1i32,
         mouse_logic::SwitchDirection::Right => 2i32,
-        _ => return,
     };
     super::screen_switch::rust_do_screen_switch(dev, c_dir);
 }

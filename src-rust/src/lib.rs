@@ -41,7 +41,12 @@ pub extern "C" fn rust_main_loop(dev: *mut c_void) -> ! {
     unsafe { app::structs::set_global_device(dev); }
 
     // Debug: 3 fast blinks = Rust main loop entered
-    unsafe { hal_debug_blink(3, 100); }
+    // Must kick watchdog first — blinks take 600ms > 500ms watchdog timeout
+    unsafe {
+        extern "C" { fn watchdog_update(); }
+        watchdog_update();
+        hal_debug_blink(3, 100);
+    }
 
     let mut tasks = [
         scheduler::Task::new(usb_device_task, scheduler::top()),

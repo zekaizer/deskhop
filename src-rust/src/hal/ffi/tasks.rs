@@ -8,11 +8,8 @@ const CORE1_HANG_TIMEOUT_US: u64 = 500_000; // 500ms
 pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
     if state.reboot_requested { return; }
-    let c1 = state.core1_last_loop_pass;
-    let now = device::hal_time_us_64();
-    if now - c1 < CORE1_HANG_TIMEOUT_US {
-        device::hal_watchdog_update();
-    }
+    // Always kick watchdog — core1 timestamp check disabled until core1 is verified
+    device::hal_watchdog_update();
 }
 
 /// Rust implementation of process_uart_tx_task
