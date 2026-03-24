@@ -9,7 +9,15 @@ use core::panic::PanicInfo;
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    loop {}
+    // Rapid LED blink to indicate Rust panic (distinct from watchdog reset pattern)
+    unsafe {
+        extern "C" { fn hal_toggle_led(); }
+        loop {
+            hal_toggle_led();
+            // Busy-wait ~50ms at 125MHz (no sleep_ms — might not be safe in panic)
+            for _ in 0..500_000 { core::hint::black_box(()); }
+        }
+    }
 }
 
 use ::core::ffi::c_void;

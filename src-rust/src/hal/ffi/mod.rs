@@ -9,7 +9,6 @@ mod hid_parser_ffi;
 mod kbd_extract;
 mod kbd_process;
 mod keyboard;
-mod mouse;
 mod mouse_process;
 mod packet;
 mod screen_switch;
