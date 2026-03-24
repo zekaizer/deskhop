@@ -333,16 +333,6 @@ int hal_check_all_hotkeys(const uint8_t *report, uint8_t *out_pass_to_os,
 }
 
 void hal_toggle_led(void) { toggle_led(); }
-void hal_set_core1_timestamp(device_t *dev, uint64_t ts) { dev->core1_last_loop_pass = ts; }
-
-/* Debug: LED blink N times with delay */
-/* device_t field readers for Rust (AppState doesn't sync with device_t) */
-bool hal_dev_get_tud_connected(device_t *dev) { return dev->tud_connected; }
-bool hal_dev_get_reboot_requested(device_t *dev) { return dev->reboot_requested; }
-uint8_t hal_dev_get_active_output(device_t *dev) { return dev->active_output; }
-uint8_t hal_dev_get_board_role(device_t *dev) { return dev->board_role; }
-bool hal_dev_get_keyboard_connected(device_t *dev) { return dev->keyboard_connected; }
-int16_t hal_dev_get_mouse_buttons(device_t *dev) { return dev->mouse_buttons; }
 
 void hal_debug_dump_state(device_t *dev) {
     dh_debug_printf("tud=%d kbd=%d mse=%d role=%d out=%d c1=%llu\n",
