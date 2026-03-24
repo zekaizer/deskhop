@@ -57,19 +57,6 @@ pub unsafe extern "C" fn rust_screensaver_disable() {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rust_screensaver_set(value: u8) {
-    let state = crate::app::structs::get_global_device();
-    if state.is_active_output() {
-        let role = state.board_role as usize;
-        if role < state.config.output.len() {
-            state.config.output[role].screensaver.mode = value;
-        }
-    } else {
-        crate::hal::device::hal_send_value(value, crate::app::constants::PacketType::Screensaver as u8);
-    }
-}
-
-#[no_mangle]
 pub unsafe extern "C" fn rust_screen_border_hotkey(dev: *mut core::ffi::c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
     let idx = state.active_output as usize;
@@ -253,14 +240,6 @@ pub unsafe extern "C" fn rust_handle_response_byte(data: *const u8) {
 
     state.fw.address += 4;
     state.fw.byte_done = true;
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_get_border_position(pointer_y: i16, top: *mut i32, bottom: *mut i32) {
-    match get_border_position(pointer_y) {
-        BorderUpdate::Top(v) => { if !top.is_null() { *top = v; } }
-        BorderUpdate::Bottom(v) => { if !bottom.is_null() { *bottom = v; } }
-    }
 }
 
 /// Rust implementation of handle_request_byte_msg
