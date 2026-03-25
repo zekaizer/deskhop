@@ -1,11 +1,7 @@
-// Keyboard state management — update, combine, and send keyboard reports.
-// Uses HAL wrappers for queue access and UART transmission.
+// Keyboard state management — pure logic, no HAL dependency.
 
-use core::ffi::c_void;
-use crate::app::constants::PacketType;
 use crate::app::structs::Device;
-use crate::app::structs::{HidKeyboardReport, MAX_DEVICES, KBD_REPORT_LENGTH};
-use crate::hal::device;
+use crate::app::structs::{HidKeyboardReport, MAX_DEVICES};
 
 /// Update keyboard state for a specific device index
 pub fn update_kbd_state(state: &mut Device, report: &HidKeyboardReport, device_idx: u8) {
@@ -30,11 +26,9 @@ fn add_keys(dest: &mut HidKeyboardReport, src: &HidKeyboardReport) {
         if key == 0 {
             continue;
         }
-        // Skip if already present
         if dest.keycode.iter().any(|&k| k == key) {
             continue;
         }
-        // Find empty slot
         if let Some(slot) = dest.keycode.iter_mut().find(|k| **k == 0) {
             *slot = key;
         }
@@ -45,7 +39,6 @@ fn add_keys(dest: &mut HidKeyboardReport, src: &HidKeyboardReport) {
 pub fn combine_kbd_states(state: &Device) -> HidKeyboardReport {
     let mut combined = HidKeyboardReport::default();
 
-    // Combine all local keyboards
     for i in 0..=(state.max_kbd_idx as usize) {
         if i >= MAX_DEVICES {
             break;
@@ -54,41 +47,18 @@ pub fn combine_kbd_states(state: &Device) -> HidKeyboardReport {
         add_keys(&mut combined, &state.local_kbd_states[i]);
     }
 
-    // Add remote keyboard
     combined.modifier |= state.remote_kbd_state.modifier;
     add_keys(&mut combined, &state.remote_kbd_state);
 
     combined
 }
 
-/// Release all keys — clear all keyboard states and send empty report
-pub unsafe fn release_all_keys(dev: *mut c_void, state: &mut Device) {
+/// Release all keys — clear all keyboard states. Caller must queue empty report.
+pub fn release_all_keys(state: &mut Device) {
     for i in 0..MAX_DEVICES {
         state.local_kbd_states[i] = HidKeyboardReport::default();
     }
     state.remote_kbd_state = HidKeyboardReport::default();
-
-    let empty = HidKeyboardReport::default();
-    device::hal_queue_kbd_report(dev, &empty as *const _ as *const u8);
-}
-
-/// Send key report — combine all states and route to local queue or UART
-pub unsafe fn send_key(dev: *mut c_void, state: &mut Device) {
-    let combined = combine_kbd_states(state);
-
-    if state.is_active_output() {
-        device::hal_queue_kbd_report(dev, &combined as *const _ as *const u8);
-        let role = state.board_role as usize;
-        if role < state.last_activity.len() {
-            state.last_activity[role] = device::hal_time_us_64();
-        }
-    } else {
-        device::hal_queue_packet(
-            &combined as *const _ as *const u8,
-            PacketType::KeyboardReport as u8,
-            KBD_REPORT_LENGTH as i32,
-        );
-    }
 }
 
 #[cfg(test)]
@@ -116,8 +86,7 @@ mod tests {
     fn test_update_kbd_state_bounds() {
         let mut state = unsafe { core::mem::zeroed::<Device>() };
         let report = HidKeyboardReport::default();
-        update_kbd_state(&mut state, &report, 255); // out of bounds
-        // Should not crash
+        update_kbd_state(&mut state, &report, 255);
     }
 
     #[test]
@@ -135,7 +104,7 @@ mod tests {
         };
 
         let combined = combine_kbd_states(&state);
-        assert_eq!(combined.modifier, 0x07); // 0x01 | 0x02 | 0x04
+        assert_eq!(combined.modifier, 0x07);
         assert!(combined.keycode.contains(&0x04));
         assert!(combined.keycode.contains(&0x05));
         assert!(combined.keycode.contains(&0x06));
@@ -148,12 +117,26 @@ mod tests {
             modifier: 0, reserved: 0, keycode: [0x04, 0x05, 0, 0, 0, 0],
         };
         state.local_kbd_states[1] = HidKeyboardReport {
-            modifier: 0, reserved: 0, keycode: [0x04, 0x06, 0, 0, 0, 0], // 0x04 duplicate
+            modifier: 0, reserved: 0, keycode: [0x04, 0x06, 0, 0, 0, 0],
         };
         state.max_kbd_idx = 1;
 
         let combined = combine_kbd_states(&state);
         let count = combined.keycode.iter().filter(|&&k| k == 0x04).count();
-        assert_eq!(count, 1); // no duplicates
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_release_all_keys() {
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        state.local_kbd_states[0].modifier = 0x01;
+        state.local_kbd_states[0].keycode[0] = 0x04;
+        state.remote_kbd_state.modifier = 0x02;
+
+        release_all_keys(&mut state);
+
+        assert_eq!(state.local_kbd_states[0].modifier, 0);
+        assert_eq!(state.local_kbd_states[0].keycode[0], 0);
+        assert_eq!(state.remote_kbd_state.modifier, 0);
     }
 }

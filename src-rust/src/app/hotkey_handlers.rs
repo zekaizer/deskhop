@@ -1,99 +1,74 @@
-// Hotkey handler implementations — called when hotkey combos are detected.
-// These use HAL functions for hardware access (send_value, blink_led, etc.)
+// Hotkey handler implementations — pure state logic, no HAL dependency.
+// HAL calls (send_value, set_active_output, etc.) are in hal/ffi/handlers.rs.
 
-use core::ffi::c_void;
-use crate::app::constants::PacketType;
 use crate::app::structs::Device;
-use crate::hal::device;
 
-/// Toggle output between A and B
-pub unsafe fn output_toggle(dev: *mut c_void, state: &mut Device) {
+/// Toggle output between A and B. Returns true if toggled (false if locked).
+pub fn output_toggle(state: &mut Device) -> bool {
     if state.switch_lock {
-        return;
+        return false;
     }
     state.active_output ^= 1;
-    device::hal_set_active_output(dev, state.active_output);
+    true
 }
 
-/// Toggle mouse zoom mode
-pub unsafe fn mouse_zoom_toggle(state: &mut Device) {
+/// Toggle mouse zoom mode. Returns new value.
+pub fn mouse_zoom_toggle(state: &mut Device) -> bool {
     state.mouse_zoom = !state.mouse_zoom;
-    device::hal_send_value(state.mouse_zoom as u8, PacketType::MouseZoom as u8);
+    state.mouse_zoom
 }
 
-/// Toggle switch lock
-pub unsafe fn switch_lock_toggle(state: &mut Device) {
+/// Toggle switch lock. Returns new value.
+pub fn switch_lock_toggle(state: &mut Device) -> bool {
     state.switch_lock = !state.switch_lock;
-    device::hal_send_value(state.switch_lock as u8, PacketType::SwitchLock as u8);
+    state.switch_lock
 }
 
-/// Toggle gaming mode
-pub unsafe fn gaming_mode_toggle(state: &mut Device) {
+/// Toggle gaming mode. Returns new value.
+pub fn gaming_mode_toggle(state: &mut Device) -> bool {
     state.gaming_mode = !state.gaming_mode;
-    device::hal_send_value(state.gaming_mode as u8, PacketType::GamingMode as u8);
+    state.gaming_mode
 }
 
-/// Firmware upgrade board A
-pub unsafe fn fw_upgrade_a() {
-    device::hal_reset_usb_boot();
+/// Result of screensaver_set: whether HAL send_value is needed.
+pub enum ScreensaverAction {
+    UpdatedLocally,
+    SendToRemote(u8),
 }
 
-/// Firmware upgrade board B
-pub unsafe fn fw_upgrade_b() {
-    device::hal_send_value(1, PacketType::FirmwareUpgrade as u8);
-}
-
-/// Wipe config and reload
-pub unsafe fn wipe_config(dev: *mut c_void, _state: &mut Device) {
-    device::hal_wipe_config();
-    device::hal_load_config(dev);
-    device::hal_send_value(1, PacketType::WipeConfig as u8);
-}
-
-/// Set screensaver mode
-pub unsafe fn screensaver_set(state: &mut Device, mode: u8) {
+/// Set screensaver mode. Returns action for caller.
+pub fn screensaver_set(state: &mut Device, mode: u8) -> ScreensaverAction {
     if state.is_active_output() {
         let role = state.board_role as usize;
         if role < state.config.output.len() {
             state.config.output[role].screensaver.mode = mode;
         }
+        ScreensaverAction::UpdatedLocally
     } else {
-        device::hal_send_value(mode, PacketType::Screensaver as u8);
+        ScreensaverAction::SendToRemote(mode)
     }
 }
 
-/// Enable pong screensaver
-pub unsafe fn screensaver_pong_enable(state: &mut Device) {
+/// Compute pong screensaver mode. Returns mode to set.
+pub fn screensaver_pong_mode(state: &Device) -> Option<u8> {
     let role = state.board_role as usize;
-    if role < state.config.output.len() {
-        let current = state.config.output[role].screensaver.mode;
-        let desired = if current == 0 || current == 2 { 1 } else { current }; // PONG=1
-        screensaver_set(state, desired);
-    }
+    if role >= state.config.output.len() { return None; }
+    let current = state.config.output[role].screensaver.mode;
+    Some(if current == 0 || current == 2 { 1 } else { current })
 }
 
-/// Enable jitter screensaver
-pub unsafe fn screensaver_jitter_enable(state: &mut Device) {
+/// Compute jitter screensaver mode. Returns mode to set.
+pub fn screensaver_jitter_mode(state: &Device) -> Option<u8> {
     let role = state.board_role as usize;
-    if role < state.config.output.len() {
-        let current = state.config.output[role].screensaver.mode;
-        let desired = if current == 0 || current == 1 { 2 } else { current }; // JITTER=2
-        screensaver_set(state, desired);
-    }
+    if role >= state.config.output.len() { return None; }
+    let current = state.config.output[role].screensaver.mode;
+    Some(if current == 0 || current == 1 { 2 } else { current })
 }
 
-/// Disable screensaver
-pub unsafe fn screensaver_disable(state: &mut Device) {
-    screensaver_set(state, 0); // DISABLED
-}
-
-/// Enter config mode — set watchdog scratch registers and request reboot
-pub unsafe fn config_enable(dev: *mut core::ffi::c_void, state: &mut Device) {
-    if !state.config_mode_active {
-        device::hal_set_config_mode_scratch();
-    }
-    device::hal_release_all_keys(dev);
+/// Enter config mode. Returns true if reboot should be requested.
+pub fn config_enable(state: &mut Device) -> bool {
     state.reboot_requested = true;
+    !state.config_mode_active // true = need to set scratch registers
 }
 
 #[cfg(test)]
@@ -104,11 +79,9 @@ mod tests {
     fn test_output_toggle_logic() {
         let mut state = unsafe { core::mem::zeroed::<Device>() };
         state.active_output = 0;
-        state.switch_lock = false;
-        // Can't call unsafe HAL in tests, but we can verify state logic
-        state.active_output ^= 1;
+        assert!(output_toggle(&mut state));
         assert_eq!(state.active_output, 1);
-        state.active_output ^= 1;
+        assert!(output_toggle(&mut state));
         assert_eq!(state.active_output, 0);
     }
 
@@ -117,29 +90,55 @@ mod tests {
         let mut state = unsafe { core::mem::zeroed::<Device>() };
         state.switch_lock = true;
         state.active_output = 0;
-        // output_toggle would return early
-        if !state.switch_lock {
-            state.active_output ^= 1;
-        }
+        assert!(!output_toggle(&mut state));
         assert_eq!(state.active_output, 0);
     }
 
     #[test]
+    fn test_mouse_zoom_toggle() {
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        assert!(!state.mouse_zoom);
+        assert!(mouse_zoom_toggle(&mut state));
+        assert!(state.mouse_zoom);
+        assert!(!mouse_zoom_toggle(&mut state));
+        assert!(!state.mouse_zoom);
+    }
+
+    #[test]
     fn test_screensaver_mode_selection() {
-        // PONG=1, JITTER=2, DISABLED=0
         let mut state = unsafe { core::mem::zeroed::<Device>() };
         state.board_role = 0;
-        state.config.output[0].screensaver.mode = 0; // DISABLED
+        state.config.output[0].screensaver.mode = 0;
+        assert_eq!(screensaver_pong_mode(&state), Some(1));
 
-        // Enable pong: when disabled, should pick PONG(1)
-        let current = state.config.output[0].screensaver.mode;
-        let desired = if current == 0 || current == 2 { 1 } else { current };
-        assert_eq!(desired, 1);
-
-        // Enable jitter: when PONG, should pick JITTER(2)
         state.config.output[0].screensaver.mode = 1;
-        let current = state.config.output[0].screensaver.mode;
-        let desired = if current == 0 || current == 1 { 2 } else { current };
-        assert_eq!(desired, 2);
+        assert_eq!(screensaver_jitter_mode(&state), Some(2));
+
+        state.config.output[0].screensaver.mode = 2;
+        assert_eq!(screensaver_pong_mode(&state), Some(1));
+    }
+
+    #[test]
+    fn test_screensaver_set_active() {
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        state.board_role = 0;
+        state.active_output = 0; // active
+        match screensaver_set(&mut state, 1) {
+            ScreensaverAction::UpdatedLocally => {
+                assert_eq!(state.config.output[0].screensaver.mode, 1);
+            }
+            _ => panic!("Expected UpdatedLocally"),
+        }
+    }
+
+    #[test]
+    fn test_screensaver_set_remote() {
+        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        state.board_role = 0;
+        state.active_output = 1; // NOT active
+        match screensaver_set(&mut state, 2) {
+            ScreensaverAction::SendToRemote(m) => assert_eq!(m, 2),
+            _ => panic!("Expected SendToRemote"),
+        }
     }
 }

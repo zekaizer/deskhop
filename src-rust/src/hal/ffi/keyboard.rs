@@ -18,7 +18,10 @@ pub unsafe extern "C" fn rust_check_specific_hotkey(
 #[no_mangle]
 pub unsafe extern "C" fn rust_release_all_keys_state(dev: *mut core::ffi::c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
-    crate::app::kbd_state::release_all_keys(dev, state);
+    crate::app::kbd_state::release_all_keys(state);
+    // Queue empty report to host
+    let empty = crate::app::structs::HidKeyboardReport::default();
+    crate::hal::device::hal_queue_kbd_report(dev, &empty as *const _ as *const u8);
 }
 
 #[no_mangle]

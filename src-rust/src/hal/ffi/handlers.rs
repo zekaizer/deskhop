@@ -1,59 +1,93 @@
 use crate::app::handlers::{get_border_position, BorderUpdate};
 
-// ---- Hotkey handlers ----
+// ---- Hotkey handlers (app logic + HAL dispatch) ----
+
+use crate::app::constants::PacketType;
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_output_toggle(dev: *mut core::ffi::c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
-    crate::app::hotkey_handlers::output_toggle(dev, state);
+    if crate::app::hotkey_handlers::output_toggle(state) {
+        crate::hal::device::hal_set_active_output(dev, state.active_output);
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_mouse_zoom_toggle(dev: *mut core::ffi::c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
-    crate::app::hotkey_handlers::mouse_zoom_toggle(state);
+    let val = crate::app::hotkey_handlers::mouse_zoom_toggle(state);
+    crate::hal::device::hal_send_value(val as u8, PacketType::MouseZoom as u8);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_switch_lock_toggle(dev: *mut core::ffi::c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
-    crate::app::hotkey_handlers::switch_lock_toggle(state);
+    let val = crate::app::hotkey_handlers::switch_lock_toggle(state);
+    crate::hal::device::hal_send_value(val as u8, PacketType::SwitchLock as u8);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_gaming_mode_toggle(dev: *mut core::ffi::c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
-    crate::app::hotkey_handlers::gaming_mode_toggle(state);
+    let val = crate::app::hotkey_handlers::gaming_mode_toggle(state);
+    crate::hal::device::hal_send_value(val as u8, PacketType::GamingMode as u8);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rust_fw_upgrade_a() { crate::app::hotkey_handlers::fw_upgrade_a(); }
+pub unsafe extern "C" fn rust_fw_upgrade_a() { crate::hal::device::hal_reset_usb_boot(); }
 
 #[no_mangle]
-pub unsafe extern "C" fn rust_fw_upgrade_b() { crate::app::hotkey_handlers::fw_upgrade_b(); }
+pub unsafe extern "C" fn rust_fw_upgrade_b() {
+    crate::hal::device::hal_send_value(1, PacketType::FirmwareUpgrade as u8);
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_wipe_config_hotkey(dev: *mut core::ffi::c_void) {
-    let state = crate::app::structs::device_from_ptr(dev);
-    crate::app::hotkey_handlers::wipe_config(dev, state);
+    crate::hal::device::hal_wipe_config();
+    crate::hal::device::hal_load_config(dev);
+    crate::hal::device::hal_send_value(1, PacketType::WipeConfig as u8);
+}
+
+fn screensaver_dispatch(state: &mut crate::app::structs::Device, mode: u8) {
+    use crate::app::hotkey_handlers::ScreensaverAction;
+    match crate::app::hotkey_handlers::screensaver_set(state, mode) {
+        ScreensaverAction::UpdatedLocally => {}
+        ScreensaverAction::SendToRemote(m) => {
+            unsafe { crate::hal::device::hal_send_value(m, PacketType::Screensaver as u8); }
+        }
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_pong_enable(dev: *mut core::ffi::c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
-    crate::app::hotkey_handlers::screensaver_pong_enable(state);
+    if let Some(mode) = crate::app::hotkey_handlers::screensaver_pong_mode(state) {
+        screensaver_dispatch(state, mode);
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_jitter_enable(dev: *mut core::ffi::c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
-    crate::app::hotkey_handlers::screensaver_jitter_enable(state);
+    if let Some(mode) = crate::app::hotkey_handlers::screensaver_jitter_mode(state) {
+        screensaver_dispatch(state, mode);
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_disable(dev: *mut core::ffi::c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
-    crate::app::hotkey_handlers::screensaver_disable(state);
+    screensaver_dispatch(state, 0);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_config_enable(dev: *mut core::ffi::c_void) {
+    let state = crate::app::structs::device_from_ptr(dev);
+    let need_scratch = crate::app::hotkey_handlers::config_enable(state);
+    if need_scratch {
+        crate::hal::device::hal_set_config_mode_scratch();
+    }
+    crate::hal::device::hal_release_all_keys(dev);
 }
 
 #[no_mangle]
@@ -125,7 +159,17 @@ pub unsafe extern "C" fn rust_handle_keyboard_uart_full(dev: *mut core::ffi::c_v
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
     crate::app::msg_handlers::handle_keyboard_uart(&arr, state);
-    crate::app::kbd_state::send_key(dev, state);
+    // Route combined keyboard report
+    let combined = crate::app::kbd_state::combine_kbd_states(state);
+    if state.is_active_output() {
+        crate::hal::device::hal_queue_kbd_report(dev, &combined as *const _ as *const u8);
+    } else {
+        crate::hal::device::hal_queue_packet(
+            &combined as *const _ as *const u8,
+            crate::app::constants::PacketType::KeyboardReport as u8,
+            crate::app::structs::KBD_REPORT_LENGTH as i32,
+        );
+    }
     let role = state.board_role as usize;
     if role < state.last_activity.len() {
         state.last_activity[role] = crate::hal::device::hal_time_us_64();
@@ -285,8 +329,3 @@ pub unsafe extern "C" fn rust_handle_api_read_all_msgs(dev: *mut core::ffi::c_vo
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn rust_config_enable(dev: *mut core::ffi::c_void) {
-    let state = crate::app::structs::device_from_ptr(dev);
-    crate::app::hotkey_handlers::config_enable(dev, state);
-}
