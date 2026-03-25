@@ -1,6 +1,7 @@
 // FFI exports — all #[no_mangle] pub extern "C" functions callable from C.
 // Split into sub-modules by domain for maintainability.
 
+mod api_config;
 mod checksum;
 mod extract_data;
 mod fw_handlers;

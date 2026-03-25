@@ -52,11 +52,6 @@ extern "C" {
 
     pub fn hal_toggle_led();
     pub fn hal_read_fw_running_u32(address: u32) -> u32;
-    pub fn hal_api_read_field(offset: u32, len: u32, out: *mut u8);
-    pub fn hal_api_write_field(offset: u32, len: u32, data: *const u8);
-    pub fn hal_get_field_map(api_idx: u8, offset: *mut u32, len: *mut u32, readonly: *mut bool) -> i32;
-    pub fn hal_get_field_map_length() -> u32;
-    pub fn hal_get_field_map_idx(i: u32) -> u8;
     pub fn hal_kbd_queue_peek(dev: *mut c_void, out: *mut u8) -> bool;
     pub fn hal_kbd_queue_remove(dev: *mut c_void, out: *mut u8) -> bool;
     pub fn hal_mouse_queue_peek(dev: *mut c_void, out: *mut u8) -> bool;
