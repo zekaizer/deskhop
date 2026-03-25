@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn test_output_toggle_logic() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.active_output = 0;
         assert!(output_toggle(&mut state));
         assert_eq!(state.active_output, 1);
@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn test_toggle_blocked_by_lock() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.switch_lock = true;
         state.active_output = 0;
         assert!(!output_toggle(&mut state));
@@ -96,7 +96,7 @@ mod tests {
 
     #[test]
     fn test_mouse_zoom_toggle() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         assert!(!state.mouse_zoom);
         assert!(mouse_zoom_toggle(&mut state));
         assert!(state.mouse_zoom);
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn test_screensaver_mode_selection() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.board_role = 0;
         state.config.output[0].screensaver.mode = 0;
         assert_eq!(screensaver_pong_mode(&state), Some(1));
@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn test_screensaver_set_active() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.board_role = 0;
         state.active_output = 0; // active
         match screensaver_set(&mut state, 1) {
@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_screensaver_set_remote() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.board_role = 0;
         state.active_output = 1; // NOT active
         match screensaver_set(&mut state, 2) {

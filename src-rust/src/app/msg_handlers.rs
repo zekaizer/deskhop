@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn test_handle_mouse_zoom() {
-        let state = unsafe { core::mem::zeroed::<Device>() };
+        let state = Device::zeroed();
         let data = [1u8, 0, 0, 0, 0, 0, 0, 0];
         let action = handle_simple_msg(PacketType::MouseZoom as u8, &data, &state);
         match action {
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_handle_switch_lock() {
-        let state = unsafe { core::mem::zeroed::<Device>() };
+        let state = Device::zeroed();
         let data = [1u8, 0, 0, 0, 0, 0, 0, 0];
         let action = handle_simple_msg(PacketType::SwitchLock as u8, &data, &state);
         match action {
@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_handle_flash_led() {
-        let state = unsafe { core::mem::zeroed::<Device>() };
+        let state = Device::zeroed();
         let data = [0u8; 8];
         let action = handle_simple_msg(PacketType::FlashLed as u8, &data, &state);
         match action {
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_apply_mouse_zoom() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         assert!(!state.mouse_zoom);
         apply_action(&HandlerAction::SetMouseZoom(true), &mut state);
         assert!(state.mouse_zoom);
@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn test_apply_toggle_output() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.active_output = 0;
         apply_action(&HandlerAction::ToggleOutput, &mut state);
         assert_eq!(state.active_output, 1);
@@ -174,7 +174,7 @@ mod tests {
 
     #[test]
     fn test_apply_toggle_blocked_by_lock() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.switch_lock = true;
         state.active_output = 0;
         apply_action(&HandlerAction::ToggleOutput, &mut state);
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_handle_mouse_uart() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         // buttons=1, x=0x1234, y=0x5678
         let data = [1, 0x34, 0x12, 0x78, 0x56, 0, 0, 0];
         handle_mouse_uart(&data, &mut state);
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn test_handle_keyboard_uart() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         let data = [0x01, 0x00, 0x04, 0x05, 0x00, 0x00, 0x00, 0x00];
         handle_keyboard_uart(&data, &mut state);
         assert_eq!(state.remote_kbd_state.modifier, 0x01);
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn test_heartbeat_newer_version() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.running_fw.version = 100;
         let data = [0xC8, 0x00, 0, 0, 0, 0, 0, 0]; // version 200
         let action = handle_simple_msg(PacketType::Heartbeat as u8, &data, &state);
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_heartbeat_same_version() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.running_fw.version = 100;
         let data = [100, 0, 0, 0, 0, 0, 0, 0];
         let action = handle_simple_msg(PacketType::Heartbeat as u8, &data, &state);
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn test_apply_screensaver_mode() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.board_role = 0;
         apply_action(&HandlerAction::SetScreensaverMode(1), &mut state);
         assert_eq!(state.config.output[0].screensaver.mode, 1);
@@ -236,14 +236,14 @@ mod tests {
 
     #[test]
     fn test_apply_set_active_output() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         apply_action(&HandlerAction::SetActiveOutput(1), &mut state);
         assert_eq!(state.active_output, 1);
     }
 
     #[test]
     fn test_apply_set_keyboard_leds() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.board_role = 0;
         apply_action(&HandlerAction::SetKeyboardLeds(0x07), &mut state);
         assert_eq!(state.keyboard_leds[1], 0x07); // OTHER_ROLE = 1
@@ -251,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_apply_fw_upgrade() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         let fw = crate::app::handlers::FwUpgradeState {
             upgrade_in_progress: true,
             byte_done: true,
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn test_handle_reboot_msg() {
-        let state = unsafe { core::mem::zeroed::<Device>() };
+        let state = Device::zeroed();
         let data = [0u8; 8];
         let action = handle_simple_msg(PacketType::Reboot as u8, &data, &state);
         match action {
@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_handle_save_config() {
-        let state = unsafe { core::mem::zeroed::<Device>() };
+        let state = Device::zeroed();
         let data = [0u8; 8];
         let action = handle_simple_msg(PacketType::SaveConfig as u8, &data, &state);
         match action {
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_handle_unknown_type() {
-        let state = unsafe { core::mem::zeroed::<Device>() };
+        let state = Device::zeroed();
         let data = [0u8; 8];
         let action = handle_simple_msg(0xFF, &data, &state);
         match action {
@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_handle_gaming_mode() {
-        let state = unsafe { core::mem::zeroed::<Device>() };
+        let state = Device::zeroed();
         let data = [1u8, 0, 0, 0, 0, 0, 0, 0];
         let action = handle_simple_msg(PacketType::GamingMode as u8, &data, &state);
         match action {
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_apply_returns_needs_hal() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         assert!(!apply_action(&HandlerAction::None, &mut state));
         assert!(!apply_action(&HandlerAction::SetSwitchLock(true), &mut state));
         assert!(apply_action(&HandlerAction::Reboot, &mut state));

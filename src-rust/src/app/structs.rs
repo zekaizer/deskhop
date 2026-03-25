@@ -294,6 +294,12 @@ impl Device {
     pub fn is_active_output(&self) -> bool {
         self.active_output == self.board_role
     }
+
+    /// Create a zeroed Device for testing. All fields zero/false/null.
+    #[cfg(test)]
+    pub fn zeroed() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
 }
 
 /// Cast a C device_t* pointer to a Rust Device reference.

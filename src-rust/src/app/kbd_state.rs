@@ -67,7 +67,7 @@ mod tests {
 
     #[test]
     fn test_update_kbd_state() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         let report = HidKeyboardReport {
             modifier: 0x01,
             reserved: 0,
@@ -84,14 +84,14 @@ mod tests {
 
     #[test]
     fn test_update_kbd_state_bounds() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         let report = HidKeyboardReport::default();
         update_kbd_state(&mut state, &report, 255);
     }
 
     #[test]
     fn test_combine_kbd_states() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.local_kbd_states[0] = HidKeyboardReport {
             modifier: 0x01, reserved: 0, keycode: [0x04, 0, 0, 0, 0, 0],
         };
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_combine_no_duplicates() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.local_kbd_states[0] = HidKeyboardReport {
             modifier: 0, reserved: 0, keycode: [0x04, 0x05, 0, 0, 0, 0],
         };
@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn test_release_all_keys() {
-        let mut state = unsafe { core::mem::zeroed::<Device>() };
+        let mut state = Device::zeroed();
         state.local_kbd_states[0].modifier = 0x01;
         state.local_kbd_states[0].keycode[0] = 0x04;
         state.remote_kbd_state.modifier = 0x02;
