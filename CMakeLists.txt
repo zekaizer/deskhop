@@ -54,11 +54,7 @@ target_include_directories(Pico-PIO-USB PRIVATE ${PICO_PIO_USB_DIR})
 ## Source Files
 set(COMMON_SOURCES
   ${SRC_DIR}/usb_descriptors.c
-  ${SRC_DIR}/defaults.c
-  ${SRC_DIR}/api_config.c
-  ${SRC_DIR}/flash_config.c
-  ${SRC_DIR}/dma_buffer.c
-  ${SRC_DIR}/debug.c
+  ${SRC_DIR}/hal_util.c
   ${SRC_DIR}/setup.c
   ${SRC_DIR}/tasks.c
   ${SRC_DIR}/led.c

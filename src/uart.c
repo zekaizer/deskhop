@@ -1,4 +1,4 @@
-/* DeskHop UART + packet dispatch.
+/* DeskHop UART — packet dispatch + queue helpers.
    write_raw_packet, process_uart_tx_task, verify_checksum — Rust #[export_name] */
 #include "main.h"
 
@@ -7,22 +7,36 @@ void set_active_output(device_t *s, uint8_t o) {
     s->active_output=o; restore_leds(s); send_value(o, OUTPUT_SELECT_MSG); release_all_keys(s);
 }
 
-extern uint8_t rust_handle_simple_msg(uint8_t, const uint8_t *, device_t *);
-extern void rust_handle_keyboard_uart_full(device_t *, const uint8_t *);
-extern void rust_handle_mouse_uart_full(device_t *, const uint8_t *);
-extern void rust_handle_output_select(device_t *, uint8_t);
-extern void rust_handle_set_report(device_t *, uint8_t);
-extern void rust_handle_sync_borders(device_t *, const uint8_t *);
-extern void rust_handle_response_byte(const uint8_t *, device_t *);
-extern void rust_handle_api_msgs(uint8_t, const uint8_t *, device_t *);
-extern void rust_handle_api_read_all_msgs(device_t *);
-extern void rust_handle_request_byte(uint8_t *);
+/* Packet queue helpers */
+void _queue_packet(uint8_t *p, device_t *s, uint8_t t, uint8_t l, uint8_t id, uint8_t inst) {
+    hid_generic_pkt_t g = { .instance=inst, .report_id=id, .type=t, .len=l };
+    memcpy(g.data, p, l);
+    queue_try_add(&s->hid_queue_out, &g);
+}
+void queue_cfg_packet(uart_packet_t *p, device_t *s) {
+    uint8_t r[RAW_PACKET_LENGTH]; write_raw_packet(r, p);
+    _queue_packet(r, s, 0, RAW_PACKET_LENGTH, REPORT_ID_VENDOR, ITF_NUM_HID_VENDOR);
+}
+void queue_cc_packet(uint8_t *p, device_t *s) { _queue_packet(p, s, 1, CONSUMER_CONTROL_LENGTH, REPORT_ID_CONSUMER, ITF_NUM_HID); }
+void queue_system_packet(uint8_t *p, device_t *s) { _queue_packet(p, s, 2, SYSTEM_CONTROL_LENGTH, REPORT_ID_SYSTEM, ITF_NUM_HID); }
 
 void queue_packet(const uint8_t *d, enum packet_type_e t, int l) {
     uart_packet_t p = {.type = t}; memcpy(p.data, d, l);
     queue_try_add(&global_state.uart_tx_queue, &p);
 }
 void send_value(const uint8_t v, enum packet_type_e t) { queue_packet(&v, t, sizeof(uint8_t)); }
+
+/* Packet dispatcher */
+extern uint8_t rust_handle_simple_msg(uint8_t, const uint8_t *, device_t *);
+extern void rust_handle_keyboard_uart_full(device_t *, const uint8_t *),
+    rust_handle_mouse_uart_full(device_t *, const uint8_t *),
+    rust_handle_output_select(device_t *, uint8_t),
+    rust_handle_set_report(device_t *, uint8_t),
+    rust_handle_sync_borders(device_t *, const uint8_t *),
+    rust_handle_response_byte(const uint8_t *, device_t *),
+    rust_handle_api_msgs(uint8_t, const uint8_t *, device_t *),
+    rust_handle_api_read_all_msgs(device_t *),
+    rust_handle_request_byte(uint8_t *);
 
 void process_packet(uart_packet_t *p, device_t *s) {
     if (!verify_checksum(p)) return;

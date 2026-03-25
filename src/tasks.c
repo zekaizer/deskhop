@@ -1,9 +1,9 @@
-/* DeskHop tasks — most are Rust #[export_name] exports.
-   Only HAL-bound tasks and heartbeat (BOOTSEL debug) remain here. */
+/* DeskHop tasks — HAL-bound task functions + DMA buffer ops. */
 #include "main.h"
 
 extern void rust_heartbeat_output_task(device_t *);
 
+/* USB tasks */
 void usb_device_task(device_t *s) { tud_task(); }
 void usb_host_task(device_t *s) { if (tuh_inited()) tuh_task(); }
 void heartbeat_output_task(device_t *s) {
@@ -13,7 +13,7 @@ void heartbeat_output_task(device_t *s) {
 #endif
 }
 
-/* HAL: queue + TinyUSB */
+/* HID queue → USB device */
 void process_hid_queue_task(device_t *s) {
     hid_generic_pkt_t p;
     if (!queue_try_peek(&s->hid_queue_out, &p) || !tud_hid_n_ready(p.instance)) return;
@@ -21,7 +21,7 @@ void process_hid_queue_task(device_t *s) {
         queue_try_remove(&s->hid_queue_out, &p);
 }
 
-/* HAL: flash + queue */
+/* Firmware upgrade (flash + queue) */
 void firmware_upgrade_task(device_t *s) {
     if (!s->fw.upgrade_in_progress || !s->fw.byte_done || queue_is_full(&s->uart_tx_queue)) return;
     if (s->fw.address > STAGING_IMAGE_SIZE) {
@@ -36,7 +36,27 @@ void firmware_upgrade_task(device_t *s) {
     request_byte(s, s->fw.address);
 }
 
-/* HAL: DMA + UART */
+/* DMA buffer operations + packet receiver */
+bool is_start_of_packet(device_t *s) {
+    return uart_rxbuf[s->dma_ptr] == START1 && uart_rxbuf[NEXT_RING_IDX(s->dma_ptr)] == START2;
+}
+
+void fetch_packet(device_t *state) {
+    uint8_t *dst = (uint8_t *)&state->in_packet;
+    for (int i = 0; i < RAW_PACKET_LENGTH; i++) {
+        if (i >= START_LENGTH) dst[i - START_LENGTH] = uart_rxbuf[state->dma_ptr];
+        state->dma_ptr = NEXT_RING_IDX(state->dma_ptr);
+    }
+}
+
+void request_byte(device_t *state, uint32_t address) {
+    uart_packet_t p = { .data32[0] = address, .type = REQUEST_BYTE_MSG };
+    state->fw.byte_done = false;
+    queue_try_add(&global_state.uart_tx_queue, &p);
+}
+
+void reboot(void) { *((volatile uint32_t*)(PPB_BASE + 0x0ED0C)) = 0x5FA0004; }
+
 void packet_receiver_task(device_t *s) {
     uint32_t cp = (uint32_t)DMA_RX_BUFFER_SIZE - dma_channel_hw_addr(s->dma_rx_channel)->transfer_count;
     uint32_t d = get_ptr_delta(cp, s);

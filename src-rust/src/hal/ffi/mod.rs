@@ -3,6 +3,7 @@
 
 mod api_config;
 mod checksum;
+mod defaults;
 mod extract_data;
 mod fw_handlers;
 mod hid;
