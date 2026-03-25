@@ -137,7 +137,6 @@ void hal_reset_usb_boot(void) {
  * ==================================================== */
 
 bool hal_tud_ready(void) { return tud_ready(); }
-bool hal_tud_connected(void) { return tud_connected(); }
 bool hal_tud_suspended(void) { return tud_suspended(); }
 void hal_tud_remote_wakeup(void) { tud_remote_wakeup(); }
 bool hal_tud_hid_n_ready(uint8_t instance) { return tud_hid_n_ready(instance); }

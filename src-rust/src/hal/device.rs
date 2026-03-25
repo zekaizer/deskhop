@@ -40,7 +40,6 @@ extern "C" {
 
     // ---- TinyUSB ----
     pub fn hal_tud_ready() -> bool;
-    pub fn hal_tud_connected() -> bool;
     pub fn hal_tud_suspended() -> bool;
     pub fn hal_tud_remote_wakeup();
     pub fn hal_tud_hid_n_ready(instance: u8) -> bool;

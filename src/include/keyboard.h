@@ -18,35 +18,26 @@
  *  Data Extraction
  *==============================================================================*/
 
-int32_t    extract_bit_variable(report_val_t *, uint8_t *, int, uint8_t *);
 int32_t    extract_kbd_data(uint8_t *, int, uint8_t, hid_interface_t *, hid_keyboard_report_t *);
-keyboard_t *get_keyboard(hid_interface_t *iface, uint8_t report_id);
 
 /*==============================================================================
  *  Hotkey Handling
  *==============================================================================*/
 
-bool check_specific_hotkey(hotkey_combo_t, const hid_keyboard_report_t *);
 
 /*==============================================================================
  *  Keyboard State Management
  *==============================================================================*/
-void     update_kbd_state(device_t *, hid_keyboard_report_t *, uint8_t);
-void     update_remote_kbd_state(device_t *, hid_keyboard_report_t *);
-void     combine_kbd_states(device_t *, hid_keyboard_report_t *);
 
 /*==============================================================================
  *  Keyboard Report Processing
  *==============================================================================*/
-bool     key_in_report(uint8_t, const hid_keyboard_report_t *);
 void     process_consumer_report(uint8_t *, int, uint8_t, hid_interface_t *);
 void     process_keyboard_report(uint8_t *, int, uint8_t, hid_interface_t *);
 void     process_system_report(uint8_t *, int, uint8_t, hid_interface_t *);
 void     queue_cc_packet(uint8_t *, device_t *);
 void     queue_system_packet(uint8_t *, device_t *);
 void     release_all_keys(device_t *);
-void     send_consumer_control(uint8_t *, device_t *);
-void     send_key(hid_keyboard_report_t *, device_t *);
 
 /* ==================================================== *
  * Map hotkeys to alternative layouts
