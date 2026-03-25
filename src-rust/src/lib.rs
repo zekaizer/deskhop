@@ -45,12 +45,8 @@ pub extern "C" fn rust_main_loop(dev: *mut c_void) -> ! {
     // Store device pointer for FFI functions without dev parameter
     app::structs::set_global_device(dev);
 
-    // Debug: 3 fast blinks = Rust main loop entered
-    // Keep total under 500ms watchdog timeout (3 × 60ms × 2 = 360ms)
-    unsafe {
-        device::watchdog_update();
-        device::hal_debug_blink(3, 60);
-    }
+    // Kick watchdog before scheduler starts (initial_setup enables it)
+    unsafe { device::watchdog_update(); }
 
     let mut tasks = [
         scheduler::Task::new(usb_device_task, scheduler::top()),
