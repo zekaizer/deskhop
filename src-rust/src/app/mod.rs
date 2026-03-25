@@ -6,6 +6,7 @@ pub mod dispatch;
 pub mod extract;
 pub mod handlers;
 pub mod hid_parser;
+pub mod host_link;
 #[cfg(test)]
 mod integration_tests;
 pub mod hotkey_handlers;

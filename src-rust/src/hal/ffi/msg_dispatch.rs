@@ -26,7 +26,7 @@ pub unsafe extern "C" fn rust_handle_output_select(dev: *mut core::ffi::c_void, 
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::app::structs::device_from_ptr(dev);
     state.active_output = output;
-    if state.tud_connected { super::keyboard::rust_release_all_keys_state(dev); }
+    if state.tud_connected { crate::app::host_link::release_all_keys(state, &hal); }
     hal.sync_leds();
 }
 

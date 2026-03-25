@@ -243,4 +243,5 @@ mod tests {
         assert!(key_in_report(0x04, &combined));
         assert!(key_in_report(0x05, &combined));
     }
+
 }
