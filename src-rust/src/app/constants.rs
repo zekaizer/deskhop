@@ -17,6 +17,12 @@ pub const OUTPUT_B: u8 = 1;
 pub const ABSOLUTE: u8 = 0;
 pub const RELATIVE: u8 = 1;
 
+// Operating system types (from C enum os_type_e)
+pub const OS_LINUX: u8 = 1;
+pub const OS_MACOS: u8 = 2;
+pub const OS_WINDOWS: u8 = 3;
+pub const OS_ANDROID: u8 = 4;
+
 // Screen coordinates
 pub const MAX_SCREEN_COORD: i16 = 32767;
 pub const MIN_SCREEN_COORD: i16 = 0;

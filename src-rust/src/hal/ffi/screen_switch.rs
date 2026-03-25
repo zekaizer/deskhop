@@ -109,55 +109,52 @@ pub unsafe extern "C" fn rust_switch_virtual_desktop(
     dev: *mut c_void, os: u8, new_index: i32, direction: i32,
 ) {
     let state = crate::app::structs::device_from_ptr(dev);
-    const MACOS: u8 = 2;
-    const WINDOWS: u8 = 3;
+    use crate::app::constants::{OS_MACOS, OS_WINDOWS};
 
     match os {
-        MACOS => rust_switch_virtual_desktop_macos(dev, direction),
-        WINDOWS => { state.relative_mouse = new_index > 1; }
+        OS_MACOS => rust_switch_virtual_desktop_macos(dev, direction),
+        OS_WINDOWS => { state.relative_mouse = new_index > 1; }
         _ => {} // Linux/Android/Other — no special handling
     }
 
     state.pointer_x = if direction == 2 { MIN_SCREEN_COORD } else { MAX_SCREEN_COORD }; // RIGHT=2
 }
 
-/// Replace C's do_screen_switch
+/// Replace C's do_screen_switch — delegates to mouse_logic::decide_screen_switch
 #[no_mangle]
 pub unsafe extern "C" fn rust_do_screen_switch(dev: *mut c_void, direction: i32) {
+    use crate::app::mouse_logic::*;
+
     let state = crate::app::structs::device_from_ptr(dev);
     let output_idx = state.active_output as usize;
     if output_idx >= state.config.output.len() { return; }
 
     let output = &state.config.output[output_idx];
+    let dir = match direction {
+        1 => SwitchDirection::Left,
+        2 => SwitchDirection::Right,
+        _ => return,
+    };
 
-    if state.switch_lock || state.gaming_mode {
-        return;
-    }
+    let ctx = SwitchContext {
+        switch_lock: state.switch_lock,
+        gaming_mode: state.gaming_mode,
+        mouse_buttons: state.mouse_buttons,
+        screen_pos: output.pos,
+        screen_index: output.screen_index,
+        screen_count: output.screen_count,
+    };
 
-    let pos = output.pos as i32;
-    let screen_index = output.screen_index;
-    let screen_count = output.screen_count;
-    let output_number = output.number;
-    let os = output.os;
-
-    // Jump toward the other computer
-    if pos != direction {
-        if screen_index == 1 {
-            // At the border — don't switch while button held
-            if state.mouse_buttons != 0 {
-                return;
-            }
+    match decide_screen_switch(dir, &ctx) {
+        ScreenSwitchAction::Nothing => {}
+        ScreenSwitchAction::SwitchToOtherPc => {
+            let output_number = output.number;
             rust_switch_to_another_pc(dev, output_number, (1 - state.active_output) as i32, direction);
-        } else {
-            // Multiple desktops, go toward main
-            rust_switch_virtual_desktop(dev, os, (screen_index - 1) as i32, direction);
-            // Update screen_index on the actual config (reuse state, no re-borrow)
-            state.config.output[output_idx].screen_index = screen_index - 1;
         }
-    }
-    // Jump away from other computer
-    else if screen_index < screen_count {
-        rust_switch_virtual_desktop(dev, os, (screen_index + 1) as i32, direction);
-        state.config.output[output_idx].screen_index = screen_index + 1;
+        ScreenSwitchAction::SwitchVirtualDesktop { new_index } => {
+            let os = output.os;
+            rust_switch_virtual_desktop(dev, os, new_index as i32, direction);
+            state.config.output[output_idx].screen_index = new_index;
+        }
     }
 }

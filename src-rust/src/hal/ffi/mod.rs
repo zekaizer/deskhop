@@ -3,13 +3,15 @@
 
 mod checksum;
 mod extract_data;
-mod handlers;
+mod fw_handlers;
 mod hid;
+mod hotkey_dispatch;
 mod hid_parser_ffi;
 mod kbd_extract;
 mod kbd_process;
 mod keyboard;
 mod mouse_process;
+mod msg_dispatch;
 mod packet;
 mod screen_switch;
 mod screensaver;
