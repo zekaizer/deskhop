@@ -1,9 +1,6 @@
-/* DeskHop DMA buffer + reboot + firmware request. */
+/* DeskHop DMA buffer + reboot + firmware request.
+   get_ptr_delta/write_raw_packet moved to Rust #[export_name]. */
 #include "main.h"
-
-extern uint32_t rust_get_ptr_delta(uint32_t, uint32_t, uint32_t);
-
-uint32_t get_ptr_delta(uint32_t cp, device_t *s) { return rust_get_ptr_delta(cp, s->dma_ptr, DMA_RX_BUFFER_SIZE); }
 
 bool is_start_of_packet(device_t *s) {
     return uart_rxbuf[s->dma_ptr] == START1 && uart_rxbuf[NEXT_RING_IDX(s->dma_ptr)] == START2;

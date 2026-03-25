@@ -1,16 +1,6 @@
-/* DeskHop flash config — save/load/wipe config + flash page write. */
+/* DeskHop flash config — save/load/wipe config + flash page write.
+   CRC/checksum wrappers removed — Rust exports C names directly. */
 #include "main.h"
-
-extern uint8_t rust_calc_checksum(const uint8_t *, int);
-extern uint32_t rust_calc_crc32(const uint8_t *, size_t), rust_crc32_iter(uint32_t, uint8_t);
-extern bool rust_verify_checksum(const uint8_t *), rust_validate_packet(const uint8_t *);
-
-/* CRC/checksum wrappers — delegate to Rust implementations */
-uint8_t calc_checksum(const uint8_t *d, int l) { return rust_calc_checksum(d, l); }
-bool verify_checksum(const uart_packet_t *p) { return rust_verify_checksum((const uint8_t *)p); }
-uint32_t crc32_iter(uint32_t c, const uint8_t b) { return rust_crc32_iter(c, b); }
-uint32_t calc_crc32(const uint8_t *s, size_t n) { return rust_calc_crc32(s, n); }
-bool validate_packet(uart_packet_t *p) { return rust_validate_packet((const uint8_t *)p); }
 
 uint32_t calculate_firmware_crc32(void) { return calc_crc32(ADDR_FW_RUNNING, STAGING_IMAGE_SIZE - FLASH_SECTOR_SIZE); }
 
@@ -39,7 +29,6 @@ void load_config(device_t *state) {
 
 void save_config(device_t *state) {
     uint8_t *raw = (uint8_t *)&state->config;
-    /* Truncate CRC32 to uint8_t — must match load_config's uint8_t comparison */
     uint8_t checksum = calc_crc32(raw, sizeof(config_t) - sizeof(uint32_t));
     state->config.checksum = checksum;
     memcpy(state->page_buffer, raw, sizeof(config_t));

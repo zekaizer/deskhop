@@ -1,4 +1,5 @@
-/* DeskHop UART + packet dispatch — encoding in Rust, queue/dispatch here. */
+/* DeskHop UART + packet dispatch.
+   write_raw_packet, process_uart_tx_task, verify_checksum — Rust #[export_name] */
 #include "main.h"
 
 /* Output control */
@@ -6,9 +7,7 @@ void set_active_output(device_t *s, uint8_t o) {
     s->active_output=o; restore_leds(s); send_value(o, OUTPUT_SELECT_MSG); release_all_keys(s);
 }
 
-extern void rust_write_raw_packet(uint8_t *, const uint8_t *);
 extern uint8_t rust_handle_simple_msg(uint8_t, const uint8_t *, device_t *);
-extern void rust_process_uart_tx_task(device_t *);
 extern void rust_handle_keyboard_uart_full(device_t *, const uint8_t *);
 extern void rust_handle_mouse_uart_full(device_t *, const uint8_t *);
 extern void rust_handle_output_select(device_t *, uint8_t);
@@ -18,10 +17,6 @@ extern void rust_handle_response_byte(const uint8_t *, device_t *);
 extern void rust_handle_api_msgs(uint8_t, const uint8_t *, device_t *);
 extern void rust_handle_api_read_all_msgs(device_t *);
 extern void rust_handle_request_byte(uint8_t *);
-extern bool rust_verify_checksum(const uint8_t *);
-
-void write_raw_packet(uint8_t *d, uart_packet_t *p) { rust_write_raw_packet(d, (const uint8_t *)p); }
-void process_uart_tx_task(device_t *s) { rust_process_uart_tx_task(s); }
 
 void queue_packet(const uint8_t *d, enum packet_type_e t, int l) {
     uart_packet_t p = {.type = t}; memcpy(p.data, d, l);
@@ -30,7 +25,7 @@ void queue_packet(const uint8_t *d, enum packet_type_e t, int l) {
 void send_value(const uint8_t v, enum packet_type_e t) { queue_packet(&v, t, sizeof(uint8_t)); }
 
 void process_packet(uart_packet_t *p, device_t *s) {
-    if (!rust_verify_checksum((const uint8_t *)p)) return;
+    if (!verify_checksum(p)) return;
     switch (p->type) {
         case CONSUMER_CONTROL_MSG: queue_cc_packet(p->data, s); return;
         case SYNC_BORDERS_MSG:     rust_handle_sync_borders(s, p->data); return;

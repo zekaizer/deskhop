@@ -1,6 +1,6 @@
 use crate::app::{constants, packet};
 
-#[no_mangle]
+#[export_name = "write_raw_packet"]
 pub unsafe extern "C" fn rust_write_raw_packet(dst: *mut u8, packet_ptr: *const u8) {
     if dst.is_null() || packet_ptr.is_null() { return; }
     let pkt = packet::UartPacket {
@@ -16,7 +16,28 @@ pub unsafe extern "C" fn rust_write_raw_packet(dst: *mut u8, packet_ptr: *const 
     core::ptr::copy_nonoverlapping(raw.as_ptr(), dst, constants::RAW_PACKET_LENGTH);
 }
 
-#[no_mangle]
-pub extern "C" fn rust_get_ptr_delta(current: u32, saved: u32, buffer_size: u32) -> u32 {
-    packet::get_ptr_delta(current, saved, buffer_size)
+#[export_name = "process_uart_tx_task"]
+pub unsafe extern "C" fn rust_process_uart_tx_task(dev: *mut core::ffi::c_void) {
+    if crate::hal::device::hal_dma_channel_is_busy(dev) { return; }
+    let mut pkt_bytes = [0u8; 10];
+    if !crate::hal::device::hal_uart_tx_queue_remove(dev, pkt_bytes.as_mut_ptr()) { return; }
+    let pkt = packet::UartPacket {
+        ptype: pkt_bytes[0],
+        data: {
+            let mut d = [0u8; 8];
+            d.copy_from_slice(&pkt_bytes[1..9]);
+            d
+        },
+        checksum: pkt_bytes[9],
+    };
+    let raw = packet::write_raw_packet(&pkt);
+    crate::hal::device::hal_dma_tx_send(dev, raw.as_ptr(), constants::RAW_PACKET_LENGTH as u32);
+}
+
+#[export_name = "get_ptr_delta"]
+pub unsafe extern "C" fn rust_get_ptr_delta(current: u32, dev: *mut core::ffi::c_void) -> u32 {
+    // Match C signature: get_ptr_delta(uint32_t cp, device_t *s)
+    // Reads s->dma_ptr and DMA_RX_BUFFER_SIZE
+    let state = crate::app::structs::device_from_ptr(dev);
+    packet::get_ptr_delta(current, state.dma_ptr, 1024) // DMA_RX_BUFFER_SIZE = 1024
 }
