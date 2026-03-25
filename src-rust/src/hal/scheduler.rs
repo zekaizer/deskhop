@@ -1,6 +1,6 @@
 use core::ffi::c_void;
 
-use crate::hal::device;
+use crate::hal::traits::Timer;
 
 /// Task function signature: takes a device_t* (opaque pointer)
 pub type TaskFn = unsafe extern "C" fn(*mut c_void);
@@ -34,16 +34,16 @@ pub fn run_task_at(task: &mut Task, dev: *mut c_void, current_time: u64) -> bool
     true
 }
 
-/// Run a task using hardware timestamp.
-pub fn run_task(task: &mut Task, dev: *mut c_void) -> bool {
-    let current_time = unsafe { device::hal_time_us_64() };
+/// Run a task using hardware timestamp from a Timer trait impl.
+pub fn run_task<T: Timer>(task: &mut Task, dev: *mut c_void, timer: &T) -> bool {
+    let current_time = timer.now_us_64();
     run_task_at(task, dev, current_time)
 }
 
 /// Run all tasks in a task list once.
-pub fn run_all_tasks(tasks: &mut [Task], dev: *mut c_void) {
+pub fn run_all_tasks<T: Timer>(tasks: &mut [Task], dev: *mut c_void, timer: &T) {
     for task in tasks.iter_mut() {
-        run_task(task, dev);
+        run_task(task, dev, timer);
     }
 }
 
