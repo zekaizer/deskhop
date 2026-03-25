@@ -21,8 +21,7 @@ pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
     DBG_COUNT += 1;
     if DBG_COUNT >= 150 {
         DBG_COUNT = 0;
-        extern "C" { fn hal_debug_dump_state(dev: *mut c_void); }
-        hal_debug_dump_state(dev);
+        device::hal_debug_dump_state(dev);
     }
 }
 

@@ -11,9 +11,8 @@ use core::panic::PanicInfo;
 fn panic(_info: &PanicInfo) -> ! {
     // Rapid LED blink to indicate Rust panic (distinct from watchdog reset pattern)
     unsafe {
-        extern "C" { fn hal_toggle_led(); }
         loop {
-            hal_toggle_led();
+            hal::device::hal_toggle_led();
             // Busy-wait ~50ms at 125MHz (no sleep_ms — might not be safe in panic)
             for _ in 0..500_000 { core::hint::black_box(()); }
         }
@@ -40,8 +39,6 @@ extern "C" {
     fn heartbeat_output_task(dev: *mut c_void);
 }
 
-extern "C" { fn hal_debug_blink(count: i32, delay_ms: i32); }
-
 /// Core0 main loop
 #[no_mangle]
 pub extern "C" fn rust_main_loop(dev: *mut c_void) -> ! {
@@ -51,9 +48,8 @@ pub extern "C" fn rust_main_loop(dev: *mut c_void) -> ! {
     // Debug: 3 fast blinks = Rust main loop entered
     // Keep total under 500ms watchdog timeout (3 × 60ms × 2 = 360ms)
     unsafe {
-        extern "C" { fn watchdog_update(); }
-        watchdog_update();
-        hal_debug_blink(3, 60);
+        device::watchdog_update();
+        device::hal_debug_blink(3, 60);
     }
 
     let mut tasks = [

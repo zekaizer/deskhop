@@ -73,6 +73,14 @@ extern "C" {
     pub fn hal_uart_tx_queue_remove(dev: *mut c_void, out: *mut u8) -> bool;
     pub fn hal_set_config_mode_scratch();
 
+    // ---- Debug ----
+    pub fn hal_debug_blink(count: i32, delay_ms: i32);
+    pub fn hal_debug_dump_state(dev: *mut c_void);
+
+    // ---- Pico SDK direct ----
+    pub fn watchdog_update();
+    pub fn hal_queue_cfg_packet(dev: *mut c_void, packet: *const u8);
+
     // ---- DMA ----
     pub fn hal_dma_channel_is_busy(dev: *mut c_void) -> bool;
     pub fn hal_dma_tx_send(dev: *mut c_void, buf: *const u8, len: u32);

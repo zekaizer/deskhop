@@ -309,8 +309,7 @@ pub unsafe extern "C" fn rust_handle_api_msgs(ptype: u8, data: *const u8, dev: *
         response[1] = api_idx;
         crate::hal::device::hal_api_read_field(offset, len, response[2..].as_mut_ptr());
         // Queue config packet via HAL
-        extern "C" { fn hal_queue_cfg_packet(dev: *mut core::ffi::c_void, packet: *const u8); }
-        hal_queue_cfg_packet(dev, response.as_ptr());
+        crate::hal::device::hal_queue_cfg_packet(dev, response.as_ptr());
     }
 
     // Reset config timer
