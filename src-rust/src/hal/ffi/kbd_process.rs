@@ -2,21 +2,19 @@ use core::ffi::c_void;
 use crate::hal::device;
 use crate::app::structs::KBD_REPORT_LENGTH;
 
-/// Full keyboard report processing pipeline — replaces C process_keyboard_report.
-/// Called from TinyUSB callback context via C shim.
-#[no_mangle]
+/// Full keyboard report processing pipeline.
+/// Called directly from TinyUSB callback (process_report_f signature).
+#[export_name = "process_keyboard_report"]
 pub unsafe extern "C" fn rust_process_keyboard_report(
     raw_report: *mut u8,
     length: i32,
     itf: u8,
     iface: *mut c_void,  // hid_interface_t*
-    dev: *mut c_void,    // device_t*
 ) {
-    if raw_report.is_null() || iface.is_null() || dev.is_null() {
-        return;
-    }
+    if raw_report.is_null() || iface.is_null() { return; }
 
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::app::structs::get_global_device();
+    let dev = state as *mut _ as *mut c_void;
 
     if length < KBD_REPORT_LENGTH as i32 {
         return;
@@ -70,13 +68,12 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
 }
 
 /// Rust implementation of process_consumer_report
-#[no_mangle]
+#[export_name = "process_consumer_report"]
 pub unsafe extern "C" fn rust_process_consumer_report(
     raw_report: *const u8,
     length: i32,
     _itf: u8,
     iface: *mut c_void,
-    dev: *mut c_void,
 ) {
     if raw_report.is_null() || iface.is_null() || length < 2 { return; }
     let ifc = crate::app::structs::iface_from_ptr(iface);
@@ -109,22 +106,21 @@ pub unsafe extern "C" fn rust_process_consumer_report(
     }
 
     // Route: local queue if active output, UART if not
+    let dev = crate::app::structs::get_global_device() as *mut _ as *mut c_void;
     crate::hal::ffi::state::rust_send_consumer_control(dev, new_report.as_ptr());
 }
 
-/// Rust implementation of process_system_report
-#[no_mangle]
+#[export_name = "process_system_report"]
 pub unsafe extern "C" fn rust_process_system_report(
     raw_report: *const u8,
     length: i32,
     _itf: u8,
     _iface: *mut c_void,
-    dev: *mut c_void,
 ) {
     if raw_report.is_null() || length < 2 { return; }
 
     let report = [*raw_report.add(1), 0];
 
-    // Route: local queue if active output, UART if not
+    let dev = crate::app::structs::get_global_device() as *mut _ as *mut c_void;
     crate::hal::ffi::state::rust_send_system_control(dev, report.as_ptr());
 }

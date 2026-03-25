@@ -3,20 +3,19 @@ use crate::hal::device;
 use crate::app::mouse_logic;
 use crate::app::hid_parser::ReportVal;
 
-/// Full mouse report processing pipeline — replaces C process_mouse_report.
-#[no_mangle]
+/// Full mouse report processing pipeline.
+/// Called directly from TinyUSB callback (process_report_f signature).
+#[export_name = "process_mouse_report"]
 pub unsafe extern "C" fn rust_process_mouse_report(
     raw_report: *mut u8,
     len: i32,
     _itf: u8,
     iface_ptr: *mut c_void,  // hid_interface_t*
-    dev: *mut c_void,    // device_t*
 ) {
-    if raw_report.is_null() || iface_ptr.is_null() || dev.is_null() {
-        return;
-    }
+    if raw_report.is_null() || iface_ptr.is_null() { return; }
 
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::app::structs::get_global_device();
+    let dev = state as *mut _ as *mut c_void;
     let iface = crate::app::structs::iface_from_ptr(iface_ptr);
 
     let mut values = [0i32; 5];

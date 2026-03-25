@@ -56,12 +56,10 @@ set(COMMON_SOURCES
   ${SRC_DIR}/usb_descriptors.c
   ${SRC_DIR}/defaults.c
   ${SRC_DIR}/api_config.c
-  ${SRC_DIR}/hid_report.c
   ${SRC_DIR}/flash_config.c
   ${SRC_DIR}/dma_buffer.c
   ${SRC_DIR}/debug.c
   ${SRC_DIR}/setup.c
-  ${SRC_DIR}/hid_input.c
   ${SRC_DIR}/tasks.c
   ${SRC_DIR}/led.c
   ${SRC_DIR}/uart.c
