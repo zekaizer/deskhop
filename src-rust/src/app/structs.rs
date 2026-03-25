@@ -328,21 +328,20 @@ pub fn get_keyboard(iface: &HidInterface, rid: u8) -> &KeyboardDescriptor {
 }
 
 // Global device pointer — set once during rust_main_loop entry.
-// Used by FFI functions that don't receive a dev parameter
-// (e.g., hotkey handlers with action_handler_t = void(*)()).
-static mut GLOBAL_DEVICE_PTR: *mut Device = core::ptr::null_mut();
+// Uses AtomicPtr for Rust 2024 edition compatibility (static mut deprecated).
+use core::sync::atomic::{AtomicPtr, Ordering};
+static GLOBAL_DEVICE_PTR: AtomicPtr<Device> = AtomicPtr::new(core::ptr::null_mut());
 
 /// Store the device pointer for functions that can't receive it as a parameter.
-/// SAFETY: must be called exactly once with a valid device_t* before any
-/// get_global_device() calls.
-pub unsafe fn set_global_device(dev: *mut core::ffi::c_void) {
-    GLOBAL_DEVICE_PTR = dev as *mut Device;
+/// Must be called exactly once with a valid device_t* at startup.
+pub fn set_global_device(dev: *mut core::ffi::c_void) {
+    GLOBAL_DEVICE_PTR.store(dev as *mut Device, Ordering::Release);
 }
 
 /// Get device reference from the stored global pointer.
 /// SAFETY: set_global_device must have been called first.
 pub unsafe fn get_global_device<'a>() -> &'a mut Device {
-    &mut *GLOBAL_DEVICE_PTR
+    &mut *GLOBAL_DEVICE_PTR.load(Ordering::Acquire)
 }
 
 // sizeof/offset exports for C static_assert verification

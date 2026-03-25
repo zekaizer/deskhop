@@ -43,7 +43,7 @@ extern "C" {
 #[no_mangle]
 pub extern "C" fn rust_main_loop(dev: *mut c_void) -> ! {
     // Store device pointer for FFI functions without dev parameter
-    unsafe { app::structs::set_global_device(dev); }
+    app::structs::set_global_device(dev);
 
     // Debug: 3 fast blinks = Rust main loop entered
     // Keep total under 500ms watchdog timeout (3 × 60ms × 2 = 360ms)
