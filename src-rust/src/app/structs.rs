@@ -302,6 +302,25 @@ pub unsafe fn device_from_ptr<'a>(dev: *mut core::ffi::c_void) -> &'a mut Device
     &mut *(dev as *mut Device)
 }
 
+/// Cast a C hid_interface_t* pointer to a Rust HidInterface reference.
+/// SAFETY: caller must ensure ptr is valid and layout matches.
+pub unsafe fn iface_from_ptr<'a>(iface: *mut core::ffi::c_void) -> &'a mut HidInterface {
+    &mut *(iface as *mut HidInterface)
+}
+
+/// Look up keyboard descriptor by report_id (mirrors C get_keyboard).
+pub fn get_keyboard(iface: &HidInterface, rid: u8) -> &KeyboardDescriptor {
+    if iface.num_keyboards == 1 || !iface.uses_report_id {
+        return &iface.keyboards[0];
+    }
+    for n in 0..iface.num_keyboards as usize {
+        if n < MAX_KEYBOARDS && iface.keyboards[n].report_id == rid {
+            return &iface.keyboards[n];
+        }
+    }
+    &iface.keyboards[0]
+}
+
 // Global device pointer — set once during rust_main_loop entry.
 // Used by FFI functions that don't receive a dev parameter
 // (e.g., hotkey handlers with action_handler_t = void(*)()).

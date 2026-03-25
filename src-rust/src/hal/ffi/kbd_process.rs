@@ -78,12 +78,13 @@ pub unsafe extern "C" fn rust_process_consumer_report(
     dev: *mut c_void,
 ) {
     if raw_report.is_null() || iface.is_null() || length < 2 { return; }
-    let _state = crate::app::structs::device_from_ptr(dev);
+    let ifc = crate::app::structs::iface_from_ptr(iface);
 
     let mut new_report = [0u8; 4]; // CONSUMER_CONTROL_LENGTH
 
-    if device::hal_get_consumer_is_variable(iface) {
+    if ifc.consumer.is_variable {
         let report_id = *raw_report;
+        let kbd = crate::app::structs::get_keyboard(ifc, report_id);
         let max_buttons = 16i32; // MAX_CC_BUTTONS
         let max_bits = 8 * (length - 1);
         let limit = if max_buttons < max_bits { max_buttons } else { max_bits };
@@ -92,9 +93,12 @@ pub unsafe extern "C" fn rust_process_consumer_report(
             let bit_idx = i % 8;
             let byte_idx = i >> 3;
             if (*raw_report.add((byte_idx + 1) as usize) >> bit_idx) & 1 != 0 {
-                let cc_val = device::hal_get_cc_array_value(iface, report_id, i);
-                new_report[0] = (cc_val & 0xFF) as u8;
-                new_report[1] = ((cc_val >> 8) & 0xFF) as u8;
+                let idx = i as usize;
+                if idx < kbd.cc_array.len() {
+                    let cc_val = kbd.cc_array[idx];
+                    new_report[0] = (cc_val & 0xFF) as u8;
+                    new_report[1] = ((cc_val >> 8) & 0xFF) as u8;
+                }
             }
         }
     } else {

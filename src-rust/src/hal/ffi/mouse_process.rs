@@ -1,6 +1,7 @@
 use core::ffi::c_void;
 use crate::hal::device;
 use crate::app::mouse_logic;
+use crate::app::hid_parser::ReportVal;
 
 /// Full mouse report processing pipeline — replaces C process_mouse_report.
 #[no_mangle]
@@ -8,50 +9,45 @@ pub unsafe extern "C" fn rust_process_mouse_report(
     raw_report: *mut u8,
     len: i32,
     _itf: u8,
-    iface: *mut c_void,  // hid_interface_t*
+    iface_ptr: *mut c_void,  // hid_interface_t*
     dev: *mut c_void,    // device_t*
 ) {
-    if raw_report.is_null() || iface.is_null() || dev.is_null() {
+    if raw_report.is_null() || iface_ptr.is_null() || dev.is_null() {
         return;
     }
 
     let state = crate::app::structs::device_from_ptr(dev);
+    let iface = crate::app::structs::iface_from_ptr(iface_ptr);
 
-    // Extract mouse values — use HAL getters for hid_interface_t mouse fields
     let mut values = [0i32; 5];
-    let protocol = device::hal_get_iface_protocol(iface);
     const HID_PROTOCOL_BOOT: u8 = 0;
 
-    if protocol == HID_PROTOCOL_BOOT {
-        // Boot protocol: fixed layout [buttons, x, y, wheel, pan]
+    if iface.protocol == HID_PROTOCOL_BOOT {
         values[0] = *raw_report.add(1) as i8 as i32; // x
         values[1] = *raw_report.add(2) as i8 as i32; // y
         values[2] = *raw_report.add(3) as i8 as i32; // wheel
         values[3] = 0; // pan (not in boot)
         values[4] = *raw_report as i32; // buttons
     } else {
-        // Report protocol: use descriptor-parsed field locations
-        let uses_id = device::hal_get_iface_uses_report_id(iface);
+        let uses_id = iface.uses_report_id;
         let report_slice = core::slice::from_raw_parts(raw_report, len as usize);
 
-        // ReportVal is #[repr(C, packed)] = same layout as C report_val_t
-        fn extract_val(report: &[u8], uses_id: bool, val_ptr: *const u8) -> Option<i32> {
-            if val_ptr.is_null() { return None; }
-            unsafe {
-                let rv = core::ptr::read_unaligned(val_ptr as *const crate::app::hid_parser::ReportVal);
-                let src = if uses_id {
-                    if report[0] != rv.report_id { return None; }
-                    &report[1..]
-                } else { report };
-                Some(crate::app::hid_report::get_report_value(src, rv.offset, rv.size))
-            }
+        fn extract_val(report: &[u8], uses_id: bool, rv: &ReportVal) -> Option<i32> {
+            let rid = { rv.report_id };
+            let src = if uses_id {
+                if report[0] != rid { return None; }
+                &report[1..]
+            } else { report };
+            let offset = { rv.offset };
+            let size = { rv.size };
+            Some(crate::app::hid_report::get_report_value(src, offset, size))
         }
 
-        if let Some(v) = extract_val(report_slice, uses_id, device::hal_get_mouse_move_x_val(iface)) { values[0] = v; }
-        if let Some(v) = extract_val(report_slice, uses_id, device::hal_get_mouse_move_y_val(iface)) { values[1] = v; }
-        if let Some(v) = extract_val(report_slice, uses_id, device::hal_get_mouse_wheel_val(iface)) { values[2] = v; }
-        if let Some(v) = extract_val(report_slice, uses_id, device::hal_get_mouse_pan_val(iface)) { values[3] = v; }
-        if let Some(v) = extract_val(report_slice, uses_id, device::hal_get_mouse_buttons_val(iface)) {
+        if let Some(v) = extract_val(report_slice, uses_id, &iface.mouse.move_x) { values[0] = v; }
+        if let Some(v) = extract_val(report_slice, uses_id, &iface.mouse.move_y) { values[1] = v; }
+        if let Some(v) = extract_val(report_slice, uses_id, &iface.mouse.wheel) { values[2] = v; }
+        if let Some(v) = extract_val(report_slice, uses_id, &iface.mouse.pan) { values[3] = v; }
+        if let Some(v) = extract_val(report_slice, uses_id, &iface.mouse.buttons) {
             values[4] = v;
         } else {
             values[4] = state.mouse_buttons as i32;
@@ -66,7 +62,6 @@ pub unsafe extern "C" fn rust_process_mouse_report(
         buttons: values[4],
     };
 
-    // Update mouse position and detect screen switch
     let output_idx = state.active_output as usize;
     if output_idx >= state.config.output.len() { return; }
     let output = &state.config.output[output_idx];
@@ -81,13 +76,11 @@ pub unsafe extern "C" fn rust_process_mouse_report(
     state.pointer_y = new_y;
     state.mouse_buttons = mouse_vals.buttons as i16;
 
-    // Create mouse report
     let report = mouse_logic::create_mouse_report(
         state.pointer_x, state.pointer_y, &mouse_vals,
         state.relative_mouse, state.gaming_mode,
     );
 
-    // Output mouse report (local queue or UART)
     let report_bytes = [
         report.buttons,
         report.x.to_le_bytes()[0], report.x.to_le_bytes()[1],

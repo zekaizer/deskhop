@@ -69,30 +69,6 @@ extern "C" {
     /// Set uses_report_id on hid_interface_t
     pub fn hal_iface_set_uses_report_id(iface: *mut c_void, val: bool);
 
-    // ---- Mouse descriptor fields ----
-    pub fn hal_get_mouse_move_x_val(iface: *mut c_void) -> *const u8;
-    pub fn hal_get_mouse_move_y_val(iface: *mut c_void) -> *const u8;
-    pub fn hal_get_mouse_wheel_val(iface: *mut c_void) -> *const u8;
-    pub fn hal_get_mouse_pan_val(iface: *mut c_void) -> *const u8;
-    pub fn hal_get_mouse_buttons_val(iface: *mut c_void) -> *const u8;
-    pub fn hal_get_mouse_buttons_report_id(iface: *mut c_void) -> u8;
-
-    // ---- Keyboard descriptor fields ----
-    pub fn hal_get_kbd_modifier_offset_idx(iface: *mut c_void, report_id: u8) -> u16;
-    pub fn hal_get_kbd_modifier_size(iface: *mut c_void, report_id: u8) -> u16;
-    pub fn hal_get_kbd_key_array(iface: *mut c_void, report_id: u8, index: i32) -> bool;
-    pub fn hal_get_kbd_is_nkro(iface: *mut c_void, report_id: u8) -> bool;
-    pub fn hal_get_kbd_nkro_offset_idx(iface: *mut c_void, report_id: u8) -> u16;
-    pub fn hal_get_kbd_nkro_usage_min(iface: *mut c_void, report_id: u8) -> i32;
-    pub fn hal_get_kbd_nkro_usage_max(iface: *mut c_void, report_id: u8) -> i32;
-    pub fn hal_get_kbd_nkro_size(iface: *mut c_void, report_id: u8) -> u16;
-    pub fn hal_get_iface_uses_report_id(iface: *mut c_void) -> bool;
-    pub fn hal_get_iface_protocol(iface: *mut c_void) -> u8;
-
-    // ---- Consumer control ----
-    pub fn hal_get_consumer_is_variable(iface: *mut c_void) -> bool;
-    pub fn hal_get_cc_array_value(iface: *mut c_void, report_id: u8, index: i32) -> u16;
-
     // ---- HID hotkey check ----
     /// Check hotkeys — returns -1 if no match, 0 if matched (and handler called).
     /// out_pass_to_os and out_acknowledge are set if matched.
