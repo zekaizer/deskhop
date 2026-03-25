@@ -2,5 +2,10 @@
 
 pub mod device;
 pub mod ffi;
+#[cfg(test)]
+pub mod mock;
+#[cfg(not(test))]
+pub mod pico;
 pub mod scheduler;
 pub mod trace;
+pub mod traits;

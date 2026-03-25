@@ -1,0 +1,121 @@
+// HAL trait definitions — hardware-agnostic abstraction layer.
+// Method names are implementation-independent (no SDK-specific prefixes).
+//
+// Design notes:
+// - All traits use &self (HAL ops are independent of Rust Device state)
+// - Static dispatch only (no_std, no alloc) — use generics, not dyn Trait
+// - Check-then-act pattern (e.g. is_tx_busy → tx_send) maps cleanly to
+//   async poll() if we ever migrate to an async executor like Embassy
+// - See pico.rs for the real RP2040 implementation, mock.rs for tests
+
+/// Microsecond timestamp source.
+pub trait Timer {
+    fn now_us_64(&self) -> u64;
+    fn now_us_32(&self) -> u32;
+}
+
+/// Hardware watchdog, system reset, and boot flag control.
+pub trait Watchdog {
+    fn kick(&self);
+    fn reboot(&self) -> !;
+    fn reboot_to_bootloader(&self) -> !;
+    /// Write magic values to persistent scratch registers for config-mode boot.
+    fn set_boot_flag(&self);
+}
+
+/// USB device-side HID operations.
+///
+/// Provides standard keyboard/mouse convenience methods plus a generic
+/// send_raw_report for vendor protocols (HID++, etc.).
+pub trait UsbDevice {
+    fn is_ready(&self) -> bool;
+    fn is_suspended(&self) -> bool;
+    fn remote_wakeup(&self);
+    fn hid_ready(&self, instance: u8) -> bool;
+    fn send_keyboard_report(&self, report_id: u8, modifier: u8, keycode: *const u8) -> bool;
+    fn send_mouse_report(
+        &self,
+        mode: u8,
+        buttons: u8,
+        x: i16,
+        y: i16,
+        wheel: i8,
+        pan: i8,
+    ) -> bool;
+    /// Send an arbitrary HID report on a given instance.
+    /// Enables vendor protocol passthrough (HID++ short/long/very-long reports, etc.)
+    /// without adding protocol-specific methods to the trait.
+    fn send_raw_report(&self, instance: u8, report_id: u8, data: *const u8, len: u16) -> bool {
+        let _ = (instance, report_id, data, len);
+        false
+    }
+}
+
+/// HID report queues (mouse/keyboard) between cores.
+pub trait ReportQueue {
+    fn push_mouse_report(&self, report: *const u8);
+    fn push_kbd_report(&self, report: *const u8);
+    fn peek_kbd_report(&self, out: *mut u8) -> bool;
+    fn pop_kbd_report(&self, out: *mut u8) -> bool;
+    fn peek_mouse_report(&self, out: *mut u8) -> bool;
+    fn pop_mouse_report(&self, out: *mut u8) -> bool;
+}
+
+/// Control/data packet queues (UART, consumer control, system control, config).
+pub trait PacketQueue {
+    fn push_uart_packet(&self, packet: *const u8);
+    fn push_consumer_control(&self, payload: *const u8);
+    fn push_system_control(&self, payload: *const u8);
+    fn push_config_packet(&self, packet: *const u8);
+    fn try_push_uart(&self, data: *const u8) -> bool;
+    fn pop_uart_tx(&self, out: *mut u8) -> bool;
+}
+
+/// Inter-board communication link.
+pub trait PeerLink {
+    fn send_value(&self, value: u8, packet_type: u8);
+    fn send_packet(&self, data: *const u8, packet_type: u8, length: i32);
+}
+
+/// Bulk data transfer (TX and RX).
+///
+/// Abstracts DMA or equivalent transfer mechanism. TX and RX are grouped
+/// because they share the same underlying channel allocation on RP2040.
+/// An async executor could wrap is_tx_busy + tx_send into a single future.
+pub trait Transfer {
+    fn is_tx_busy(&self) -> bool;
+    fn tx_send(&self, buf: *const u8, len: u32);
+    fn rx_remaining(&self) -> u32;
+    fn is_start_of_packet(&self) -> bool;
+    fn fetch_packet(&self);
+}
+
+/// Persistent configuration storage.
+pub trait ConfigStore {
+    fn save(&self);
+    fn load(&self);
+    fn wipe(&self);
+    fn read_running_fw(&self, address: u32) -> u32;
+}
+
+/// Output switching and associated LED state restoration.
+///
+/// switch_output is a compound operation: releases keys, updates active
+/// output, and syncs LED state. restore_leds re-sends keyboard LED state
+/// for the current output via USB HID SetReport.
+pub trait OutputControl {
+    fn switch_output(&self, output: u8);
+    fn restore_leds(&self);
+}
+
+/// On-board status indicator (LED or equivalent).
+pub trait Indicator {
+    fn blink(&self);
+    fn toggle(&self);
+}
+
+/// Debug/diagnostic output.
+pub trait Trace {
+    fn blink_debug(&self, count: i32, delay_ms: i32);
+    fn dump_state(&self);
+}
