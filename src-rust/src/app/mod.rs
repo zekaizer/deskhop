@@ -16,6 +16,7 @@ pub mod mouse;
 pub mod mouse_logic;
 pub mod msg_handlers;
 pub mod packet;
+pub mod router;
 pub mod screensaver;
 pub mod structs;
 pub mod usb;
