@@ -193,13 +193,6 @@ void hal_set_report_handler(void *iface, uint8_t report_id, uint8_t handler_type
         case 3: i->report_handler[report_id] = process_system_report; break;
     }
 }
-void hal_handle_keyboard_descriptor(void *iface, const uint8_t *val) {
-    handle_keyboard_descriptor_values((report_val_t *)val, NULL, (hid_interface_t *)iface);
-}
-void hal_handle_consumer_control_values(void *iface, const uint8_t *val) {
-    handle_consumer_control_values((report_val_t *)val, NULL, (hid_interface_t *)iface);
-}
-
 void hal_queue_cc_packet(device_t *dev, const uint8_t *payload) { queue_cc_packet((uint8_t *)payload, dev); }
 void hal_queue_system_packet(device_t *dev, const uint8_t *payload) { queue_system_packet((uint8_t *)payload, dev); }
 

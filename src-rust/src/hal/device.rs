@@ -47,10 +47,9 @@ extern "C" {
     pub fn hal_tud_hid_keyboard_report(report_id: u8, modifier: u8, keycode: *const u8) -> bool;
     pub fn hal_tud_mouse_report(mode: u8, buttons: u8, x: i16, y: i16, wheel: i8, pan: i8) -> bool;
 
-    // ---- hid_interface_t (remaining C-dependent functions) ----
+    // ---- hid_interface_t (remaining C-dependent function) ----
+    /// Assigns C function pointers (process_*_report) to report_handler array
     pub fn hal_set_report_handler(iface: *mut c_void, report_id: u8, handler_type: u8);
-    pub fn hal_handle_keyboard_descriptor(iface: *mut c_void, val: *const u8);
-    pub fn hal_handle_consumer_control_values(iface: *mut c_void, val: *const u8);
 
     pub fn hal_toggle_led();
     pub fn hal_read_fw_running_u32(address: u32) -> u32;
