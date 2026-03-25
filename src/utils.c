@@ -42,7 +42,9 @@ void load_config(device_t *state) {
 
 void save_config(device_t *state) {
     uint8_t *raw = (uint8_t *)&state->config;
-    state->config.checksum = calc_crc32(raw, sizeof(config_t) - sizeof(uint32_t));
+    /* Truncate CRC32 to uint8_t — must match load_config's uint8_t comparison */
+    uint8_t checksum = calc_crc32(raw, sizeof(config_t) - sizeof(uint32_t));
+    state->config.checksum = checksum;
     memcpy(state->page_buffer, raw, sizeof(config_t));
     memset(state->page_buffer + sizeof(config_t), 0, FLASH_PAGE_SIZE - sizeof(config_t));
     write_flash_page((uint32_t)ADDR_CONFIG - XIP_BASE, state->page_buffer);
