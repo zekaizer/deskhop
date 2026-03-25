@@ -56,13 +56,10 @@ set(COMMON_SOURCES
   ${SRC_DIR}/usb_descriptors.c
   ${SRC_DIR}/defaults.c
   ${SRC_DIR}/protocol.c
-  ${SRC_DIR}/hid_parser.c
   ${SRC_DIR}/hid_report.c
   ${SRC_DIR}/utils.c
-  ${SRC_DIR}/handlers.c
   ${SRC_DIR}/setup.c
   ${SRC_DIR}/keyboard.c
-  ${SRC_DIR}/mouse.c
   ${SRC_DIR}/tasks.c
   ${SRC_DIR}/led.c
   ${SRC_DIR}/uart.c

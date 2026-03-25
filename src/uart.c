@@ -1,5 +1,10 @@
-/* DeskHop UART — encoding in Rust, queue/dispatch here. */
+/* DeskHop UART + packet dispatch — encoding in Rust, queue/dispatch here. */
 #include "main.h"
+
+/* Output control */
+void set_active_output(device_t *s, uint8_t o) {
+    s->active_output=o; restore_leds(s); send_value(o, OUTPUT_SELECT_MSG); release_all_keys(s);
+}
 
 extern void rust_write_raw_packet(uint8_t *, const uint8_t *);
 extern uint8_t rust_handle_simple_msg(uint8_t, const uint8_t *, device_t *);
@@ -27,14 +32,14 @@ void send_value(const uint8_t v, enum packet_type_e t) { queue_packet(&v, t, siz
 void process_packet(uart_packet_t *p, device_t *s) {
     if (!rust_verify_checksum((const uint8_t *)p)) return;
     switch (p->type) {
-        case CONSUMER_CONTROL_MSG: handle_consumer_control_msg(p,s); return;
+        case CONSUMER_CONTROL_MSG: queue_cc_packet(p->data, s); return;
         case SYNC_BORDERS_MSG:     rust_handle_sync_borders(s, p->data); return;
         case GET_VAL_MSG: case SET_VAL_MSG: rust_handle_api_msgs(p->type, p->data, s); return;
         case GET_ALL_VALS_MSG:     rust_handle_api_read_all_msgs(s); return;
         case REQUEST_BYTE_MSG:     rust_handle_request_byte(p->data); return;
         case RESPONSE_BYTE_MSG:    rust_handle_response_byte(p->data, s); return;
-        case FIRMWARE_UPGRADE_MSG: handle_fw_upgrade_msg(p,s); return;
-        case PROXY_PACKET_MSG:     handle_proxy_msg(p,s); return;
+        case FIRMWARE_UPGRADE_MSG: reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0); return;
+        case PROXY_PACKET_MSG:     hal_queue_packet(&p->data[1], p->data[0], PACKET_DATA_LENGTH-1); return;
         case KEYBOARD_REPORT_MSG:  rust_handle_keyboard_uart_full(s, p->data); return;
         case MOUSE_REPORT_MSG:     rust_handle_mouse_uart_full(s, p->data); return;
     }
