@@ -1,4 +1,4 @@
-// PicoHal — RP2040 hardware implementation of HAL traits.
+// PicoHal — real hardware implementation of HAL traits.
 // Wraps extern "C" functions from device.rs with trait-based interface.
 
 use core::ffi::c_void;
@@ -6,7 +6,7 @@ use core::ffi::c_void;
 use super::device;
 use super::traits::*;
 
-/// Real HAL backed by Pico SDK / TinyUSB via C FFI.
+/// Real HAL backed by platform SDK via C FFI.
 pub struct PicoHal {
     dev: *mut c_void,
 }
@@ -150,11 +150,6 @@ impl ReportQueue for PicoHal {
 
 impl PacketQueue for PicoHal {
     #[inline]
-    fn push_uart_packet(&self, packet: *const u8) {
-        unsafe { device::hal_queue_uart_packet(self.dev, packet) }
-    }
-
-    #[inline]
     fn push_consumer_control(&self, payload: *const u8) {
         unsafe { device::hal_queue_cc_packet(self.dev, payload) }
     }
@@ -167,16 +162,6 @@ impl PacketQueue for PicoHal {
     #[inline]
     fn push_config_packet(&self, packet: *const u8) {
         unsafe { device::hal_queue_cfg_packet(self.dev, packet) }
-    }
-
-    #[inline]
-    fn try_push_uart(&self, data: *const u8) -> bool {
-        unsafe { device::hal_queue_try_add_uart(self.dev, data) }
-    }
-
-    #[inline]
-    fn pop_uart_tx(&self, out: *mut u8) -> bool {
-        unsafe { device::hal_uart_tx_queue_remove(self.dev, out) }
     }
 }
 
@@ -192,34 +177,34 @@ impl PeerLink for PicoHal {
     fn send_packet(&self, data: *const u8, packet_type: u8, length: i32) {
         unsafe { device::queue_packet(data, packet_type, length) }
     }
+
+    #[inline]
+    fn enqueue(&self, packet: *const u8) {
+        unsafe { device::hal_queue_uart_packet(self.dev, packet) }
+    }
+
+    #[inline]
+    fn try_enqueue(&self, data: *const u8) -> bool {
+        unsafe { device::hal_queue_try_add_uart(self.dev, data) }
+    }
+
+    #[inline]
+    fn dequeue(&self, out: *mut u8) -> bool {
+        unsafe { device::hal_uart_tx_queue_remove(self.dev, out) }
+    }
 }
 
 // ---- Transfer ----
 
 impl Transfer for PicoHal {
     #[inline]
-    fn is_tx_busy(&self) -> bool {
+    fn is_busy(&self) -> bool {
         unsafe { device::hal_dma_channel_is_busy(self.dev) }
     }
 
     #[inline]
-    fn tx_send(&self, buf: *const u8, len: u32) {
+    fn transmit(&self, buf: *const u8, len: u32) {
         unsafe { device::hal_dma_tx_send(self.dev, buf, len) }
-    }
-
-    #[inline]
-    fn rx_remaining(&self) -> u32 {
-        unsafe { device::hal_dma_rx_remaining(self.dev) }
-    }
-
-    #[inline]
-    fn is_start_of_packet(&self) -> bool {
-        unsafe { device::hal_is_start_of_packet(self.dev) }
-    }
-
-    #[inline]
-    fn fetch_packet(&self) {
-        unsafe { device::hal_fetch_packet(self.dev) }
     }
 }
 
@@ -256,7 +241,7 @@ impl OutputControl for PicoHal {
     }
 
     #[inline]
-    fn restore_leds(&self) {
+    fn sync_leds(&self) {
         unsafe { device::restore_leds(self.dev) }
     }
 }

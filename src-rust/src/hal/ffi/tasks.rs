@@ -1,7 +1,6 @@
-use core::ffi::c_void;
-use crate::hal::traits::*;
+// Task FFI wrappers — thin entry points that delegate to app::tasks.
 
-const CORE1_HANG_TIMEOUT_US: u64 = 500_000; // 500ms
+use core::ffi::c_void;
 
 static mut DBG_COUNT: u32 = 0;
 
@@ -9,16 +8,10 @@ static mut DBG_COUNT: u32 = 0;
 pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::app::structs::device_from_ptr(dev);
-    if state.reboot_requested { return; }
-
-    // Only kick watchdog if core1 is alive (timestamp updated within 500ms)
-    let c1 = state.core1_last_loop_pass;
-    let now = hal.now_us_64();
-    if now - c1 < CORE1_HANG_TIMEOUT_US {
-        hal.kick();
-    }
+    crate::app::tasks::check_system_health(state, &hal);
 
     // Debug: dump state every ~5s (30Hz × 150)
+    use crate::hal::traits::Trace;
     DBG_COUNT += 1;
     if DBG_COUNT >= 150 {
         DBG_COUNT = 0;
@@ -26,75 +19,32 @@ pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
     }
 }
 
-// process_kbd_queue_task and process_mouse_queue_task moved to keyboard.rs
-// with #[export_name] — called directly from Rust scheduler
-
 static mut LAST_POINTER_MOVE: u32 = 0;
-
 
 #[export_name = "screensaver_task"]
 pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::app::structs::device_from_ptr(dev);
-    let role = state.board_role as usize;
-    if role >= state.config.output.len() { return; }
 
-    let ss = &state.config.output[role].screensaver;
-    let inactivity = hal.now_us_64() - state.last_activity[role];
-    let current_time = hal.now_us_32();
-
-    if !crate::app::screensaver::should_activate(
-        &crate::app::screensaver::ScreensaverConfig {
-            mode: ss.mode,
-            only_if_inactive: ss.only_if_inactive != 0,
-            idle_time_us: ss.idle_time_us,
-            max_time_us: ss.max_time_us,
-        },
-        inactivity,
-        state.is_active_output(),
-        hal.is_ready(),
-        LAST_POINTER_MOVE,
-        current_time,
-    ) {
-        return;
-    }
-
-    // Generate report
+    // Generate report from static state (pong/jitter)
     let mut report_bytes = [0u8; 8];
-    match ss.mode {
-        1 => super::screensaver::rust_screensaver_pong(report_bytes.as_mut_ptr()),  // PONG
-        2 => super::screensaver::rust_screensaver_jitter(report_bytes.as_mut_ptr()), // JITTER
-        _ => return,
+    let role = state.board_role as usize;
+    if role < state.config.output.len() {
+        match state.config.output[role].screensaver.mode {
+            1 => super::screensaver::rust_screensaver_pong(report_bytes.as_mut_ptr()),
+            2 => super::screensaver::rust_screensaver_jitter(report_bytes.as_mut_ptr()),
+            _ => {}
+        }
     }
 
-    // Queue mouse report
-    hal.push_mouse_report(report_bytes.as_ptr());
-    LAST_POINTER_MOVE = hal.now_us_32();
+    if let Some(t) = crate::app::tasks::screensaver_tick(state, &hal, LAST_POINTER_MOVE, &report_bytes) {
+        LAST_POINTER_MOVE = t;
+    }
 }
-
-// heartbeat_output_task wrapper stays in tasks.c (BOOTSEL #ifdef DH_DEBUG)
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::app::structs::device_from_ptr(dev);
-
-    if state.fw.upgrade_in_progress { return; }
-
-    if state.config_mode_active {
-        if hal.now_us_64() > state.config_mode_timer {
-            hal.reboot();
-        }
-        hal.blink();
-    }
-
-    // Build heartbeat packet: type=HEARTBEAT, data16[0]=version, data16[2]=active_output
-    let version = state.running_fw.version;
-    let mut packet = [0u8; 10]; // uart_packet_t: type(1) + data(8) + checksum(1)
-    packet[0] = crate::app::constants::PacketType::Heartbeat as u8;
-    packet[1] = (version & 0xFF) as u8;
-    packet[2] = ((version >> 8) & 0xFF) as u8;
-    packet[5] = state.active_output; // data16[2] = bytes 5-6
-
-    hal.push_uart_packet(packet.as_ptr());
+    crate::app::tasks::heartbeat_tick(state, &hal);
 }

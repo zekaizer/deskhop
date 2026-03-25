@@ -27,7 +27,7 @@ pub unsafe extern "C" fn rust_handle_output_select(dev: *mut core::ffi::c_void, 
     let state = crate::app::structs::device_from_ptr(dev);
     state.active_output = output;
     if state.tud_connected { super::keyboard::rust_release_all_keys_state(dev); }
-    hal.restore_leds();
+    hal.sync_leds();
 }
 
 #[no_mangle]
@@ -65,7 +65,7 @@ pub unsafe extern "C" fn rust_handle_set_report(dev: *mut core::ffi::c_void, led
     let other = 1usize.wrapping_sub(state.board_role as usize);
     if other < state.keyboard_leds.len() { state.keyboard_leds[other] = led_value; }
     if state.keyboard_connected && !state.is_active_output() {
-        hal.restore_leds();
+        hal.sync_leds();
     }
 }
 

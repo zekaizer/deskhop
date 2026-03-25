@@ -19,4 +19,5 @@ pub mod packet;
 pub mod router;
 pub mod screensaver;
 pub mod structs;
+pub mod tasks;
 pub mod usb;

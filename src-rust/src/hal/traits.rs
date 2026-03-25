@@ -4,9 +4,9 @@
 // Design notes:
 // - All traits use &self (HAL ops are independent of Rust Device state)
 // - Static dispatch only (no_std, no alloc) — use generics, not dyn Trait
-// - Check-then-act pattern (e.g. is_tx_busy → tx_send) maps cleanly to
-//   async poll() if we ever migrate to an async executor like Embassy
-// - See pico.rs for the real RP2040 implementation, mock.rs for tests
+// - Check-then-act pattern (e.g. is_busy → transmit) maps cleanly to
+//   async poll() if we ever migrate to an async executor
+// - See pico.rs for the real hardware implementation, mock.rs for tests
 
 /// Microsecond timestamp source.
 pub trait Timer {
@@ -14,12 +14,12 @@ pub trait Timer {
     fn now_us_32(&self) -> u32;
 }
 
-/// Hardware watchdog, system reset, and boot flag control.
+/// System health: watchdog refresh, reset, and boot mode control.
 pub trait Watchdog {
     fn kick(&self);
     fn reboot(&self) -> !;
     fn reboot_to_bootloader(&self) -> !;
-    /// Write magic values to persistent scratch registers for config-mode boot.
+    /// Set persistent flag for config-mode boot.
     fn set_boot_flag(&self);
 }
 
@@ -44,7 +44,6 @@ pub trait UsbDevice {
     ) -> bool;
     /// Send an arbitrary HID report on a given instance.
     /// Enables vendor protocol passthrough (HID++ short/long/very-long reports, etc.)
-    /// without adding protocol-specific methods to the trait.
     fn send_raw_report(&self, instance: u8, report_id: u8, data: *const u8, len: u16) -> bool {
         let _ = (instance, report_id, data, len);
         false
@@ -61,33 +60,34 @@ pub trait ReportQueue {
     fn pop_mouse_report(&self, out: *mut u8) -> bool;
 }
 
-/// Control/data packet queues (UART, consumer control, system control, config).
+/// Control packet queues (consumer control, system control, config).
 pub trait PacketQueue {
-    fn push_uart_packet(&self, packet: *const u8);
     fn push_consumer_control(&self, payload: *const u8);
     fn push_system_control(&self, payload: *const u8);
     fn push_config_packet(&self, packet: *const u8);
-    fn try_push_uart(&self, data: *const u8) -> bool;
-    fn pop_uart_tx(&self, out: *mut u8) -> bool;
 }
 
-/// Inter-board communication link.
+/// Inter-board communication link (high-level send + outbound queue).
 pub trait PeerLink {
+    /// Build and enqueue a single-value packet.
     fn send_value(&self, value: u8, packet_type: u8);
+    /// Build and enqueue a data packet.
     fn send_packet(&self, data: *const u8, packet_type: u8, length: i32);
+    /// Enqueue a pre-built packet to the outbound buffer.
+    fn enqueue(&self, packet: *const u8);
+    /// Try to enqueue raw data to the outbound buffer.
+    fn try_enqueue(&self, data: *const u8) -> bool;
+    /// Dequeue one packet from the outbound buffer for transmission.
+    fn dequeue(&self, out: *mut u8) -> bool;
 }
 
-/// Bulk data transfer (TX and RX).
+/// Physical data transfer channel.
 ///
-/// Abstracts DMA or equivalent transfer mechanism. TX and RX are grouped
-/// because they share the same underlying channel allocation on RP2040.
-/// An async executor could wrap is_tx_busy + tx_send into a single future.
+/// Abstracts the underlying transmission mechanism.
+/// An async executor could wrap is_busy + transmit into a single future.
 pub trait Transfer {
-    fn is_tx_busy(&self) -> bool;
-    fn tx_send(&self, buf: *const u8, len: u32);
-    fn rx_remaining(&self) -> u32;
-    fn is_start_of_packet(&self) -> bool;
-    fn fetch_packet(&self);
+    fn is_busy(&self) -> bool;
+    fn transmit(&self, buf: *const u8, len: u32);
 }
 
 /// Persistent configuration storage.
@@ -98,14 +98,14 @@ pub trait ConfigStore {
     fn read_running_fw(&self, address: u32) -> u32;
 }
 
-/// Output switching and associated LED state restoration.
+/// Output switching and associated state synchronization.
 ///
 /// switch_output is a compound operation: releases keys, updates active
-/// output, and syncs LED state. restore_leds re-sends keyboard LED state
-/// for the current output via USB HID SetReport.
+/// output, and syncs indicator state. sync_leds re-sends keyboard LED
+/// state for the current output.
 pub trait OutputControl {
     fn switch_output(&self, output: u8);
-    fn restore_leds(&self);
+    fn sync_leds(&self);
 }
 
 /// On-board status indicator (LED or equivalent).

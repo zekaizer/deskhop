@@ -78,7 +78,7 @@ pub fn apply_action(action: &HandlerAction, state: &mut Device) -> bool {
             if other < state.keyboard_leds.len() {
                 state.keyboard_leds[other] = *leds;
             }
-            true // needs restore_leds HAL call
+            true // needs sync_leds HAL call
         }
         HandlerAction::StartFwUpgrade(fw) => {
             state.fw.upgrade_in_progress = fw.upgrade_in_progress;
