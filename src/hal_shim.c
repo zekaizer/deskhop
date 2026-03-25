@@ -216,23 +216,6 @@ void hal_queue_system_packet(device_t *dev, const uint8_t *payload) { queue_syst
 
 extern device_t *device;
 
-int hal_check_all_hotkeys(const uint8_t *report, uint8_t *out_pass_to_os,
-                          uint8_t *out_acknowledge) {
-    hid_keyboard_report_t *kbd_report = (hid_keyboard_report_t *)report;
-    hotkey_combo_t *hotkey = check_all_hotkeys(kbd_report, device);
-
-    if (hotkey == NULL)
-        return -1;
-
-    *out_pass_to_os = hotkey->pass_to_os;
-    *out_acknowledge = hotkey->acknowledge;
-
-    /* Execute the handler */
-    hotkey->action_handler(device, kbd_report);
-
-    return 0;
-}
-
 void hal_toggle_led(void) { toggle_led(); }
 
 void hal_debug_dump_state(device_t *dev) {

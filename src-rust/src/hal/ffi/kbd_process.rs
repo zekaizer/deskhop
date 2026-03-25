@@ -34,20 +34,21 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
     let kbd = &*(new_report.as_ptr() as *const crate::app::structs::HidKeyboardReport);
     crate::app::kbd_state::update_kbd_state(state, kbd, itf);
 
-    // Check hotkeys
-    let mut pass_to_os: u8 = 0;
-    let mut acknowledge: u8 = 0;
-    let matched = device::hal_check_all_hotkeys(
-        new_report.as_ptr(), &mut pass_to_os, &mut acknowledge,
-    );
-
-    if matched == 0 {
-        // Hotkey was matched and handler executed
-        if acknowledge != 0 {
+    // Check hotkeys — fully in Rust, no C roundtrip
+    let report_for_hotkey = crate::app::keyboard::KeyboardReport {
+        modifier: new_report[0],
+        reserved: new_report[1],
+        keycode: [new_report[2], new_report[3], new_report[4],
+                  new_report[5], new_report[6], new_report[7]],
+    };
+    if let Some(m) = crate::app::keyboard::check_all_hotkeys(&report_for_hotkey) {
+        // Execute the hotkey action
+        super::hotkey_dispatch::execute_hotkey_action(dev, m.action);
+        if m.acknowledge {
             device::hal_blink_led(dev);
         }
-        if pass_to_os == 0 {
-            return; // Don't pass to OS
+        if !m.pass_to_os {
+            return;
         }
     }
 

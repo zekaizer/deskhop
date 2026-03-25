@@ -23,6 +23,33 @@ pub const OS_MACOS: u8 = 2;
 pub const OS_WINDOWS: u8 = 3;
 pub const OS_ANDROID: u8 = 4;
 
+// HID keyboard modifiers (from TinyUSB hid.h)
+pub const KEYBOARD_MODIFIER_LEFTCTRL: u8 = 0x01;
+pub const KEYBOARD_MODIFIER_LEFTSHIFT: u8 = 0x02;
+pub const KEYBOARD_MODIFIER_RIGHTCTRL: u8 = 0x10;
+pub const KEYBOARD_MODIFIER_RIGHTSHIFT: u8 = 0x20;
+pub const KEYBOARD_MODIFIER_RIGHTALT: u8 = 0x40;
+
+// HID key codes (from TinyUSB hid.h — only hotkey-relevant subset)
+pub const HID_KEY_A: u8 = 0x04;
+pub const HID_KEY_B: u8 = 0x05;
+pub const HID_KEY_C: u8 = 0x06;
+pub const HID_KEY_D: u8 = 0x07;
+pub const HID_KEY_G: u8 = 0x0A;
+pub const HID_KEY_J: u8 = 0x0D;
+pub const HID_KEY_K: u8 = 0x0E;
+pub const HID_KEY_L: u8 = 0x0F;
+pub const HID_KEY_O: u8 = 0x12;
+pub const HID_KEY_S: u8 = 0x16;
+pub const HID_KEY_X: u8 = 0x1B;
+pub const HID_KEY_Y: u8 = 0x1C;
+pub const HID_KEY_F12: u8 = 0x45;
+pub const HID_KEY_CAPS_LOCK: u8 = 0x39;
+
+// Hotkey configuration (from user_config.h)
+pub const HOTKEY_MODIFIER: u8 = KEYBOARD_MODIFIER_LEFTCTRL;
+pub const HOTKEY_TOGGLE: u8 = HID_KEY_CAPS_LOCK;
+
 // Screen coordinates
 pub const MAX_SCREEN_COORD: i16 = 32767;
 pub const MIN_SCREEN_COORD: i16 = 0;

@@ -52,13 +52,6 @@ extern "C" {
     pub fn hal_handle_keyboard_descriptor(iface: *mut c_void, val: *const u8);
     pub fn hal_handle_consumer_control_values(iface: *mut c_void, val: *const u8);
 
-    // ---- HID hotkey check ----
-    /// Check hotkeys — returns -1 if no match, 0 if matched (and handler called).
-    /// out_pass_to_os and out_acknowledge are set if matched.
-    pub fn hal_check_all_hotkeys(
-        report: *const u8, out_pass_to_os: *mut u8, out_acknowledge: *mut u8,
-    ) -> i32;
-
     pub fn hal_toggle_led();
     pub fn hal_read_fw_running_u32(address: u32) -> u32;
     pub fn hal_api_read_field(offset: u32, len: u32, out: *mut u8);

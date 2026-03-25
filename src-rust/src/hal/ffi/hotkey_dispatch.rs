@@ -2,6 +2,26 @@
 
 use crate::app::constants::PacketType;
 use crate::app::handlers::{get_border_position, BorderUpdate};
+use crate::app::keyboard::HotkeyAction;
+
+/// Execute a hotkey action by its enum variant. Called from kbd_process.
+pub unsafe fn execute_hotkey_action(dev: *mut core::ffi::c_void, action: HotkeyAction) {
+    match action {
+        HotkeyAction::OutputToggle => rust_output_toggle(dev),
+        HotkeyAction::MouseZoomToggle => rust_mouse_zoom_toggle(dev),
+        HotkeyAction::SwitchLockToggle => rust_switch_lock_toggle(dev),
+        HotkeyAction::ScreenLock => rust_screenlock_handler(dev),
+        HotkeyAction::GamingModeToggle => rust_gaming_mode_toggle(dev),
+        HotkeyAction::ScreensaverPong => rust_screensaver_pong_enable(dev),
+        HotkeyAction::ScreensaverJitter => rust_screensaver_jitter_enable(dev),
+        HotkeyAction::ScreensaverDisable => rust_screensaver_disable(dev),
+        HotkeyAction::WipeConfig => rust_wipe_config_hotkey(dev),
+        HotkeyAction::ScreenBorder => rust_screen_border_hotkey(dev),
+        HotkeyAction::ConfigEnable => rust_config_enable(dev),
+        HotkeyAction::FwUpgradeA => rust_fw_upgrade_a(),
+        HotkeyAction::FwUpgradeB => rust_fw_upgrade_b(),
+    }
+}
 
 fn border_to_bytes(top: i32, bottom: i32) -> [u8; 8] {
     let t = top.to_le_bytes();

@@ -9,12 +9,70 @@ pub struct KeyboardReport {
     pub keycode: [u8; KEYS_IN_USB_REPORT],
 }
 
+/// What action to perform when a hotkey matches
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HotkeyAction {
+    OutputToggle,
+    MouseZoomToggle,
+    SwitchLockToggle,
+    ScreenLock,
+    GamingModeToggle,
+    ScreensaverPong,
+    ScreensaverJitter,
+    ScreensaverDisable,
+    WipeConfig,
+    ScreenBorder,
+    ConfigEnable,
+    FwUpgradeA,
+    FwUpgradeB,
+}
+
 /// Hotkey definition for matching keyboard combos
 pub struct HotkeyCombo {
     pub modifier: u8,
     pub keys: &'static [u8],
     pub pass_to_os: bool,
     pub acknowledge: bool,
+    pub action: HotkeyAction,
+}
+
+/// Result of check_all_hotkeys
+pub struct HotkeyMatch {
+    pub action: HotkeyAction,
+    pub pass_to_os: bool,
+    pub acknowledge: bool,
+}
+
+/// Check all hotkeys against a report. Returns first match.
+pub fn check_all_hotkeys(report: &KeyboardReport) -> Option<HotkeyMatch> {
+    use crate::app::constants::*;
+
+    static HOTKEYS: &[HotkeyCombo] = &[
+        HotkeyCombo { modifier: HOTKEY_MODIFIER, keys: &[HOTKEY_TOGGLE], pass_to_os: false, acknowledge: false, action: HotkeyAction::OutputToggle },
+        HotkeyCombo { modifier: KEYBOARD_MODIFIER_RIGHTALT | KEYBOARD_MODIFIER_RIGHTCTRL, keys: &[], pass_to_os: true, acknowledge: true, action: HotkeyAction::MouseZoomToggle },
+        HotkeyCombo { modifier: KEYBOARD_MODIFIER_RIGHTCTRL, keys: &[HID_KEY_K], pass_to_os: false, acknowledge: true, action: HotkeyAction::SwitchLockToggle },
+        HotkeyCombo { modifier: KEYBOARD_MODIFIER_RIGHTCTRL, keys: &[HID_KEY_L], pass_to_os: false, acknowledge: true, action: HotkeyAction::ScreenLock },
+        HotkeyCombo { modifier: KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT, keys: &[HID_KEY_G], pass_to_os: false, acknowledge: true, action: HotkeyAction::GamingModeToggle },
+        HotkeyCombo { modifier: KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT, keys: &[HID_KEY_S], pass_to_os: false, acknowledge: true, action: HotkeyAction::ScreensaverPong },
+        HotkeyCombo { modifier: KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT, keys: &[HID_KEY_J], pass_to_os: false, acknowledge: true, action: HotkeyAction::ScreensaverJitter },
+        HotkeyCombo { modifier: KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT, keys: &[HID_KEY_X], pass_to_os: false, acknowledge: true, action: HotkeyAction::ScreensaverDisable },
+        HotkeyCombo { modifier: KEYBOARD_MODIFIER_RIGHTSHIFT, keys: &[HID_KEY_F12, HID_KEY_D], pass_to_os: false, acknowledge: true, action: HotkeyAction::WipeConfig },
+        HotkeyCombo { modifier: KEYBOARD_MODIFIER_RIGHTSHIFT, keys: &[HID_KEY_F12, HID_KEY_Y], pass_to_os: false, acknowledge: true, action: HotkeyAction::ScreenBorder },
+        HotkeyCombo { modifier: KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTSHIFT, keys: &[HID_KEY_C, HID_KEY_O], pass_to_os: false, acknowledge: true, action: HotkeyAction::ConfigEnable },
+        HotkeyCombo { modifier: KEYBOARD_MODIFIER_RIGHTSHIFT | KEYBOARD_MODIFIER_LEFTSHIFT, keys: &[HID_KEY_A], pass_to_os: false, acknowledge: true, action: HotkeyAction::FwUpgradeA },
+        HotkeyCombo { modifier: KEYBOARD_MODIFIER_RIGHTSHIFT | KEYBOARD_MODIFIER_LEFTSHIFT, keys: &[HID_KEY_B], pass_to_os: false, acknowledge: true, action: HotkeyAction::FwUpgradeB },
+    ];
+
+    for hotkey in HOTKEYS {
+        if check_specific_hotkey(hotkey, report) {
+            return Some(HotkeyMatch {
+                action: hotkey.action,
+                pass_to_os: hotkey.pass_to_os,
+                acknowledge: hotkey.acknowledge,
+            });
+        }
+    }
+    None
 }
 
 /// Check if a key exists in a keyboard report.
@@ -100,6 +158,7 @@ mod tests {
             keys: &[0x04],  // 'a'
             pass_to_os: false,
             acknowledge: false,
+            action: HotkeyAction::OutputToggle,
         };
         let report = make_report(0x11, &[0x04]);
         assert!(check_specific_hotkey(&hotkey, &report));
@@ -113,6 +172,7 @@ mod tests {
             keys: &[0x04],
             pass_to_os: false,
             acknowledge: false,
+            action: HotkeyAction::OutputToggle,
         };
         let report = make_report(0x11, &[0x04]); // LEFT_CTRL + RIGHT_CTRL
         assert!(check_specific_hotkey(&hotkey, &report));
@@ -125,6 +185,7 @@ mod tests {
             keys: &[0x04],
             pass_to_os: false,
             acknowledge: false,
+            action: HotkeyAction::OutputToggle,
         };
         let report = make_report(0x01, &[0x04]); // only LEFT_CTRL
         assert!(!check_specific_hotkey(&hotkey, &report));
@@ -137,6 +198,7 @@ mod tests {
             keys: &[0x04, 0x05],
             pass_to_os: false,
             acknowledge: false,
+            action: HotkeyAction::OutputToggle,
         };
         let report = make_report(0x01, &[0x04]); // missing 0x05
         assert!(!check_specific_hotkey(&hotkey, &report));
@@ -149,6 +211,7 @@ mod tests {
             keys: &[],
             pass_to_os: true,
             acknowledge: true,
+            action: HotkeyAction::OutputToggle,
         };
         let report = make_report(0x44, &[]);
         assert!(check_specific_hotkey(&hotkey, &report));
