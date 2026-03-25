@@ -3,9 +3,8 @@ use crate::hal::device;
 
 const CORE1_HANG_TIMEOUT_US: u64 = 500_000; // 500ms
 
-/// Rust implementation of kick_watchdog_task
 static mut DBG_COUNT: u32 = 0;
-#[no_mangle]
+#[export_name = "kick_watchdog_task"]
 pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
     if state.reboot_requested { return; }
@@ -50,8 +49,7 @@ pub unsafe extern "C" fn rust_process_uart_tx_task(dev: *mut c_void) {
 
 static mut LAST_POINTER_MOVE: u32 = 0;
 
-/// Rust implementation of screensaver_task
-#[no_mangle]
+#[export_name = "screensaver_task"]
 pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
     let role = state.board_role as usize;
@@ -90,7 +88,7 @@ pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
     LAST_POINTER_MOVE = device::hal_time_us_32();
 }
 
-/// Rust implementation of heartbeat_output_task
+// heartbeat_output_task wrapper stays in tasks.c (BOOTSEL #ifdef DH_DEBUG)
 #[no_mangle]
 pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
     let state = crate::app::structs::device_from_ptr(dev);

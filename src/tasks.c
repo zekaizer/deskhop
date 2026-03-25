@@ -1,13 +1,11 @@
-/* DeskHop tasks — scheduling in Rust, HAL tasks here. */
+/* DeskHop tasks — most are Rust #[export_name] exports.
+   Only HAL-bound tasks and heartbeat (BOOTSEL debug) remain here. */
 #include "main.h"
 
-extern void rust_kick_watchdog_task(device_t *), rust_screensaver_task(device_t *),
-    rust_heartbeat_output_task(device_t *);
+extern void rust_heartbeat_output_task(device_t *);
 
-void kick_watchdog_task(device_t *s) { rust_kick_watchdog_task(s); }
 void usb_device_task(device_t *s) { tud_task(); }
 void usb_host_task(device_t *s) { if (tuh_inited()) tuh_task(); }
-void screensaver_task(device_t *s) { rust_screensaver_task(s); }
 void heartbeat_output_task(device_t *s) {
     rust_heartbeat_output_task(s);
 #ifdef DH_DEBUG
