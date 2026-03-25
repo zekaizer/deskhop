@@ -16,7 +16,7 @@ pub unsafe extern "C" fn rust_write_raw_packet(dst: *mut u8, packet_ptr: *const 
     core::ptr::copy_nonoverlapping(raw.as_ptr(), dst, constants::RAW_PACKET_LENGTH);
 }
 
-#[cfg(not(test))]
+
 #[export_name = "process_uart_tx_task"]
 pub unsafe extern "C" fn rust_process_uart_tx_task(dev: *mut core::ffi::c_void) {
     use crate::hal::traits::{Transfer, PacketQueue};

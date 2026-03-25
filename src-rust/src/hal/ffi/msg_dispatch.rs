@@ -2,6 +2,7 @@
 
 use crate::app::constants::PacketType;
 use crate::app::handlers::{get_border_position, BorderUpdate};
+use crate::hal::traits::*;
 
 fn border_to_bytes(top: i32, bottom: i32) -> [u8; 8] {
     let t = top.to_le_bytes();
@@ -21,24 +22,26 @@ pub unsafe extern "C" fn rust_handle_simple_msg(ptype: u8, data: *const u8, dev:
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_output_select(dev: *mut core::ffi::c_void, output: u8) {
+    let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::app::structs::device_from_ptr(dev);
     state.active_output = output;
     if state.tud_connected { super::keyboard::rust_release_all_keys_state(dev); }
-    crate::hal::device::restore_leds(dev);
+    hal.restore_leds();
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_keyboard_uart_full(dev: *mut core::ffi::c_void, data: *const u8) {
     if data.is_null() { return; }
+    let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::app::structs::device_from_ptr(dev);
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
     crate::app::msg_handlers::handle_keyboard_uart(&arr, state);
     let combined = crate::app::kbd_state::combine_kbd_states(state);
     if state.is_active_output() {
-        crate::hal::device::hal_queue_kbd_report(dev, &combined as *const _ as *const u8);
+        hal.push_kbd_report(&combined as *const _ as *const u8);
     } else {
-        crate::hal::device::queue_packet(
+        hal.send_packet(
             &combined as *const _ as *const u8,
             PacketType::KeyboardReport as u8,
             crate::app::structs::KBD_REPORT_LENGTH as i32,
@@ -46,37 +49,40 @@ pub unsafe extern "C" fn rust_handle_keyboard_uart_full(dev: *mut core::ffi::c_v
     }
     let role = state.board_role as usize;
     if role < state.last_activity.len() {
-        state.last_activity[role] = crate::hal::device::hal_time_us_64();
+        state.last_activity[role] = hal.now_us_64();
     }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_mouse_uart_full(dev: *mut core::ffi::c_void, data: *const u8) {
     if data.is_null() { return; }
+    let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::app::structs::device_from_ptr(dev);
-    crate::hal::device::hal_queue_mouse_report(dev, data);
+    hal.push_mouse_report(data);
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
     crate::app::msg_handlers::handle_mouse_uart(&arr, state);
     let role = state.board_role as usize;
     if role < state.last_activity.len() {
-        state.last_activity[role] = crate::hal::device::hal_time_us_64();
+        state.last_activity[role] = hal.now_us_64();
     }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_set_report(dev: *mut core::ffi::c_void, led_value: u8) {
+    let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::app::structs::device_from_ptr(dev);
     let other = 1usize.wrapping_sub(state.board_role as usize);
     if other < state.keyboard_leds.len() { state.keyboard_leds[other] = led_value; }
     if state.keyboard_connected && !state.is_active_output() {
-        crate::hal::device::restore_leds(dev);
+        hal.restore_leds();
     }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_sync_borders(dev: *mut core::ffi::c_void, data: *const u8) {
     if data.is_null() { return; }
+    let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::app::structs::device_from_ptr(dev);
     let idx = state.active_output as usize;
     if idx >= state.config.output.len() { return; }
@@ -87,13 +93,11 @@ pub unsafe extern "C" fn rust_handle_sync_borders(dev: *mut core::ffi::c_void, d
         }
         let b = &state.config.output[idx].border;
         let bytes = border_to_bytes(b.top, b.bottom);
-        crate::hal::device::queue_packet(
-            bytes.as_ptr(), PacketType::SyncBorders as u8, 8,
-        );
+        hal.send_packet(bytes.as_ptr(), PacketType::SyncBorders as u8, 8);
     } else {
         let border = &mut state.config.output[idx].border;
         border.top = i32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
         border.bottom = i32::from_le_bytes([*data.add(4), *data.add(5), *data.add(6), *data.add(7)]);
     }
-    crate::hal::device::save_config(dev);
+    hal.save();
 }

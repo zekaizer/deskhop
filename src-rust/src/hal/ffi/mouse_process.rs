@@ -1,10 +1,11 @@
 use core::ffi::c_void;
-use crate::hal::device;
+use crate::hal::traits::*;
 use crate::app::mouse_logic;
 use crate::app::hid_parser::ReportVal;
 
 /// Full mouse report processing pipeline.
 /// Called directly from TinyUSB callback (process_report_f signature).
+
 #[export_name = "process_mouse_report"]
 pub unsafe extern "C" fn rust_process_mouse_report(
     raw_report: *mut u8,
@@ -16,6 +17,7 @@ pub unsafe extern "C" fn rust_process_mouse_report(
 
     let state = crate::app::structs::get_global_device();
     let dev = state as *mut _ as *mut c_void;
+    let hal = crate::hal::pico::PicoHal::new(dev);
     let iface = crate::app::structs::iface_from_ptr(iface_ptr);
 
     let mut values = [0i32; 5];
@@ -90,13 +92,13 @@ pub unsafe extern "C" fn rust_process_mouse_report(
     ];
 
     if state.is_active_output() {
-        device::hal_queue_mouse_report(dev, report_bytes.as_ptr());
+        hal.push_mouse_report(report_bytes.as_ptr());
         let role = state.board_role as usize;
         if role < state.last_activity.len() {
-            state.last_activity[role] = device::hal_time_us_64();
+            state.last_activity[role] = hal.now_us_64();
         }
     } else {
-        device::queue_packet(
+        hal.send_packet(
             report_bytes.as_ptr(),
             crate::app::constants::PacketType::MouseReport as u8,
             8,

@@ -4,7 +4,7 @@ use crate::hal::traits::*;
 const CORE1_HANG_TIMEOUT_US: u64 = 500_000; // 500ms
 
 static mut DBG_COUNT: u32 = 0;
-#[cfg(not(test))]
+
 #[export_name = "kick_watchdog_task"]
 pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);
@@ -31,7 +31,7 @@ pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
 
 static mut LAST_POINTER_MOVE: u32 = 0;
 
-#[cfg(not(test))]
+
 #[export_name = "screensaver_task"]
 pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);
@@ -73,7 +73,7 @@ pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
 }
 
 // heartbeat_output_task wrapper stays in tasks.c (BOOTSEL #ifdef DH_DEBUG)
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);

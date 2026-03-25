@@ -3,18 +3,17 @@
 use crate::hal::traits::*;
 
 /// Called from C: set_active_output → release_all_keys
-/// Also called from other ffi modules — cannot be cfg(not(test)).
 #[export_name = "release_all_keys"]
 pub unsafe extern "C" fn rust_release_all_keys_state(dev: *mut core::ffi::c_void) {
+    let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::app::structs::device_from_ptr(dev);
     crate::app::kbd_state::release_all_keys(state);
     let empty = crate::app::structs::HidKeyboardReport::default();
-    // Keep device:: call — this function is used across ffi modules including test builds
-    crate::hal::device::hal_queue_kbd_report(dev, &empty as *const _ as *const u8);
+    hal.push_kbd_report(&empty as *const _ as *const u8);
 }
 
 /// Called from Rust scheduler (process_kbd_queue_task)
-#[cfg(not(test))]
+
 #[export_name = "process_kbd_queue_task"]
 pub unsafe extern "C" fn rust_process_kbd_queue_task(dev: *mut core::ffi::c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);
@@ -30,7 +29,7 @@ pub unsafe extern "C" fn rust_process_kbd_queue_task(dev: *mut core::ffi::c_void
 }
 
 /// Called from Rust scheduler (process_mouse_queue_task)
-#[cfg(not(test))]
+
 #[export_name = "process_mouse_queue_task"]
 pub unsafe extern "C" fn rust_process_mouse_queue_task(dev: *mut core::ffi::c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);

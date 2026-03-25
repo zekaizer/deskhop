@@ -207,6 +207,9 @@ pub unsafe fn handle_api_msg(ptype: u8, api_idx: u8, data: *const u8, dev: *mut 
     const SET_VAL: u8 = crate::app::constants::PacketType::SetVal as u8;
     const GET_VAL: u8 = crate::app::constants::PacketType::GetVal as u8;
 
+    use crate::hal::traits::*;
+    let hal = crate::hal::pico::PicoHal::new(dev);
+
     if ptype == SET_VAL {
         if field.readonly { return; }
         write_field(state, api_idx, data);
@@ -215,10 +218,10 @@ pub unsafe fn handle_api_msg(ptype: u8, api_idx: u8, data: *const u8, dev: *mut 
         response[0] = GET_VAL;
         response[1] = api_idx;
         read_field(state, api_idx, response[2..].as_mut_ptr());
-        crate::hal::device::hal_queue_cfg_packet(dev, response.as_ptr());
+        hal.push_config_packet(response.as_ptr());
     }
 
-    state.config_mode_timer = crate::hal::device::hal_time_us_64() + 300_000_000;
+    state.config_mode_timer = hal.now_us_64() + 300_000_000;
 }
 
 pub unsafe fn handle_api_read_all(dev: *mut core::ffi::c_void) {

@@ -1,10 +1,12 @@
 // Firmware upgrade + API message FFI handlers.
 
 use crate::app::constants::PacketType;
+use crate::hal::traits::*;
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_response_byte(data: *const u8, dev: *mut core::ffi::c_void) {
     if data.is_null() { return; }
+    let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::app::structs::device_from_ptr(dev);
 
     let address = u32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
@@ -16,7 +18,7 @@ pub unsafe extern "C" fn rust_handle_response_byte(data: *const u8, dev: *mut co
     }
 
     if (address & 0xfff) == 0x000 {
-        crate::hal::device::hal_toggle_led();
+        hal.toggle();
     }
 
     const STAGING_IMAGE_SIZE: u32 = 262144;
@@ -41,16 +43,19 @@ pub unsafe extern "C" fn rust_handle_response_byte(data: *const u8, dev: *mut co
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_request_byte(data: *mut u8) {
     if data.is_null() { return; }
+    // No dev pointer — use global device for PicoHal
+    let state = crate::app::structs::get_global_device();
+    let dev = state as *mut _ as *mut core::ffi::c_void;
+    let hal = crate::hal::pico::PicoHal::new(dev);
+
     let address = u32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
     const STAGING_IMAGE_SIZE: u32 = 262144;
     if address >= STAGING_IMAGE_SIZE { return; }
-    let fw_data = crate::hal::device::hal_read_fw_running_u32(address);
+    let fw_data = hal.read_running_fw(address);
     let bytes = fw_data.to_le_bytes();
     *data.add(4) = bytes[0]; *data.add(5) = bytes[1];
     *data.add(6) = bytes[2]; *data.add(7) = bytes[3];
-    crate::hal::device::queue_packet(
-        data, PacketType::ResponseByte as u8, 8,
-    );
+    hal.send_packet(data, PacketType::ResponseByte as u8, 8);
 }
 
 #[no_mangle]

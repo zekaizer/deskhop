@@ -1,10 +1,10 @@
 use core::ffi::c_void;
-use crate::hal::device;
+use crate::hal::traits::*;
 use crate::app::structs::KBD_REPORT_LENGTH;
 
 /// Full keyboard report processing pipeline.
 /// Called directly from TinyUSB callback (process_report_f signature).
-#[cfg(not(test))]
+
 #[export_name = "process_keyboard_report"]
 pub unsafe extern "C" fn rust_process_keyboard_report(
     raw_report: *mut u8,
@@ -16,6 +16,7 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
 
     let state = crate::app::structs::get_global_device();
     let dev = state as *mut _ as *mut c_void;
+    let hal = crate::hal::pico::PicoHal::new(dev);
 
     if length < KBD_REPORT_LENGTH as i32 {
         return;
@@ -44,7 +45,7 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
         // Execute the hotkey action
         super::hotkey_dispatch::execute_hotkey_action(dev, m.action);
         if m.acknowledge {
-            device::blink_led(dev);
+            hal.blink();
         }
         if !m.pass_to_os {
             return;
@@ -54,13 +55,13 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
     // Send key via combined report — route based on active output
     let combined = crate::app::kbd_state::combine_kbd_states(state);
     if state.is_active_output() {
-        device::hal_queue_kbd_report(dev, &combined as *const _ as *const u8);
+        hal.push_kbd_report(&combined as *const _ as *const u8);
         let role = state.board_role as usize;
         if role < state.last_activity.len() {
-            state.last_activity[role] = device::hal_time_us_64();
+            state.last_activity[role] = hal.now_us_64();
         }
     } else {
-        device::queue_packet(
+        hal.send_packet(
             &combined as *const _ as *const u8,
             crate::app::constants::PacketType::KeyboardReport as u8,
             crate::app::structs::KBD_REPORT_LENGTH as i32,

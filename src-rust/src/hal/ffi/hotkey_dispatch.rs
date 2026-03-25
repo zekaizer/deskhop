@@ -6,7 +6,7 @@ use crate::app::keyboard::HotkeyAction;
 use crate::hal::traits::*;
 
 /// Execute a hotkey action by its enum variant. Called from kbd_process.
-#[cfg(not(test))]
+
 pub unsafe fn execute_hotkey_action(dev: *mut core::ffi::c_void, action: HotkeyAction) {
     match action {
         HotkeyAction::OutputToggle => rust_output_toggle(dev),
@@ -31,12 +31,12 @@ fn border_to_bytes(top: i32, bottom: i32) -> [u8; 8] {
     [t[0], t[1], t[2], t[3], b[0], b[1], b[2], b[3]]
 }
 
-#[cfg(not(test))]
+
 unsafe fn hal_from(dev: *mut core::ffi::c_void) -> crate::hal::pico::PicoHal {
     crate::hal::pico::PicoHal::new(dev)
 }
 
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_output_toggle(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
@@ -46,7 +46,7 @@ pub unsafe extern "C" fn rust_output_toggle(dev: *mut core::ffi::c_void) {
     }
 }
 
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_mouse_zoom_toggle(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
@@ -55,7 +55,7 @@ pub unsafe extern "C" fn rust_mouse_zoom_toggle(dev: *mut core::ffi::c_void) {
     hal.send_value(val as u8, PacketType::MouseZoom as u8);
 }
 
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_switch_lock_toggle(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
@@ -64,7 +64,7 @@ pub unsafe extern "C" fn rust_switch_lock_toggle(dev: *mut core::ffi::c_void) {
     hal.send_value(val as u8, PacketType::SwitchLock as u8);
 }
 
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_gaming_mode_toggle(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
@@ -73,21 +73,21 @@ pub unsafe extern "C" fn rust_gaming_mode_toggle(dev: *mut core::ffi::c_void) {
     hal.send_value(val as u8, PacketType::GamingMode as u8);
 }
 
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_fw_upgrade_a(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
     hal.reboot_to_bootloader();
 }
 
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_fw_upgrade_b(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
     hal.send_value(1, PacketType::FirmwareUpgrade as u8);
 }
 
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_wipe_config_hotkey(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
@@ -96,7 +96,7 @@ pub unsafe extern "C" fn rust_wipe_config_hotkey(dev: *mut core::ffi::c_void) {
     hal.send_value(1, PacketType::WipeConfig as u8);
 }
 
-#[cfg(not(test))]
+
 fn screensaver_dispatch(hal: &impl PeerLink, state: &mut crate::app::structs::Device, mode: u8) {
     use crate::app::hotkey_handlers::ScreensaverAction;
     match crate::app::hotkey_handlers::screensaver_set(state, mode) {
@@ -107,7 +107,7 @@ fn screensaver_dispatch(hal: &impl PeerLink, state: &mut crate::app::structs::De
     }
 }
 
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_pong_enable(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
@@ -117,7 +117,7 @@ pub unsafe extern "C" fn rust_screensaver_pong_enable(dev: *mut core::ffi::c_voi
     }
 }
 
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_jitter_enable(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
@@ -127,7 +127,7 @@ pub unsafe extern "C" fn rust_screensaver_jitter_enable(dev: *mut core::ffi::c_v
     }
 }
 
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_disable(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
@@ -135,7 +135,7 @@ pub unsafe extern "C" fn rust_screensaver_disable(dev: *mut core::ffi::c_void) {
     screensaver_dispatch(&hal, state, 0);
 }
 
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_config_enable(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
@@ -148,7 +148,7 @@ pub unsafe extern "C" fn rust_config_enable(dev: *mut core::ffi::c_void) {
     state.reboot_requested = true;
 }
 
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_screen_border_hotkey(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
@@ -167,7 +167,7 @@ pub unsafe extern "C" fn rust_screen_border_hotkey(dev: *mut core::ffi::c_void) 
     hal.send_packet(bytes.as_ptr(), PacketType::SyncBorders as u8, 8);
 }
 
-#[cfg(not(test))]
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_screenlock_handler(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
