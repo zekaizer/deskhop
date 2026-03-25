@@ -86,10 +86,12 @@ set(RUST_SRC_DIR ${CMAKE_CURRENT_LIST_DIR}/src-rust)
 set(RUST_TARGET "thumbv6m-none-eabi")
 set(RUST_LIB ${RUST_SRC_DIR}/target/${RUST_TARGET}/release/libdeskhop_rust.a)
 
+file(GLOB_RECURSE RUST_SOURCES ${RUST_SRC_DIR}/src/*.rs ${RUST_SRC_DIR}/Cargo.toml)
 add_custom_command(
     OUTPUT ${RUST_LIB}
     COMMAND cargo build --release --target ${RUST_TARGET}
     WORKING_DIRECTORY ${RUST_SRC_DIR}
+    DEPENDS ${RUST_SOURCES}
     COMMENT "Building Rust static library"
 )
 add_custom_target(deskhop_rust DEPENDS ${RUST_LIB})
