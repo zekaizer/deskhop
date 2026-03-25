@@ -108,11 +108,13 @@ pub unsafe extern "C" fn rust_screensaver_disable(dev: *mut core::ffi::c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn rust_config_enable(dev: *mut core::ffi::c_void) {
     let state = crate::app::structs::device_from_ptr(dev);
-    let need_scratch = crate::app::hotkey_handlers::config_enable(state);
-    if need_scratch {
+    // Order matters: set scratch FIRST, release keys, THEN request reboot.
+    // Original C: hal_set_config_mode_scratch → release_all_keys → reboot_requested=true
+    if !state.config_mode_active {
         crate::hal::device::hal_set_config_mode_scratch();
     }
     crate::hal::device::hal_release_all_keys(dev);
+    state.reboot_requested = true;
 }
 
 #[no_mangle]

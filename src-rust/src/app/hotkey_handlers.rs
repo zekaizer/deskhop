@@ -65,10 +65,10 @@ pub fn screensaver_jitter_mode(state: &Device) -> Option<u8> {
     Some(if current == 0 || current == 1 { 2 } else { current })
 }
 
-/// Enter config mode. Returns true if reboot should be requested.
-pub fn config_enable(state: &mut Device) -> bool {
-    state.reboot_requested = true;
-    !state.config_mode_active // true = need to set scratch registers
+/// Check if config mode scratch registers need to be set.
+/// Does NOT set reboot_requested — caller handles that after HAL calls.
+pub fn needs_config_scratch(state: &Device) -> bool {
+    !state.config_mode_active
 }
 
 #[cfg(test)]
