@@ -55,7 +55,6 @@ target_include_directories(Pico-PIO-USB PRIVATE ${PICO_PIO_USB_DIR})
 set(COMMON_SOURCES
   ${SRC_DIR}/usb_descriptors.c
   ${SRC_DIR}/defaults.c
-  ${SRC_DIR}/constants.c
   ${SRC_DIR}/protocol.c
   ${SRC_DIR}/hid_parser.c
   ${SRC_DIR}/hid_report.c
