@@ -107,7 +107,7 @@ fn handle_keyboard_descriptor(iface: &mut HidInterface, val: &ReportVal) {
         return;
     }
 
-    let ki = find_keyboard_idx(iface, { val.report_id });
+    let ki = find_keyboard_idx(iface, val.report_id );
     let kbd = &mut iface.keyboards[ki];
 
     const MODIFIER_BIT_LENGTH: u16 = 8;
@@ -140,7 +140,7 @@ fn handle_consumer_control(iface: &mut HidInterface, val: &ReportVal) {
 
     if offset > MAX_CC_BUTTONS { return; }
 
-    let ki = find_keyboard_idx(iface, { val.report_id });
+    let ki = find_keyboard_idx(iface, val.report_id );
     if data_type == VARIABLE {
         if offset < iface.keyboards[ki].cc_array.len() {
             iface.keyboards[ki].cc_array[offset] = usage;
