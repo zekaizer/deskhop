@@ -93,40 +93,12 @@ bool hal_queue_try_add_uart(device_t *dev, const uint8_t *data) {
  * UART packet send helpers
  * ==================================================== */
 
-void hal_send_value(uint8_t value, uint8_t packet_type) {
-    send_value(value, (enum packet_type_e)packet_type);
-}
-
-void hal_queue_packet(const uint8_t *data, uint8_t packet_type, int length) {
-    queue_packet(data, (enum packet_type_e)packet_type, length);
-}
-
-/* ==================================================== *
- * Config / Flash
- * ==================================================== */
-
-void hal_save_config(device_t *dev) { save_config(dev); }
-void hal_load_config(device_t *dev) { load_config(dev); }
-void hal_wipe_config(void) { wipe_config(); }
-
-/* ==================================================== *
- * Output switching / LEDs
- * ==================================================== */
-
-void hal_set_active_output(device_t *dev, uint8_t output) {
-    set_active_output(dev, output);
-}
-
-void hal_restore_leds(device_t *dev) { restore_leds(dev); }
-void hal_release_all_keys(device_t *dev) { release_all_keys(dev); }
-
-/* ==================================================== *
- * Hardware (GPIO, watchdog, reboot)
- * ==================================================== */
+/* Removed: hal_send_value, hal_queue_packet, hal_save/load/wipe_config,
+   hal_set_active_output, hal_restore_leds, hal_release_all_keys,
+   hal_blink_led, hal_reboot — Rust calls underlying C functions directly.
+   hal_watchdog_update kept (Pico SDK function). */
 
 void hal_watchdog_update(void) { watchdog_update(); }
-void hal_blink_led(device_t *dev) { blink_led(dev); }
-void hal_reboot(void) { reboot(); }
 
 void hal_reset_usb_boot(void) {
     reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0);

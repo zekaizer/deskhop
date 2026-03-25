@@ -9,7 +9,7 @@ pub unsafe extern "C" fn rust_send_consumer_control(dev: *mut core::ffi::c_void,
             state.last_activity[role] = crate::hal::device::hal_time_us_64();
         }
     } else {
-        crate::hal::device::hal_queue_packet(
+        crate::hal::device::queue_packet(
             raw_report, crate::app::constants::PacketType::ConsumerControl as u8, 4,
         );
     }
@@ -26,7 +26,7 @@ pub unsafe extern "C" fn rust_send_system_control(dev: *mut core::ffi::c_void, r
             state.last_activity[role] = crate::hal::device::hal_time_us_64();
         }
     } else {
-        crate::hal::device::hal_queue_packet(
+        crate::hal::device::queue_packet(
             raw_report, crate::app::constants::PacketType::SystemControl as u8, 1,
         );
     }

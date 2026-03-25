@@ -34,7 +34,7 @@ void process_packet(uart_packet_t *p, device_t *s) {
         case REQUEST_BYTE_MSG:     rust_handle_request_byte(p->data); return;
         case RESPONSE_BYTE_MSG:    rust_handle_response_byte(p->data, s); return;
         case FIRMWARE_UPGRADE_MSG: reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0); return;
-        case PROXY_PACKET_MSG:     hal_queue_packet(&p->data[1], p->data[0], PACKET_DATA_LENGTH-1); return;
+        case PROXY_PACKET_MSG:     queue_packet(&p->data[1], p->data[0], PACKET_DATA_LENGTH-1); return;
         case KEYBOARD_REPORT_MSG:  rust_handle_keyboard_uart_full(s, p->data); return;
         case MOUSE_REPORT_MSG:     rust_handle_mouse_uart_full(s, p->data); return;
     }
@@ -42,10 +42,10 @@ void process_packet(uart_packet_t *p, device_t *s) {
     if (hal) switch (p->type) {
         case OUTPUT_SELECT_MSG:  rust_handle_output_select(s, p->data[0]); break;
         case KBD_SET_REPORT_MSG: rust_handle_set_report(s, p->data[0]); break;
-        case FLASH_LED_MSG:      hal_blink_led(s); break;
-        case WIPE_CONFIG_MSG:    hal_wipe_config(); hal_load_config(s); break;
-        case SAVE_CONFIG_MSG:    hal_save_config(s); break;
-        case REBOOT_MSG:         hal_reboot(); break;
+        case FLASH_LED_MSG:      blink_led(s); break;
+        case WIPE_CONFIG_MSG:    wipe_config(); load_config(s); break;
+        case SAVE_CONFIG_MSG:    save_config(s); break;
+        case REBOOT_MSG:         reboot(); break;
         case HEARTBEAT_MSG:      break;
     }
 }

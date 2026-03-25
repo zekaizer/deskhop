@@ -18,24 +18,24 @@ extern "C" {
     pub fn hal_queue_cc_packet(dev: *mut c_void, payload: *const u8);
     pub fn hal_queue_system_packet(dev: *mut c_void, payload: *const u8);
 
-    // ---- UART send helpers ----
-    pub fn hal_send_value(value: u8, packet_type: u8);
-    pub fn hal_queue_packet(data: *const u8, packet_type: u8, length: i32);
+    // ---- UART send helpers (direct C functions) ----
+    pub fn send_value(value: u8, packet_type: u8);
+    pub fn queue_packet(data: *const u8, packet_type: u8, length: i32);
 
-    // ---- Config / Flash ----
-    pub fn hal_save_config(dev: *mut c_void);
-    pub fn hal_load_config(dev: *mut c_void);
-    pub fn hal_wipe_config();
+    // ---- Config / Flash (direct C functions) ----
+    pub fn save_config(dev: *mut c_void);
+    pub fn load_config(dev: *mut c_void);
+    pub fn wipe_config();
 
-    // ---- Output switching / LEDs ----
-    pub fn hal_set_active_output(dev: *mut c_void, output: u8);
-    pub fn hal_restore_leds(dev: *mut c_void);
-    pub fn hal_release_all_keys(dev: *mut c_void);
+    // ---- Output switching / LEDs (direct C functions) ----
+    pub fn set_active_output(dev: *mut c_void, output: u8);
+    pub fn restore_leds(dev: *mut c_void);
+    // release_all_keys is now a Rust #[export_name] in keyboard.rs
 
     // ---- Hardware ----
     pub fn hal_watchdog_update();
-    pub fn hal_blink_led(dev: *mut c_void);
-    pub fn hal_reboot();
+    pub fn blink_led(dev: *mut c_void);
+    pub fn reboot();
     pub fn hal_reset_usb_boot();
 
     // ---- TinyUSB ----

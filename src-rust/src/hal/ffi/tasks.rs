@@ -97,9 +97,9 @@ pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
 
     if state.config_mode_active {
         if device::hal_time_us_64() > state.config_mode_timer {
-            device::hal_reboot();
+            device::reboot();
         }
-        device::hal_blink_led(dev);
+        device::blink_led(dev);
     }
 
     // Build heartbeat packet: type=HEARTBEAT, data16[0]=version, data16[2]=active_output

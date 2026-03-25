@@ -39,13 +39,13 @@ pub unsafe extern "C" fn rust_switch_to_another_pc(
     if state.is_active_output() {
         device::hal_queue_mouse_report(dev, hidden.as_ptr());
     } else {
-        device::hal_queue_packet(
+        device::queue_packet(
             hidden.as_ptr(), crate::app::constants::PacketType::MouseReport as u8, 8,
         );
     }
 
     // Switch output
-    device::hal_set_active_output(dev, output_to as u8);
+    device::set_active_output(dev, output_to as u8);
 
     // Update pointer position
     state.pointer_x = if direction == 1 { MAX_SCREEN_COORD } else { MIN_SCREEN_COORD };
@@ -71,7 +71,7 @@ unsafe fn output_report(dev: *mut c_void, report: &[u8; 8]) {
     if state.is_active_output() {
         device::hal_queue_mouse_report(dev, report.as_ptr());
     } else {
-        device::hal_queue_packet(
+        device::queue_packet(
             report.as_ptr(), crate::app::constants::PacketType::MouseReport as u8, 8,
         );
     }

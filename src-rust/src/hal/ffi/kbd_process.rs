@@ -43,7 +43,7 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
         // Execute the hotkey action
         super::hotkey_dispatch::execute_hotkey_action(dev, m.action);
         if m.acknowledge {
-            device::hal_blink_led(dev);
+            device::blink_led(dev);
         }
         if !m.pass_to_os {
             return;
@@ -59,7 +59,7 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
             state.last_activity[role] = device::hal_time_us_64();
         }
     } else {
-        device::hal_queue_packet(
+        device::queue_packet(
             &combined as *const _ as *const u8,
             crate::app::constants::PacketType::KeyboardReport as u8,
             crate::app::structs::KBD_REPORT_LENGTH as i32,

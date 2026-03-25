@@ -48,7 +48,7 @@ pub unsafe extern "C" fn rust_handle_request_byte(data: *mut u8) {
     let bytes = fw_data.to_le_bytes();
     *data.add(4) = bytes[0]; *data.add(5) = bytes[1];
     *data.add(6) = bytes[2]; *data.add(7) = bytes[3];
-    crate::hal::device::hal_queue_packet(
+    crate::hal::device::queue_packet(
         data, PacketType::ResponseByte as u8, 8,
     );
 }

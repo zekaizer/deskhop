@@ -23,8 +23,8 @@ pub unsafe extern "C" fn rust_handle_simple_msg(ptype: u8, data: *const u8, dev:
 pub unsafe extern "C" fn rust_handle_output_select(dev: *mut core::ffi::c_void, output: u8) {
     let state = crate::app::structs::device_from_ptr(dev);
     state.active_output = output;
-    if state.tud_connected { crate::hal::device::hal_release_all_keys(dev); }
-    crate::hal::device::hal_restore_leds(dev);
+    if state.tud_connected { super::keyboard::rust_release_all_keys_state(dev); }
+    crate::hal::device::restore_leds(dev);
 }
 
 #[no_mangle]
@@ -38,7 +38,7 @@ pub unsafe extern "C" fn rust_handle_keyboard_uart_full(dev: *mut core::ffi::c_v
     if state.is_active_output() {
         crate::hal::device::hal_queue_kbd_report(dev, &combined as *const _ as *const u8);
     } else {
-        crate::hal::device::hal_queue_packet(
+        crate::hal::device::queue_packet(
             &combined as *const _ as *const u8,
             PacketType::KeyboardReport as u8,
             crate::app::structs::KBD_REPORT_LENGTH as i32,
@@ -70,7 +70,7 @@ pub unsafe extern "C" fn rust_handle_set_report(dev: *mut core::ffi::c_void, led
     let other = 1usize.wrapping_sub(state.board_role as usize);
     if other < state.keyboard_leds.len() { state.keyboard_leds[other] = led_value; }
     if state.keyboard_connected && !state.is_active_output() {
-        crate::hal::device::hal_restore_leds(dev);
+        crate::hal::device::restore_leds(dev);
     }
 }
 
@@ -87,7 +87,7 @@ pub unsafe extern "C" fn rust_handle_sync_borders(dev: *mut core::ffi::c_void, d
         }
         let b = &state.config.output[idx].border;
         let bytes = border_to_bytes(b.top, b.bottom);
-        crate::hal::device::hal_queue_packet(
+        crate::hal::device::queue_packet(
             bytes.as_ptr(), PacketType::SyncBorders as u8, 8,
         );
     } else {
@@ -95,5 +95,5 @@ pub unsafe extern "C" fn rust_handle_sync_borders(dev: *mut core::ffi::c_void, d
         border.top = i32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
         border.bottom = i32::from_le_bytes([*data.add(4), *data.add(5), *data.add(6), *data.add(7)]);
     }
-    crate::hal::device::hal_save_config(dev);
+    crate::hal::device::save_config(dev);
 }

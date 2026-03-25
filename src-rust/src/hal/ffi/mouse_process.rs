@@ -96,7 +96,7 @@ pub unsafe extern "C" fn rust_process_mouse_report(
             state.last_activity[role] = device::hal_time_us_64();
         }
     } else {
-        device::hal_queue_packet(
+        device::queue_packet(
             report_bytes.as_ptr(),
             crate::app::constants::PacketType::MouseReport as u8,
             8,
