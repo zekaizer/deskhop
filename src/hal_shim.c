@@ -182,40 +182,6 @@ void hal_fetch_packet(device_t *dev) {
 /* extract_report_values now handled directly by Rust mouse_process */
 
 /* hid_interface_t field setters for Rust extract_data */
-void hal_set_mouse_buttons(void *iface, const uint8_t *val) {
-    memcpy(&((hid_interface_t *)iface)->mouse.buttons, val, sizeof(report_val_t));
-    ((hid_interface_t *)iface)->mouse.is_found = true;
-}
-void hal_add_mouse_buttons_padding(void *iface, uint16_t size) {
-    ((hid_interface_t *)iface)->mouse.buttons.size += size;
-}
-void hal_set_mouse_move_x(void *iface, const uint8_t *val) {
-    memcpy(&((hid_interface_t *)iface)->mouse.move_x, val, sizeof(report_val_t));
-}
-void hal_set_mouse_move_y(void *iface, const uint8_t *val) {
-    memcpy(&((hid_interface_t *)iface)->mouse.move_y, val, sizeof(report_val_t));
-}
-void hal_set_mouse_wheel(void *iface, const uint8_t *val) {
-    memcpy(&((hid_interface_t *)iface)->mouse.wheel, val, sizeof(report_val_t));
-}
-void hal_set_mouse_pan(void *iface, const uint8_t *val) {
-    memcpy(&((hid_interface_t *)iface)->mouse.pan, val, sizeof(report_val_t));
-}
-void hal_set_mouse_report_id(void *iface, uint8_t id) {
-    ((hid_interface_t *)iface)->mouse.report_id = id;
-}
-void hal_set_consumer_val(void *iface, const uint8_t *val) {
-    memcpy(&((hid_interface_t *)iface)->consumer.val, val, sizeof(report_val_t));
-}
-void hal_set_consumer_report_id(void *iface, uint8_t id) {
-    ((hid_interface_t *)iface)->consumer.report_id = id;
-}
-void hal_set_system_val(void *iface, const uint8_t *val) {
-    memcpy(&((hid_interface_t *)iface)->system.val, val, sizeof(report_val_t));
-}
-void hal_set_system_report_id(void *iface, uint8_t id) {
-    ((hid_interface_t *)iface)->system.report_id = id;
-}
 void hal_set_report_handler(void *iface, uint8_t report_id, uint8_t handler_type) {
     /* handler_type: 0=mouse, 1=keyboard, 2=consumer, 3=system */
     if (report_id >= MAX_REPORTS) return;
@@ -237,16 +203,6 @@ void hal_handle_consumer_control_values(void *iface, const uint8_t *val) {
 void hal_queue_cc_packet(device_t *dev, const uint8_t *payload) { queue_cc_packet((uint8_t *)payload, dev); }
 void hal_queue_system_packet(device_t *dev, const uint8_t *payload) { queue_system_packet((uint8_t *)payload, dev); }
 
-/// Call C extract_data for a single ReportVal.
-/// val_ptr points to a report_val_t struct.
-void hal_extract_data(void *iface_ptr, const uint8_t *val_ptr) {
-    extract_data((hid_interface_t *)iface_ptr, (report_val_t *)val_ptr);
-}
-
-/// Set uses_report_id on hid_interface_t
-void hal_iface_set_uses_report_id(void *iface_ptr, bool val) {
-    ((hid_interface_t *)iface_ptr)->uses_report_id = val;
-}
 
 /* ==================================================== *
  * HID keyboard extraction

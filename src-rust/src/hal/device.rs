@@ -47,27 +47,10 @@ extern "C" {
     pub fn hal_tud_hid_keyboard_report(report_id: u8, modifier: u8, keycode: *const u8) -> bool;
     pub fn hal_tud_mouse_report(mode: u8, buttons: u8, x: i16, y: i16, wheel: i8, pan: i8) -> bool;
 
-    // ---- hid_interface_t field setters ----
-    pub fn hal_set_mouse_buttons(iface: *mut c_void, val: *const u8);
-    pub fn hal_add_mouse_buttons_padding(iface: *mut c_void, size: u16);
-    pub fn hal_set_mouse_move_x(iface: *mut c_void, val: *const u8);
-    pub fn hal_set_mouse_move_y(iface: *mut c_void, val: *const u8);
-    pub fn hal_set_mouse_wheel(iface: *mut c_void, val: *const u8);
-    pub fn hal_set_mouse_pan(iface: *mut c_void, val: *const u8);
-    pub fn hal_set_mouse_report_id(iface: *mut c_void, id: u8);
-    pub fn hal_set_consumer_val(iface: *mut c_void, val: *const u8);
-    pub fn hal_set_consumer_report_id(iface: *mut c_void, id: u8);
-    pub fn hal_set_system_val(iface: *mut c_void, val: *const u8);
-    pub fn hal_set_system_report_id(iface: *mut c_void, id: u8);
+    // ---- hid_interface_t (remaining C-dependent functions) ----
     pub fn hal_set_report_handler(iface: *mut c_void, report_id: u8, handler_type: u8);
     pub fn hal_handle_keyboard_descriptor(iface: *mut c_void, val: *const u8);
     pub fn hal_handle_consumer_control_values(iface: *mut c_void, val: *const u8);
-
-    // ---- HID interface manipulation ----
-    /// Call C extract_data to populate hid_interface_t from a ReportVal
-    pub fn hal_extract_data(iface: *mut c_void, val: *const u8);
-    /// Set uses_report_id on hid_interface_t
-    pub fn hal_iface_set_uses_report_id(iface: *mut c_void, val: bool);
 
     // ---- HID hotkey check ----
     /// Check hotkeys — returns -1 if no match, 0 if matched (and handler called).
