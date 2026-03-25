@@ -53,20 +53,9 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
     }
 
     // Send key via combined report — route based on active output
+    use crate::app::router::ReportRouter;
     let combined = crate::app::kbd_state::combine_kbd_states(state);
-    if state.is_active_output() {
-        hal.push_kbd_report(&combined as *const _ as *const u8);
-        let role = state.board_role as usize;
-        if role < state.last_activity.len() {
-            state.last_activity[role] = hal.now_us_64();
-        }
-    } else {
-        hal.send_packet(
-            &combined as *const _ as *const u8,
-            crate::app::constants::PacketType::KeyboardReport as u8,
-            crate::app::structs::KBD_REPORT_LENGTH as i32,
-        );
-    }
+    hal.route_kbd(state, &combined as *const _ as *const u8);
 }
 
 /// Rust implementation of process_consumer_report

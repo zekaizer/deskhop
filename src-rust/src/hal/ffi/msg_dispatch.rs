@@ -2,6 +2,7 @@
 
 use crate::app::constants::PacketType;
 use crate::app::handlers::{get_border_position, BorderUpdate};
+use crate::app::router::ReportRouter;
 use crate::hal::traits::*;
 
 fn border_to_bytes(top: i32, bottom: i32) -> [u8; 8] {
@@ -38,18 +39,10 @@ pub unsafe extern "C" fn rust_handle_keyboard_uart_full(dev: *mut core::ffi::c_v
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
     crate::app::msg_handlers::handle_keyboard_uart(&arr, state);
     let combined = crate::app::kbd_state::combine_kbd_states(state);
-    if state.is_active_output() {
-        hal.push_kbd_report(&combined as *const _ as *const u8);
-    } else {
-        hal.send_packet(
-            &combined as *const _ as *const u8,
-            PacketType::KeyboardReport as u8,
-            crate::app::structs::KBD_REPORT_LENGTH as i32,
-        );
-    }
-    let role = state.board_role as usize;
-    if role < state.last_activity.len() {
-        state.last_activity[role] = hal.now_us_64();
+    hal.route_kbd(state, &combined as *const _ as *const u8);
+    // UART keyboard data: always update activity (even when routed to peer)
+    if !state.is_active_output() {
+        hal.touch_activity(state);
     }
 }
 
@@ -62,10 +55,7 @@ pub unsafe extern "C" fn rust_handle_mouse_uart_full(dev: *mut core::ffi::c_void
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
     crate::app::msg_handlers::handle_mouse_uart(&arr, state);
-    let role = state.board_role as usize;
-    if role < state.last_activity.len() {
-        state.last_activity[role] = hal.now_us_64();
-    }
+    hal.touch_activity(state);
 }
 
 #[no_mangle]

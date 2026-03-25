@@ -1,5 +1,4 @@
 use core::ffi::c_void;
-use crate::hal::traits::*;
 use crate::app::mouse_logic;
 use crate::app::hid_parser::ReportVal;
 
@@ -91,19 +90,8 @@ pub unsafe extern "C" fn rust_process_mouse_report(
         report.mode,
     ];
 
-    if state.is_active_output() {
-        hal.push_mouse_report(report_bytes.as_ptr());
-        let role = state.board_role as usize;
-        if role < state.last_activity.len() {
-            state.last_activity[role] = hal.now_us_64();
-        }
-    } else {
-        hal.send_packet(
-            report_bytes.as_ptr(),
-            crate::app::constants::PacketType::MouseReport as u8,
-            8,
-        );
-    }
+    use crate::app::router::ReportRouter;
+    hal.route_mouse(state, report_bytes.as_ptr());
 
     // Screen switch handling
     let c_dir = match dir {
