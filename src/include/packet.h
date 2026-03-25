@@ -11,7 +11,7 @@
 #pragma once
 
 #include <stdint.h>
-#include "protocol.h"
+#include "api_config.h"
 
 
 /*==============================================================================

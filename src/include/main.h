@@ -29,15 +29,16 @@
 #include "tusb.h"
 #include "usb_descriptors.h"
 #include "user_config.h"
-#include "protocol.h"
+#include "api_config.h"
 
 #include "dma.h"
 
 #include "firmware.h"
 #include "flash.h"
-#include "handlers.h"
-#include "keyboard.h"
-#include "mouse.h"
+/* UART packet handlers + output control (from uart.c) */
+void set_active_output(device_t *, uint8_t);
+#include "hid_input.h"
+#include "hid.h"
 #include "packet.h"
 #include "pinout.h"
 #include "screen.h"
