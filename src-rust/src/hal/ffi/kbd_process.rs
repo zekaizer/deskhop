@@ -4,6 +4,7 @@ use crate::app::structs::KBD_REPORT_LENGTH;
 
 /// Full keyboard report processing pipeline.
 /// Called directly from TinyUSB callback (process_report_f signature).
+#[cfg(not(test))]
 #[export_name = "process_keyboard_report"]
 pub unsafe extern "C" fn rust_process_keyboard_report(
     raw_report: *mut u8,
