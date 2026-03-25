@@ -108,6 +108,7 @@ void hal_reset_usb_boot(void) {
  * TinyUSB state queries
  * ==================================================== */
 
+/* TinyUSB wrappers — TinyUSB functions are inline/macro, must stay in C */
 bool hal_tud_ready(void) { return tud_ready(); }
 bool hal_tud_suspended(void) { return tud_suspended(); }
 void hal_tud_remote_wakeup(void) { tud_remote_wakeup(); }

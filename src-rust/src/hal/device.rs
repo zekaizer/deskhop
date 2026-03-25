@@ -38,7 +38,7 @@ extern "C" {
     pub fn reboot();
     pub fn hal_reset_usb_boot();
 
-    // ---- TinyUSB ----
+    // ---- TinyUSB (via hal_shim.c — TinyUSB functions are inline/macro) ----
     pub fn hal_tud_ready() -> bool;
     pub fn hal_tud_suspended() -> bool;
     pub fn hal_tud_remote_wakeup();
