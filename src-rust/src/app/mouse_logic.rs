@@ -43,15 +43,18 @@ pub fn update_mouse_position(
 ) -> (i16, i16, SwitchDirection) {
     let zoom_shift: u32 = if mouse_zoom { 2 } else { 0 }; // MOUSE_ZOOM_SCALING_FACTOR
 
-    let accel = mouse::calculate_mouse_acceleration_factor(
+    let accel_fp = mouse::calculate_mouse_acceleration_factor_fp(
         values.move_x,
         values.move_y,
         enable_acceleration,
     );
 
-    // WORKAROUND(c-compat): C uses round() from libm. We use as i32 truncation.
-    let offset_x = (values.move_x as f32 * accel * ((speed_x >> zoom_shift) as f32)) as i32;
-    let offset_y = (values.move_y as f32 * accel * ((speed_y >> zoom_shift) as f32)) as i32;
+    // Fixed-point multiplication: (move * accel_fp * speed) >> 8
+    // accel_fp is ×256, so >>8 normalizes back
+    let sx = speed_x >> zoom_shift;
+    let sy = speed_y >> zoom_shift;
+    let offset_x = ((values.move_x as i64 * accel_fp as i64 * sx as i64) >> 8) as i32;
+    let offset_y = ((values.move_y as i64 * accel_fp as i64 * sy as i64) >> 8) as i32;
 
     let switch = mouse::is_screen_switch_needed(pointer_x as i32, offset_x, jump_threshold);
 

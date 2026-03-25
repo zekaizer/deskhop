@@ -368,7 +368,8 @@ pub fn parse_descriptor(report: &[u8]) -> (ParserState, alloc_free::ParseResults
 pub mod alloc_free {
     use super::{ParsedInput, ReportVal};
 
-    const MAX_INPUTS: usize = 32;
+    // Most HID descriptors have 3-8 INPUT items. 16 provides ample margin.
+    const MAX_INPUTS: usize = 16;
 
     pub struct ParseResults {
         inputs: [Option<ParsedInputCompact>; MAX_INPUTS],

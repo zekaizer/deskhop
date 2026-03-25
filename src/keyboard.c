@@ -22,3 +22,11 @@ void process_consumer_report(uint8_t *r, int l, uint8_t i, hid_interface_t *f) {
 void process_system_report(uint8_t *r, int l, uint8_t i, hid_interface_t *f) {
     rust_process_system_report(r, l, i, (void *)f, (void *)&global_state);
 }
+
+/* Used by hid_report.c for handle_keyboard_descriptor_values/handle_consumer_control_values */
+keyboard_t *get_keyboard(hid_interface_t *i, uint8_t rid) {
+    if (i->num_keyboards == 1 || !i->uses_report_id) return &i->keyboards[PRIMARY_KEYBOARD];
+    for (int n = 0; n < i->num_keyboards && n < MAX_KEYBOARDS; n++)
+        if (i->keyboards[n].report_id == rid) return &i->keyboards[n];
+    return &i->keyboards[PRIMARY_KEYBOARD];
+}

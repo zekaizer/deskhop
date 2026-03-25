@@ -173,12 +173,12 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// Test mouse acceleration factor is monotonically increasing
+    /// Test mouse acceleration factor is monotonically increasing (fixed-point ×256)
     #[test]
     fn test_acceleration_monotonic() {
-        let mut prev = 1.0f32;
+        let mut prev = 256i32; // 1.0 in fixed-point
         for speed in [5, 15, 30, 45, 60, 70] {
-            let factor = mouse::calculate_mouse_acceleration_factor(speed, 0, true);
+            let factor = mouse::calculate_mouse_acceleration_factor_fp(speed, 0, true);
             assert!(factor >= prev, "Factor should increase: {} < {} at speed {}", factor, prev, speed);
             prev = factor;
         }
@@ -346,28 +346,28 @@ mod tests {
         assert_eq!(hid_report::get_report_value(&report, 0, 16), -32513); // 0x80FF sign-extended
     }
 
-    /// Test mouse acceleration at exact curve points
+    /// Test mouse acceleration at exact curve points (fixed-point ×256)
     #[test]
     fn test_acceleration_curve_points() {
-        // At 0 movement
-        assert_eq!(mouse::calculate_mouse_acceleration_factor(0, 0, true), 1.0);
-        // At very small movement (below first point)
-        let f = mouse::calculate_mouse_acceleration_factor(1, 0, true);
-        assert!((f - 1.0).abs() < 0.1);
-        // Very large movement (above last point)
-        let f = mouse::calculate_mouse_acceleration_factor(100, 0, true);
-        assert!((f - 4.0).abs() < 0.1);
+        // At 0 movement → 256 (1.0)
+        assert_eq!(mouse::calculate_mouse_acceleration_factor_fp(0, 0, true), 256);
+        // At very small movement (below first point) → 256 (1.0)
+        let f = mouse::calculate_mouse_acceleration_factor_fp(1, 0, true);
+        assert_eq!(f, 256);
+        // Very large movement (above last point) → 1024 (4.0)
+        let f = mouse::calculate_mouse_acceleration_factor_fp(100, 0, true);
+        assert_eq!(f, 1024);
     }
 
     /// Test mouse Y scaling symmetry
     #[test]
     fn test_y_scale_symmetry() {
         // Same borders → identity
-        let y = mouse::scale_y_coordinate(16383, (0, 32767), (0, 32767));
+        let y = mouse::scale_y_coordinate(16383, (0, 0), (0, 0));
         assert_eq!(y, 16383);
 
         // Different borders → value changes
-        let y2 = mouse::scale_y_coordinate(16383, (0, 32767), (8000, 24000));
+        let y2 = mouse::scale_y_coordinate(16383, (0, 0), (8000, 0));
         assert_ne!(y2, 16383);
         assert!(y2 > 8000 && y2 < 24000);
     }
