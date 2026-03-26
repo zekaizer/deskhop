@@ -30,8 +30,8 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
     itf: u8,
     iface: *mut c_void,
 ) {
-    if raw_report.is_null() || iface.is_null() { return; }
-    if length < KBD_REPORT_LENGTH as i32 { return; }
+    if raw_report.is_null() || iface.is_null() { crate::traceln!("kbd: null ptr"); return; }
+    if length < KBD_REPORT_LENGTH as i32 { crate::traceln!("kbd: short report"); return; }
 
     let state = crate::domain::structs::get_global_device();
     let dev = state as *mut _ as *mut c_void;
@@ -69,7 +69,7 @@ pub unsafe extern "C" fn rust_process_consumer_report(
     _itf: u8,
     iface: *mut c_void,
 ) {
-    if raw_report.is_null() || iface.is_null() || length < 2 { return; }
+    if raw_report.is_null() || iface.is_null() || length < 2 { crate::traceln!("cc: null ptr"); return; }
     let ifc = iface_from_ptr(iface);
 
     let raw = core::slice::from_raw_parts(raw_report, length as usize);
@@ -92,7 +92,7 @@ pub unsafe extern "C" fn rust_process_system_report(
     _itf: u8,
     _iface: *mut c_void,
 ) {
-    if raw_report.is_null() || length < 2 { return; }
+    if raw_report.is_null() || length < 2 { crate::traceln!("sys: null ptr"); return; }
 
     let report = [*raw_report.add(1), 0];
 
@@ -114,7 +114,7 @@ pub unsafe extern "C" fn rust_process_mouse_report(
     _itf: u8,
     iface_ptr: *mut c_void,
 ) {
-    if raw_report.is_null() || iface_ptr.is_null() { return; }
+    if raw_report.is_null() || iface_ptr.is_null() { crate::traceln!("mouse: null ptr"); return; }
 
     let state = crate::domain::structs::get_global_device();
     let dev = state as *mut _ as *mut c_void;
@@ -177,7 +177,7 @@ unsafe fn extract_mouse_values(
 /// Replaces the entire process_packet() switch in uart.c.
 #[export_name = "process_packet"]
 pub unsafe extern "C" fn rust_process_uart_packet(packet_ptr: *const u8, dev: *mut c_void) {
-    if packet_ptr.is_null() { return; }
+    if packet_ptr.is_null() { crate::traceln!("uart: null pkt"); return; }
     let hal = hal_from(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
 
@@ -211,7 +211,7 @@ pub unsafe fn execute_hotkey_action(dev: *mut c_void, action: HotkeyAction) {
 
 #[export_name = "get_report_value"]
 pub unsafe extern "C" fn rust_get_report_value(report: *const u8, len: i32, val: *const u8) -> i32 {
-    if report.is_null() || val.is_null() || len <= 0 { return 0; }
+    if report.is_null() || val.is_null() || len <= 0 { crate::traceln!("grv: bad input"); return 0; }
     let slice = core::slice::from_raw_parts(report, len as usize);
     let rv = core::ptr::read_unaligned(val as *const ReportVal);
     crate::domain::hid_report::get_report_value(slice, rv.offset, rv.size)
@@ -231,6 +231,7 @@ pub unsafe extern "C" fn rust_parse_report_descriptor(
     desc_len: i32,
 ) {
     if iface_ptr.is_null() || report.is_null() || desc_len <= 0 {
+        crate::traceln!("hid: null desc");
         return;
     }
 
@@ -266,6 +267,7 @@ pub unsafe extern "C" fn rust_extract_kbd_data(
     out_report: *mut u8,
 ) -> i32 {
     if raw_report.is_null() || iface_ptr.is_null() || out_report.is_null() || len < 8 {
+        crate::traceln!("ekd: bad input");
         return 0;
     }
 
@@ -288,7 +290,7 @@ pub unsafe extern "C" fn rust_extract_kbd_data(
 /// then calls HAL to register the report handler if needed.
 #[export_name = "extract_data"]
 pub unsafe extern "C" fn rust_extract_data(iface_ptr: *mut c_void, val_ptr: *const u8) {
-    if iface_ptr.is_null() || val_ptr.is_null() { return; }
+    if iface_ptr.is_null() || val_ptr.is_null() { crate::traceln!("ed: null ptr"); return; }
 
     let val = core::ptr::read_unaligned(val_ptr as *const ReportVal);
     let rid = val.report_id;
