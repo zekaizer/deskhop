@@ -80,8 +80,10 @@ pub unsafe extern "C" fn rust_process_consumer_report(
         raw, ifc.consumer.is_variable, &kbd.cc_array,
     );
 
-    let dev = crate::domain::structs::get_global_device() as *mut _ as *mut c_void;
-    rust_send_consumer_control(dev, new_report.as_ptr());
+    let state = crate::domain::structs::get_global_device();
+    let dev = state as *mut _ as *mut c_void;
+    let hal = crate::hal::pico::PicoHal::new(dev);
+    hal.route_consumer(state, &new_report);
 }
 
 #[export_name = "process_system_report"]
@@ -95,8 +97,10 @@ pub unsafe extern "C" fn rust_process_system_report(
 
     let report = [*raw_report.add(1), 0];
 
-    let dev = crate::domain::structs::get_global_device() as *mut _ as *mut c_void;
-    rust_send_system_control(dev, report.as_ptr());
+    let state = crate::domain::structs::get_global_device();
+    let dev = state as *mut _ as *mut c_void;
+    let hal = crate::hal::pico::PicoHal::new(dev);
+    hal.route_system(state, &report);
 }
 
 // ============================================================
@@ -236,70 +240,6 @@ pub unsafe fn execute_hotkey_action(dev: *mut c_void, action: HotkeyAction) {
     let hal = hal_from(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
     crate::service::hotkey_dispatch::execute_action(state, &hal, action);
-}
-
-// ============================================================
-// Screen switch (from screen_switch.rs)
-// ============================================================
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_switch_to_another_pc(
-    dev: *mut c_void, output_number: u32, output_to: i32, direction: i32,
-) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::domain::structs::device_from_ptr(dev);
-    crate::service::frontend::mouse_pipeline::switch_to_peer(
-        state, &hal, output_number, output_to, direction,
-    );
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_switch_virtual_desktop_macos(dev: *mut c_void, direction: i32) {
-    // Kept for C export compatibility — delegates to do_screen_switch path
-    rust_do_screen_switch(dev, direction);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_switch_virtual_desktop(
-    dev: *mut c_void, os: u8, new_index: i32, direction: i32,
-) {
-    // Kept for C export compatibility
-    let _ = (os, new_index); // handled inside do_screen_switch path
-    rust_do_screen_switch(dev, direction);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_do_screen_switch(dev: *mut c_void, direction: i32) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::domain::structs::device_from_ptr(dev);
-    let dir = match direction {
-        1 => mouse_logic::SwitchDirection::Left,
-        2 => mouse_logic::SwitchDirection::Right,
-        _ => return,
-    };
-    crate::service::frontend::mouse_pipeline::do_screen_switch(state, &hal, dir);
-}
-
-// ============================================================
-// Consumer/system control routing (from state.rs)
-// ============================================================
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_send_consumer_control(dev: *mut c_void, raw_report: *const u8) {
-    if raw_report.is_null() { return; }
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::domain::structs::device_from_ptr(dev);
-    let slice = core::slice::from_raw_parts(raw_report, 4);
-    hal.route_consumer(state, slice);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_send_system_control(dev: *mut c_void, raw_report: *const u8) {
-    if raw_report.is_null() { return; }
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::domain::structs::device_from_ptr(dev);
-    let slice = core::slice::from_raw_parts(raw_report, 2);
-    hal.route_system(state, slice);
 }
 
 // ============================================================
