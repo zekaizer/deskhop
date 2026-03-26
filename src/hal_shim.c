@@ -156,11 +156,16 @@ uint32_t hal_dma_rx_remaining(device_t *dev) {
 }
 
 bool hal_is_start_of_packet(device_t *dev) {
-    return is_start_of_packet(dev);
+    return uart_rxbuf[dev->dma_ptr] == START1
+        && uart_rxbuf[NEXT_RING_IDX(dev->dma_ptr)] == START2;
 }
 
 void hal_fetch_packet(device_t *dev) {
-    fetch_packet(dev);
+    uint8_t *dst = (uint8_t *)&dev->in_packet;
+    for (int i = 0; i < RAW_PACKET_LENGTH; i++) {
+        if (i >= START_LENGTH) dst[i - START_LENGTH] = uart_rxbuf[dev->dma_ptr];
+        dev->dma_ptr = NEXT_RING_IDX(dev->dma_ptr);
+    }
 }
 
 /* ==================================================== *

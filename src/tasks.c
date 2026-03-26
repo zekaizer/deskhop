@@ -30,18 +30,7 @@ void firmware_upgrade_task(device_t *s) {
     request_byte(s, s->fw.address);
 }
 
-/* DMA buffer operations + packet receiver */
-bool is_start_of_packet(device_t *s) {
-    return uart_rxbuf[s->dma_ptr] == START1 && uart_rxbuf[NEXT_RING_IDX(s->dma_ptr)] == START2;
-}
-
-void fetch_packet(device_t *state) {
-    uint8_t *dst = (uint8_t *)&state->in_packet;
-    for (int i = 0; i < RAW_PACKET_LENGTH; i++) {
-        if (i >= START_LENGTH) dst[i - START_LENGTH] = uart_rxbuf[state->dma_ptr];
-        state->dma_ptr = NEXT_RING_IDX(state->dma_ptr);
-    }
-}
+/* is_start_of_packet, fetch_packet — inlined into hal_shim.c */
 
 void request_byte(device_t *state, uint32_t address) {
     uart_packet_t p = { .data32[0] = address, .type = REQUEST_BYTE_MSG };
