@@ -34,58 +34,56 @@ unsafe fn hal_from(dev: *mut c_void) -> crate::hal::pico::PicoHal {
 // ============================================================
 
 /// Full keyboard report processing pipeline.
-/// Called directly from TinyUSB callback (process_report_f signature).
-
 #[export_name = "process_keyboard_report"]
 pub unsafe extern "C" fn rust_process_keyboard_report(
     raw_report: *mut u8,
     length: i32,
     itf: u8,
-    iface: *mut c_void,  // hid_interface_t*
+    iface: *mut c_void,
 ) {
     if raw_report.is_null() || iface.is_null() { return; }
+    if length < KBD_REPORT_LENGTH as i32 { return; }
 
     let state = crate::domain::structs::get_global_device();
     let dev = state as *mut _ as *mut c_void;
     let hal = crate::hal::pico::PicoHal::new(dev);
 
-    if length < KBD_REPORT_LENGTH as i32 {
-        return;
-    }
-
-    if state.reboot_requested {
-        return;
-    }
-
-    // Extract keyboard data -- call Rust extract directly (no C roundtrip)
+    // Extract keyboard data (unsafe pointer work stays in ffi)
     let mut new_report = [0u8; 8];
     rust_extract_kbd_data(raw_report, length, itf, iface, new_report.as_mut_ptr());
 
-    // Update keyboard state for this device
-    let kbd = &*(new_report.as_ptr() as *const crate::domain::structs::HidKeyboardReport);
-    crate::domain::kbd_state::update_kbd_state(state, kbd, itf);
-
-    // Check hotkeys -- fully in Rust, no C roundtrip
-    let report_for_hotkey = crate::domain::keyboard::KeyboardReport {
-        modifier: new_report[0],
-        reserved: new_report[1],
-        keycode: [new_report[2], new_report[3], new_report[4],
-                  new_report[5], new_report[6], new_report[7]],
-    };
-    if let Some(m) = crate::domain::keyboard::check_all_hotkeys(&report_for_hotkey) {
-        // Execute the hotkey action
-        execute_hotkey_action(dev, m.action);
-        if m.acknowledge {
-            hal.blink();
-        }
-        if !m.pass_to_os {
+    // Delegate to service
+    use crate::service::frontend::kbd_pipeline::{self, KbdAction};
+    match kbd_pipeline::process_report(state, &new_report, itf) {
+        KbdAction::HotkeyConsumed { acknowledge } => {
+            // Extract hotkey action and execute
+            let report_for_hotkey = crate::domain::keyboard::KeyboardReport {
+                modifier: new_report[0], reserved: new_report[1],
+                keycode: [new_report[2], new_report[3], new_report[4],
+                          new_report[5], new_report[6], new_report[7]],
+            };
+            if let Some(m) = crate::domain::keyboard::check_all_hotkeys(&report_for_hotkey) {
+                execute_hotkey_action(dev, m.action);
+            }
+            if acknowledge { hal.blink(); }
             return;
         }
+        KbdAction::HotkeyPassthrough { acknowledge } => {
+            let report_for_hotkey = crate::domain::keyboard::KeyboardReport {
+                modifier: new_report[0], reserved: new_report[1],
+                keycode: [new_report[2], new_report[3], new_report[4],
+                          new_report[5], new_report[6], new_report[7]],
+            };
+            if let Some(m) = crate::domain::keyboard::check_all_hotkeys(&report_for_hotkey) {
+                execute_hotkey_action(dev, m.action);
+            }
+            if acknowledge { hal.blink(); }
+            // Fall through to route
+        }
+        KbdAction::Route => {}
     }
 
-    // Send key via combined report -- route based on active output
-    let combined = crate::domain::kbd_state::combine_kbd_states(state);
-    hal.route_kbd(state, &combined as *const _ as *const u8);
+    kbd_pipeline::route_combined(state, &hal);
 }
 
 /// Rust implementation of process_consumer_report
