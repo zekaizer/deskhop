@@ -2,7 +2,6 @@
 
 use core::ffi::c_void;
 use crate::domain::constants::PacketType;
-use crate::domain::actions::{get_border_position, border_to_bytes, BorderUpdate};
 use crate::domain::hid_routing;
 use crate::domain::keyboard::HotkeyAction;
 use crate::domain::mouse_logic;
@@ -300,19 +299,7 @@ pub unsafe extern "C" fn rust_fw_upgrade_b(dev: *mut c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn rust_wipe_config_hotkey(dev: *mut c_void) {
     let hal = hal_from(dev);
-    hal.wipe();
-    hal.load();
-    hal.send_value(1, PacketType::WipeConfig as u8);
-}
-
-fn screensaver_dispatch(hal: &impl PeerLink, state: &mut crate::domain::structs::Device, mode: u8) {
-    use crate::domain::hotkey_handlers::ScreensaverAction;
-    match crate::domain::hotkey_handlers::screensaver_set(state, mode) {
-        ScreensaverAction::UpdatedLocally => {}
-        ScreensaverAction::SendToRemote(m) => {
-            hal.send_value(m, PacketType::Screensaver as u8);
-        }
-    }
+    crate::service::hotkey_dispatch::wipe_and_notify(&hal);
 }
 
 #[no_mangle]
@@ -320,7 +307,7 @@ pub unsafe extern "C" fn rust_screensaver_pong_enable(dev: *mut c_void) {
     let hal = hal_from(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
     if let Some(mode) = crate::domain::hotkey_handlers::screensaver_pong_mode(state) {
-        screensaver_dispatch(&hal, state, mode);
+        crate::service::hotkey_dispatch::dispatch_screensaver(state, &hal, mode);
     }
 }
 
@@ -329,7 +316,7 @@ pub unsafe extern "C" fn rust_screensaver_jitter_enable(dev: *mut c_void) {
     let hal = hal_from(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
     if let Some(mode) = crate::domain::hotkey_handlers::screensaver_jitter_mode(state) {
-        screensaver_dispatch(&hal, state, mode);
+        crate::service::hotkey_dispatch::dispatch_screensaver(state, &hal, mode);
     }
 }
 
@@ -337,56 +324,28 @@ pub unsafe extern "C" fn rust_screensaver_jitter_enable(dev: *mut c_void) {
 pub unsafe extern "C" fn rust_screensaver_disable(dev: *mut c_void) {
     let hal = hal_from(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    screensaver_dispatch(&hal, state, 0);
+    crate::service::hotkey_dispatch::dispatch_screensaver(state, &hal, 0);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_config_enable(dev: *mut c_void) {
     let hal = hal_from(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    // Order matters: set scratch FIRST, release keys, THEN request reboot.
-    if !state.config_mode_active {
-        hal.set_boot_flag();
-    }
-    crate::service::backend::host_link::release_all_keys(state, &hal);
-    state.reboot_requested = true;
+    crate::service::hotkey_dispatch::prepare_config_mode(state, &hal);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screen_border_hotkey(dev: *mut c_void) {
     let hal = hal_from(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    let idx = state.active_output as usize;
-    if idx >= state.config.output.len() { return; }
-    if state.is_active_output() {
-        match get_border_position(state.pointer_y) {
-            BorderUpdate::Top(v) => state.config.output[idx].border.top = v,
-            BorderUpdate::Bottom(v) => state.config.output[idx].border.bottom = v,
-        }
-        hal.save();
-    }
-    let b = &state.config.output[idx].border;
-    let bytes = border_to_bytes(b.top, b.bottom);
-    hal.send_packet(&bytes, PacketType::SyncBorders as u8);
+    crate::service::hotkey_dispatch::update_screen_border(state, &hal);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screenlock_handler(dev: *mut c_void) {
     let hal = hal_from(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    for out in 0..2u8 {
-        if let Some((modifier, key)) = crate::domain::actions::screenlock_keys(state.config.output[out as usize].os) {
-            let mut report = [0u8; 8];
-            report[0] = modifier; report[2] = key;
-            if state.board_role == out {
-                hal.push_kbd_report(&report);
-                crate::service::backend::host_link::release_all_keys(state, &hal);
-            } else {
-                hal.send_packet(&report, PacketType::KeyboardReport as u8);
-                hal.send_packet(&[0u8; 8], PacketType::KeyboardReport as u8);
-            }
-        }
-    }
+    crate::service::hotkey_dispatch::execute_screenlock(state, &hal);
 }
 
 // ============================================================

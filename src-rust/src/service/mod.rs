@@ -5,6 +5,7 @@ pub mod backend;
 pub mod config_api;
 pub mod frontend;
 pub mod fw_upgrade;
+pub mod hotkey_dispatch;
 pub mod msg_bridge;
 pub mod router;
 pub mod tasks;
