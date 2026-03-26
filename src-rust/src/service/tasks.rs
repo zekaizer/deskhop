@@ -2,12 +2,12 @@
 // All functions are generic over HAL traits, enabling MockHal in tests.
 
 use crate::domain::constants::PacketType;
-#[cfg(test)]
 use crate::domain::constants::RAW_PACKET_LENGTH;
 use crate::domain::packet;
 use crate::domain::screensaver::{self, ScreensaverConfig};
 use crate::domain::structs::Device;
 use crate::hal::traits::*;
+use crate::service::router::ReportRouter;
 
 const CORE1_HANG_TIMEOUT_US: u64 = 500_000;
 
@@ -71,6 +71,35 @@ pub fn process_hid_queue(
 
     if hal.send_hid_report(instance, report_id, data) {
         hal.pop_hid_report(&mut buf);
+    }
+}
+
+const DMA_RX_BUFFER_SIZE: u32 = 1024;
+
+/// Poll the DMA ring buffer for incoming UART packets.
+/// Scans for START1+START2 preamble, fetches packet, dispatches via Rust.
+pub fn packet_receive_tick(
+    state: &mut Device,
+    hal: &(impl DmaRx + ReportRouter + OutputControl + ConfigStore + PeerLink
+           + Watchdog + Indicator + PacketQueue + Timer),
+) {
+    let cp = hal.dma_rx_current_pos();
+    let mut d = packet::get_ptr_delta(cp, state.dma_ptr, DMA_RX_BUFFER_SIZE);
+
+    while d >= RAW_PACKET_LENGTH as u32 {
+        if hal.is_start_of_packet() {
+            hal.fetch_packet();
+            // Packet is now in state.in_packet — build Rust UartPacket
+            let pkt = packet::UartPacket {
+                ptype: state.in_packet.ptype,
+                data: state.in_packet.data,
+                checksum: state.in_packet.checksum,
+            };
+            crate::service::packet_dispatch::dispatch_packet(state, hal, &pkt);
+            return;
+        }
+        state.dma_ptr = (state.dma_ptr + 1) & 0x3FF;
+        d -= 1;
     }
 }
 

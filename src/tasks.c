@@ -51,11 +51,4 @@ void request_byte(device_t *state, uint32_t address) {
 
 void reboot(void) { *((volatile uint32_t*)(PPB_BASE + 0x0ED0C)) = 0x5FA0004; }
 
-void packet_receiver_task(device_t *s) {
-    uint32_t cp = (uint32_t)DMA_RX_BUFFER_SIZE - dma_channel_hw_addr(s->dma_rx_channel)->transfer_count;
-    uint32_t d = get_ptr_delta(cp, s);
-    while (d >= RAW_PACKET_LENGTH) {
-        if (is_start_of_packet(s)) { fetch_packet(s); process_packet(&s->in_packet, s); return; }
-        s->dma_ptr = NEXT_RING_IDX(s->dma_ptr); d--;
-    }
-}
+/* packet_receiver_task — now in Rust (service::tasks::packet_receive_tick) */

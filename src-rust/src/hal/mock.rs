@@ -231,6 +231,14 @@ impl Indicator for MockHal {
     }
 }
 
+// ---- DmaRx ----
+
+impl DmaRx for MockHal {
+    fn dma_rx_current_pos(&self) -> u32 { 0 }
+    fn is_start_of_packet(&self) -> bool { false }
+    fn fetch_packet(&self) {}
+}
+
 // ---- Trace ----
 
 impl Trace for MockHal {

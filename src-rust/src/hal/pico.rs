@@ -285,6 +285,25 @@ impl Indicator for PicoHal {
     }
 }
 
+// ---- DmaRx ----
+
+impl DmaRx for PicoHal {
+    #[inline]
+    fn dma_rx_current_pos(&self) -> u32 {
+        unsafe { device::hal_dma_rx_remaining(self.dev) }
+    }
+
+    #[inline]
+    fn is_start_of_packet(&self) -> bool {
+        unsafe { device::hal_is_start_of_packet(self.dev) }
+    }
+
+    #[inline]
+    fn fetch_packet(&self) {
+        unsafe { device::hal_fetch_packet(self.dev) }
+    }
+}
+
 // ---- Trace ----
 
 impl Trace for PicoHal {

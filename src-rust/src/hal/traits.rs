@@ -127,6 +127,16 @@ pub trait Indicator {
     fn set_keyboard_leds(&self, leds: u8);
 }
 
+/// DMA receive channel — UART packet reception from ring buffer.
+pub trait DmaRx {
+    /// Current DMA write position in the ring buffer.
+    fn dma_rx_current_pos(&self) -> u32;
+    /// Check if the ring buffer at the current read position starts with START1+START2.
+    fn is_start_of_packet(&self) -> bool;
+    /// Copy one packet from the ring buffer into Device.in_packet, advancing dma_ptr.
+    fn fetch_packet(&self);
+}
+
 /// Debug/diagnostic output.
 pub trait Trace {
     fn blink_debug(&self, count: i32, delay_ms: i32);

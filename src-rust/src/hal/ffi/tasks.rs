@@ -34,6 +34,15 @@ pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
     crate::service::tasks::heartbeat_tick(state, &hal);
 }
 
+// --- Packet receiver task ---
+
+#[export_name = "packet_receiver_task"]
+pub unsafe extern "C" fn rust_packet_receiver_task(dev: *mut c_void) {
+    let hal = crate::hal::pico::PicoHal::new(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
+    crate::service::tasks::packet_receive_tick(state, &hal);
+}
+
 // --- HID output queue task ---
 
 #[export_name = "process_hid_queue_task"]
