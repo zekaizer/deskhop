@@ -126,7 +126,7 @@ pub fn should_activate(
     config: &ScreensaverConfig,
     inactivity_us: u64,
     is_active_output: bool,
-    tud_ready: bool,
+    usb_ready: bool,
     last_move_us: u32,
     current_time_us: u32,
 ) -> bool {
@@ -153,7 +153,7 @@ pub fn should_activate(
     }
 
     // Not connected
-    if !tud_ready {
+    if !usb_ready {
         return false;
     }
 

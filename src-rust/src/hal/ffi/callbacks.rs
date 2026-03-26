@@ -46,31 +46,17 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
     // Delegate to service
     use crate::service::frontend::kbd_pipeline::{self, KbdAction};
     match kbd_pipeline::process_report(state, &new_report, itf) {
-        KbdAction::HotkeyConsumed { acknowledge } => {
-            // Extract hotkey action and execute
-            let report_for_hotkey = crate::domain::structs::HidKeyboardReport {
-                modifier: new_report[0], reserved: new_report[1],
-                keycode: [new_report[2], new_report[3], new_report[4],
-                          new_report[5], new_report[6], new_report[7]],
-            };
-            if let Some(m) = crate::domain::keyboard::check_all_hotkeys(&report_for_hotkey) {
-                execute_hotkey_action(dev, m.action);
-            }
+        KbdAction::HotkeyConsumed { action, acknowledge } => {
+            execute_hotkey_action(dev, action);
             if acknowledge { hal.blink(); }
             return;
         }
-        KbdAction::HotkeyPassthrough { acknowledge } => {
-            let report_for_hotkey = crate::domain::structs::HidKeyboardReport {
-                modifier: new_report[0], reserved: new_report[1],
-                keycode: [new_report[2], new_report[3], new_report[4],
-                          new_report[5], new_report[6], new_report[7]],
-            };
-            if let Some(m) = crate::domain::keyboard::check_all_hotkeys(&report_for_hotkey) {
-                execute_hotkey_action(dev, m.action);
-            }
+        KbdAction::HotkeyPassthrough { action, acknowledge } => {
+            execute_hotkey_action(dev, action);
             if acknowledge { hal.blink(); }
             // Fall through to route
         }
+        KbdAction::Dropped => return,
         KbdAction::Route => {}
     }
 

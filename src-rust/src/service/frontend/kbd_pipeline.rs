@@ -1,6 +1,6 @@
 // Keyboard input pipeline — hotkey detection, state combination, and routing.
 
-use crate::domain::keyboard;
+use crate::domain::keyboard::{self, HotkeyAction};
 use crate::domain::kbd_state;
 use crate::domain::structs::{Device, HidKeyboardReport};
 use crate::service::router::ReportRouter;
@@ -8,9 +8,11 @@ use crate::service::router::ReportRouter;
 /// Result of processing a keyboard report.
 pub enum KbdAction {
     /// Hotkey consumed the report — do not pass to OS.
-    HotkeyConsumed { acknowledge: bool },
+    HotkeyConsumed { action: HotkeyAction, acknowledge: bool },
     /// Hotkey matched but should still pass to OS.
-    HotkeyPassthrough { acknowledge: bool },
+    HotkeyPassthrough { action: HotkeyAction, acknowledge: bool },
+    /// Report silently dropped (e.g. reboot pending).
+    Dropped,
     /// No hotkey — route the combined report normally.
     Route,
 }
@@ -23,7 +25,7 @@ pub fn process_report(
     itf: u8,
 ) -> KbdAction {
     if state.reboot_requested {
-        return KbdAction::HotkeyConsumed { acknowledge: false };
+        return KbdAction::Dropped;
     }
 
     // Update keyboard state for this device
@@ -38,9 +40,9 @@ pub fn process_report(
     // Check hotkeys
     if let Some(m) = keyboard::check_all_hotkeys(&kbd) {
         if m.pass_to_os {
-            return KbdAction::HotkeyPassthrough { acknowledge: m.acknowledge };
+            return KbdAction::HotkeyPassthrough { action: m.action, acknowledge: m.acknowledge };
         } else {
-            return KbdAction::HotkeyConsumed { acknowledge: m.acknowledge };
+            return KbdAction::HotkeyConsumed { action: m.action, acknowledge: m.acknowledge };
         }
     }
 
@@ -77,8 +79,8 @@ mod tests {
         state.reboot_requested = true;
         let report = [0u8; 8];
         match process_report(&mut state, &report, 0) {
-            KbdAction::HotkeyConsumed { acknowledge: false } => {}
-            _ => panic!("Expected HotkeyConsumed when rebooting"),
+            KbdAction::Dropped => {}
+            _ => panic!("Expected Dropped when rebooting"),
         }
     }
 

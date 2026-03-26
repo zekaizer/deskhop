@@ -11,7 +11,7 @@ pub fn send_pending_kbd(
     state: &Device,
     hal: &(impl ReportQueue + UsbDevice),
 ) {
-    if !state.tud_connected { return; }
+    if !state.usb_connected { return; }
     let mut report = [0u8; 8];
     if !hal.peek_kbd_report(report.as_mut_ptr()) { return; }
     if hal.is_suspended() { hal.remote_wakeup(); }
@@ -26,7 +26,7 @@ pub fn send_pending_mouse(
     state: &Device,
     hal: &(impl ReportQueue + UsbDevice),
 ) {
-    if !state.tud_connected { return; }
+    if !state.usb_connected { return; }
     let mut r = [0u8; 8];
     if !hal.peek_mouse_report(r.as_mut_ptr()) { return; }
     if hal.is_suspended() { hal.remote_wakeup(); }
@@ -60,7 +60,7 @@ mod tests {
         let hal = MockHal::new();
         hal.kbd_queue_in.borrow_mut().push([0x01, 0, 0x04, 0, 0, 0, 0, 0]);
         let mut state = Device::zeroed();
-        state.tud_connected = false;
+        state.usb_connected = false;
         send_pending_kbd(&state, &hal);
         assert_eq!(hal.kbd_queue_in.borrow().len(), 1);
     }
@@ -69,7 +69,7 @@ mod tests {
     fn send_kbd_empty_queue() {
         let hal = MockHal::new();
         let mut state = Device::zeroed();
-        state.tud_connected = true;
+        state.usb_connected = true;
         send_pending_kbd(&state, &hal);
     }
 
@@ -78,7 +78,7 @@ mod tests {
         let hal = MockHal::new();
         hal.kbd_queue_in.borrow_mut().push([0x01, 0, 0x04, 0, 0, 0, 0, 0]);
         let mut state = Device::zeroed();
-        state.tud_connected = true;
+        state.usb_connected = true;
         send_pending_kbd(&state, &hal);
         assert!(hal.kbd_queue_in.borrow().is_empty());
     }
@@ -88,7 +88,7 @@ mod tests {
         let hal = MockHal::new();
         hal.mouse_queue_in.borrow_mut().push([1, 10, 0, 20, 0, 0, 0, 0]);
         let mut state = Device::zeroed();
-        state.tud_connected = false;
+        state.usb_connected = false;
         send_pending_mouse(&state, &hal);
         assert_eq!(hal.mouse_queue_in.borrow().len(), 1);
     }

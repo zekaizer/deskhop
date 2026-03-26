@@ -48,7 +48,7 @@ pub fn handle_output_select(
     output: u8,
 ) {
     state.active_output = output;
-    if state.tud_connected {
+    if state.usb_connected {
         crate::service::backend::host_link::release_all_keys(state, hal);
     }
     hal.sync_leds();
@@ -152,7 +152,7 @@ mod tests {
     fn output_select_switches_and_syncs_leds() {
         let hal = MockHal::new();
         let mut state = Device::zeroed();
-        state.tud_connected = true;
+        state.usb_connected = true;
 
         handle_output_select(&mut state, &hal, 1);
 

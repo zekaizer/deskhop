@@ -272,7 +272,7 @@ pub struct Device {
     pub page_buffer: [u8; FLASH_PAGE_SIZE],
 
     // Connection status
-    pub tud_connected: bool,
+    pub usb_connected: bool,
     pub keyboard_connected: bool,
     pub mouse_connected: bool,
 
@@ -350,7 +350,7 @@ pub unsafe fn get_global_device<'a>() -> &'a mut Device {
 #[no_mangle] pub static RUST_SIZEOF_KEYBOARD_DESC: u32 = core::mem::size_of::<KeyboardDescriptor>() as u32;
 #[no_mangle] pub static RUST_SIZEOF_MOUSE_DESC: u32 = core::mem::size_of::<MouseDescriptor>() as u32;
 #[no_mangle] pub static RUST_SIZEOF_REPORT_VAL: u32 = core::mem::size_of::<crate::domain::hid_parser::ReportVal>() as u32;
-#[no_mangle] pub static RUST_OFFSET_TUD_CONNECTED: u32 = core::mem::offset_of!(Device, tud_connected) as u32;
+#[no_mangle] pub static RUST_OFFSET_TUD_CONNECTED: u32 = core::mem::offset_of!(Device, usb_connected) as u32;
 #[no_mangle] pub static RUST_OFFSET_ACTIVE_OUTPUT: u32 = core::mem::offset_of!(Device, active_output) as u32;
 #[no_mangle] pub static RUST_OFFSET_CORE1_TIMESTAMP: u32 = core::mem::offset_of!(Device, core1_last_loop_pass) as u32;
 #[no_mangle] pub static RUST_OFFSET_REBOOT_REQUESTED: u32 = core::mem::offset_of!(Device, reboot_requested) as u32;
