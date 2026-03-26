@@ -44,15 +44,12 @@ pub fn find_field(api_idx: u8) -> Option<&'static FieldDef> {
     FIELDS.iter().find(|f| f.idx == api_idx)
 }
 
-/// Read a field from Device into output buffer.
-///
-/// # Safety
-/// `out` must point to a buffer large enough for the field's length.
-pub unsafe fn read_field(state: &Device, idx: u8, out: *mut u8) {
-    macro_rules! w8  { ($v:expr) => { *out = $v }; }
-    macro_rules! w16 { ($v:expr) => {{ let b = ($v).to_le_bytes(); *out = b[0]; *out.add(1) = b[1]; }}; }
-    macro_rules! w32 { ($v:expr) => {{ let b = ($v).to_le_bytes(); core::ptr::copy_nonoverlapping(b.as_ptr(), out, 4); }}; }
-    macro_rules! w64 { ($v:expr, $len:expr) => {{ let b = ($v).to_le_bytes(); core::ptr::copy_nonoverlapping(b.as_ptr(), out, $len); }}; }
+/// Read a field from Device into output slice.
+pub fn read_field(state: &Device, idx: u8, out: &mut [u8]) {
+    macro_rules! w8  { ($v:expr) => { out[0] = $v }; }
+    macro_rules! w16 { ($v:expr) => {{ let b = ($v).to_le_bytes(); out[..2].copy_from_slice(&b); }}; }
+    macro_rules! w32 { ($v:expr) => {{ let b = ($v).to_le_bytes(); out[..4].copy_from_slice(&b); }}; }
+    macro_rules! w64 { ($v:expr, $len:expr) => {{ let b = ($v).to_le_bytes(); out[..$len].copy_from_slice(&b[..$len]); }}; }
 
     match idx {
         0  => w8!(state.active_output),
@@ -105,16 +102,13 @@ pub unsafe fn read_field(state: &Device, idx: u8, out: *mut u8) {
     }
 }
 
-/// Write a field from input buffer into Device.
-///
-/// # Safety
-/// `data` must point to a buffer with at least the field's length bytes.
-pub unsafe fn write_field(state: &mut Device, idx: u8, data: *const u8) {
-    macro_rules! r8  { () => { *data }; }
-    macro_rules! r16 { () => {{ u16::from_le_bytes([*data, *data.add(1)]) }}; }
-    macro_rules! r32 { () => {{ u32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]) }}; }
+/// Write a field from input slice into Device.
+pub fn write_field(state: &mut Device, idx: u8, data: &[u8]) {
+    macro_rules! r8  { () => { data[0] }; }
+    macro_rules! r16 { () => {{ u16::from_le_bytes([data[0], data[1]]) }}; }
+    macro_rules! r32 { () => {{ u32::from_le_bytes([data[0], data[1], data[2], data[3]]) }}; }
     macro_rules! r64 { () => {{
-        let mut b = [0u8; 8]; core::ptr::copy_nonoverlapping(data, b.as_mut_ptr(), 7); u64::from_le_bytes(b)
+        let mut b = [0u8; 8]; b[..7].copy_from_slice(&data[..7]); u64::from_le_bytes(b)
     }}; }
 
     match idx {
@@ -160,15 +154,12 @@ pub unsafe fn write_field(state: &mut Device, idx: u8, data: *const u8) {
 }
 
 /// Handle a single API config message (GET or SET).
-///
-/// # Safety
-/// `data` must point to at least 8 bytes of valid data.
-pub unsafe fn handle_api_msg<H: Timer + PacketQueue>(
+pub fn handle_api_msg<H: Timer + PacketQueue>(
     state: &mut Device,
     hal: &H,
     ptype: u8,
     api_idx: u8,
-    data: *const u8,
+    data: &[u8],
 ) {
     let field = match find_field(api_idx) {
         Some(f) => f,
@@ -185,7 +176,7 @@ pub unsafe fn handle_api_msg<H: Timer + PacketQueue>(
         let mut response = [0u8; 10];
         response[0] = GET_VAL;
         response[1] = api_idx;
-        read_field(state, api_idx, response[2..].as_mut_ptr());
+        read_field(state, api_idx, &mut response[2..]);
         hal.push_config_packet(response.as_ptr());
     }
 
@@ -193,17 +184,131 @@ pub unsafe fn handle_api_msg<H: Timer + PacketQueue>(
 }
 
 /// Read all config fields and send GET responses for each.
-///
-/// # Safety
-/// Calls handle_api_msg internally with synthesized data pointers.
-pub unsafe fn handle_api_read_all<H: Timer + PacketQueue>(state: &mut Device, hal: &H) {
+pub fn handle_api_read_all<H: Timer + PacketQueue>(state: &mut Device, hal: &H) {
     for f in FIELDS.iter() {
         handle_api_msg(
             state,
             hal,
             constants::PacketType::GetVal as u8,
             f.idx,
-            [f.idx, 0, 0, 0, 0, 0, 0, 0].as_ptr(),
+            &[f.idx, 0, 0, 0, 0, 0, 0, 0],
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate alloc;
+    use super::*;
+    use crate::domain::structs::Device;
+    use crate::hal::mock::MockHal;
+
+    // Field idx 70 = config.version (u32, writable, len=4)
+    // Field idx 16 = config.output[0].os (u8, writable, len=1)
+    // Field idx 0  = active_output (u8, readonly, len=1)
+
+    #[test]
+    fn test_read_write_roundtrip() {
+        let mut dev = Device::zeroed();
+        let value: u32 = 0xDEAD_BEEF;
+        let data = value.to_le_bytes();
+
+        write_field(&mut dev, 70, &data);
+        assert_eq!(dev.config.version, 0xDEAD_BEEF);
+
+        let mut out = [0u8; 8];
+        read_field(&dev, 70, &mut out);
+        assert_eq!(&out[..4], &data);
+    }
+
+    #[test]
+    fn test_handle_api_msg_set_val() {
+        let mut dev = Device::zeroed();
+        let hal = MockHal::new();
+        let data = 42u32.to_le_bytes();
+        let mut buf = [0u8; 8];
+        buf[..4].copy_from_slice(&data);
+
+        handle_api_msg(
+            &mut dev, &hal,
+            constants::PacketType::SetVal as u8,
+            70, // config.version
+            &buf,
+        );
+
+        assert_eq!(dev.config.version, 42);
+    }
+
+    #[test]
+    fn test_handle_api_msg_get_val() {
+        let mut dev = Device::zeroed();
+        dev.config.version = 99;
+        let hal = MockHal::new();
+
+        handle_api_msg(
+            &mut dev, &hal,
+            constants::PacketType::GetVal as u8,
+            70,
+            &[0u8; 8],
+        );
+
+        let packets = hal.config_packets.borrow();
+        assert_eq!(packets.len(), 1);
+        // response[0] = GET_VAL, response[1] = 70, response[2..6] = 99 le
+        assert_eq!(packets[0][0], constants::PacketType::GetVal as u8);
+        assert_eq!(packets[0][1], 70);
+        let ver = u32::from_le_bytes([packets[0][2], packets[0][3], packets[0][4], packets[0][5]]);
+        assert_eq!(ver, 99);
+    }
+
+    #[test]
+    fn test_handle_api_msg_readonly_field() {
+        let mut dev = Device::zeroed();
+        dev.active_output = 0;
+        let hal = MockHal::new();
+
+        // Field idx 0 (active_output) is readonly
+        handle_api_msg(
+            &mut dev, &hal,
+            constants::PacketType::SetVal as u8,
+            0,
+            &[1, 0, 0, 0, 0, 0, 0, 0],
+        );
+
+        // Value must remain unchanged
+        assert_eq!(dev.active_output, 0);
+    }
+
+    #[test]
+    fn test_handle_api_msg_updates_timer() {
+        let mut dev = Device::zeroed();
+        let hal = MockHal::new();
+        hal.set_time(1_000_000);
+
+        handle_api_msg(
+            &mut dev, &hal,
+            constants::PacketType::GetVal as u8,
+            70,
+            &[0u8; 8],
+        );
+
+        assert_eq!(dev.config_mode_timer, 1_000_000 + 300_000_000);
+    }
+
+    #[test]
+    fn test_handle_api_read_all() {
+        let mut dev = Device::zeroed();
+        let hal = MockHal::new();
+
+        handle_api_read_all(&mut dev, &hal);
+
+        let packets = hal.config_packets.borrow();
+        assert_eq!(packets.len(), FIELDS.len());
+
+        // Each packet should have GET_VAL type and the corresponding field idx
+        for (i, field) in FIELDS.iter().enumerate() {
+            assert_eq!(packets[i][0], constants::PacketType::GetVal as u8);
+            assert_eq!(packets[i][1], field.idx);
+        }
     }
 }
