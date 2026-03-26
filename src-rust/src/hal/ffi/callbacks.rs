@@ -292,27 +292,6 @@ pub unsafe extern "C" fn rust_get_report_value(report: *const u8, len: i32, val:
     crate::domain::hid_report::get_report_value(slice, rv.offset, rv.size)
 }
 
-#[export_name = "extract_kbd_data"]
-pub unsafe extern "C" fn rust_extract_kbd_data_export(
-    raw_report: *mut u8, len: i32, itf: u8, iface: *mut c_void, out: *mut u8,
-) -> i32 {
-    rust_extract_kbd_data(raw_report, len, itf, iface, out)
-}
-
-#[export_name = "extract_data"]
-pub unsafe extern "C" fn rust_extract_data_export(
-    iface: *mut c_void, val: *const u8,
-) {
-    rust_extract_data(iface, val);
-}
-
-#[export_name = "parse_report_descriptor"]
-pub unsafe extern "C" fn rust_parse_report_descriptor_export(
-    iface: *mut c_void, report: *const u8, desc_len: i32,
-) {
-    rust_parse_report_descriptor(iface, report, desc_len);
-}
-
 // ============================================================
 // HID parser (from hid_parser_ffi.rs)
 // ============================================================
@@ -320,7 +299,7 @@ pub unsafe extern "C" fn rust_parse_report_descriptor_export(
 /// Replace C's parse_report_descriptor with Rust parser.
 /// Parses the HID descriptor, then calls extract_data for each
 /// parsed INPUT item to populate hid_interface_t.
-#[no_mangle]
+#[export_name = "parse_report_descriptor"]
 pub unsafe extern "C" fn rust_parse_report_descriptor(
     iface_ptr: *mut c_void,  // hid_interface_t*
     report: *const u8,
@@ -353,7 +332,7 @@ pub unsafe extern "C" fn rust_parse_report_descriptor(
 
 /// Full extract_kbd_data -- FFI entry point.
 /// Converts raw pointers to slices and delegates to domain::kbd_extract.
-#[no_mangle]
+#[export_name = "extract_kbd_data"]
 pub unsafe extern "C" fn rust_extract_kbd_data(
     raw_report: *mut u8,
     len: i32,
@@ -382,7 +361,7 @@ pub unsafe extern "C" fn rust_extract_kbd_data(
 /// Rust implementation of extract_data -- thin FFI wrapper.
 /// Delegates classification + population to domain::hid_classify::populate_interface_field,
 /// then calls HAL to register the report handler if needed.
-#[no_mangle]
+#[export_name = "extract_data"]
 pub unsafe extern "C" fn rust_extract_data(iface_ptr: *mut c_void, val_ptr: *const u8) {
     if iface_ptr.is_null() || val_ptr.is_null() { return; }
 
