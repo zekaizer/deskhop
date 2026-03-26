@@ -4,8 +4,65 @@
 use crate::domain::actions::{get_border_position, border_to_bytes, BorderUpdate};
 use crate::domain::constants::PacketType;
 use crate::domain::hotkey_handlers::{self, ScreensaverAction};
+use crate::domain::keyboard::HotkeyAction;
 use crate::domain::structs::Device;
 use crate::hal::traits::*;
+
+/// Execute a hotkey action. Central dispatch for all hotkey types.
+pub fn execute_action(
+    state: &mut Device,
+    hal: &(impl OutputControl + ReportQueue + PeerLink + ConfigStore + Watchdog + Indicator + Timer),
+    action: HotkeyAction,
+) {
+    match action {
+        HotkeyAction::OutputToggle => output_toggle(state, hal),
+        HotkeyAction::MouseZoomToggle => mouse_zoom_toggle(state, hal),
+        HotkeyAction::SwitchLockToggle => switch_lock_toggle(state, hal),
+        HotkeyAction::GamingModeToggle => gaming_mode_toggle(state, hal),
+        HotkeyAction::ScreenLock => execute_screenlock(state, hal),
+        HotkeyAction::ScreensaverPong => {
+            if let Some(mode) = hotkey_handlers::screensaver_pong_mode(state) {
+                dispatch_screensaver(state, hal, mode);
+            }
+        }
+        HotkeyAction::ScreensaverJitter => {
+            if let Some(mode) = hotkey_handlers::screensaver_jitter_mode(state) {
+                dispatch_screensaver(state, hal, mode);
+            }
+        }
+        HotkeyAction::ScreensaverDisable => dispatch_screensaver(state, hal, 0),
+        HotkeyAction::WipeConfig => wipe_and_notify(hal),
+        HotkeyAction::ScreenBorder => update_screen_border(state, hal),
+        HotkeyAction::ConfigEnable => prepare_config_mode(state, hal),
+        HotkeyAction::FwUpgradeA => hal.reboot_to_bootloader(),
+        HotkeyAction::FwUpgradeB => hal.send_value(1, PacketType::FirmwareUpgrade as u8),
+    }
+}
+
+/// Toggle output between A and B.
+pub fn output_toggle(state: &mut Device, hal: &impl OutputControl) {
+    if hotkey_handlers::output_toggle(state) {
+        hal.switch_output(state.active_output);
+    }
+}
+
+/// Toggle mouse zoom and notify peer.
+pub fn mouse_zoom_toggle(state: &mut Device, hal: &impl PeerLink) {
+    let val = hotkey_handlers::mouse_zoom_toggle(state);
+    hal.send_value(val as u8, PacketType::MouseZoom as u8);
+}
+
+/// Toggle switch lock and notify peer.
+pub fn switch_lock_toggle(state: &mut Device, hal: &impl PeerLink) {
+    let val = hotkey_handlers::switch_lock_toggle(state);
+    hal.send_value(val as u8, PacketType::SwitchLock as u8);
+}
+
+/// Toggle gaming mode and notify peer.
+pub fn gaming_mode_toggle(state: &mut Device, hal: &impl PeerLink) {
+    let val = hotkey_handlers::gaming_mode_toggle(state);
+    hal.send_value(val as u8, PacketType::GamingMode as u8);
+}
 
 /// Send screen lock key sequence to both outputs.
 /// Local output: queue report + release keys.
