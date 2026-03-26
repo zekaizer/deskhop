@@ -1,7 +1,6 @@
 // USB/UART callback FFI — all functions called from usb.c/uart.c callbacks.
 
 use core::ffi::c_void;
-use crate::domain::constants::PacketType;
 use crate::domain::hid_routing;
 use crate::domain::keyboard::HotkeyAction;
 use crate::domain::mouse_logic;
@@ -171,64 +170,28 @@ unsafe fn extract_mouse_values(
 }
 
 // ============================================================
-// UART message dispatch (from msg_dispatch.rs)
+// UART packet dispatch — unified entry point replacing C's process_packet()
 // ============================================================
 
-#[no_mangle]
-pub unsafe extern "C" fn rust_handle_simple_msg(ptype: u8, data: *const u8, dev: *mut c_void) -> u8 {
-    if data.is_null() { return 0; }
+/// Process a UART packet. Called from C's packet_receiver_task after fetch_packet.
+/// Replaces the entire process_packet() switch in uart.c.
+#[export_name = "process_packet"]
+pub unsafe extern "C" fn rust_process_uart_packet(packet_ptr: *const u8, dev: *mut c_void) {
+    if packet_ptr.is_null() { return; }
+    let hal = hal_from(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    let mut arr = [0u8; 8];
-    core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
-    let action = crate::domain::msg_handlers::handle_simple_msg(ptype, &arr, state);
-    if crate::domain::msg_handlers::apply_action(&action, state) { 1 } else { 0 }
-}
 
-#[no_mangle]
-pub unsafe extern "C" fn rust_handle_output_select(dev: *mut c_void, output: u8) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::domain::structs::device_from_ptr(dev);
-    crate::service::msg_bridge::handle_output_select(state, &hal, output);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_handle_keyboard_uart_full(dev: *mut c_void, data: *const u8) {
-    if data.is_null() { return; }
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::domain::structs::device_from_ptr(dev);
-    let mut arr = [0u8; 8];
-    core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
-    crate::service::msg_bridge::handle_kbd_from_peer(state, &hal, &arr);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_handle_mouse_uart_full(dev: *mut c_void, data: *const u8) {
-    if data.is_null() { return; }
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::domain::structs::device_from_ptr(dev);
-    let mut arr = [0u8; 8];
-    core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
-    crate::service::msg_bridge::handle_mouse_from_peer(state, &hal, &arr);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_handle_set_report(dev: *mut c_void, led_value: u8) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::domain::structs::device_from_ptr(dev);
-    crate::service::msg_bridge::handle_set_report(state, &hal, led_value);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_handle_sync_borders(dev: *mut c_void, data: *const u8) {
-    if data.is_null() { return; }
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::domain::structs::device_from_ptr(dev);
-    let remote = {
-        let mut arr = [0u8; 8];
-        core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
-        arr
+    let pkt = crate::domain::packet::UartPacket {
+        ptype: *packet_ptr,
+        data: {
+            let mut d = [0u8; 8];
+            core::ptr::copy_nonoverlapping(packet_ptr.add(1), d.as_mut_ptr(), 8);
+            d
+        },
+        checksum: *packet_ptr.add(9),
     };
-    crate::service::msg_bridge::handle_sync_borders(state, &hal, Some(&remote));
+
+    crate::service::packet_dispatch::dispatch_packet(state, &hal, &pkt);
 }
 
 // ============================================================
@@ -240,44 +203,6 @@ pub unsafe fn execute_hotkey_action(dev: *mut c_void, action: HotkeyAction) {
     let hal = hal_from(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
     crate::service::hotkey_dispatch::execute_action(state, &hal, action);
-}
-
-// ============================================================
-// Firmware upgrade + API message handlers (from fw_handlers.rs)
-// ============================================================
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_handle_response_byte(data: *const u8, dev: *mut c_void) {
-    if data.is_null() { return; }
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::domain::structs::device_from_ptr(dev);
-    let address = u32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
-    let fw_data = [*data.add(4), *data.add(5), *data.add(6), *data.add(7)];
-    crate::service::fw_upgrade::receive_fw_byte(state, &hal, address, &fw_data);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_handle_request_byte(data: *mut u8) {
-    if data.is_null() { return; }
-    let state = crate::domain::structs::get_global_device();
-    let dev = state as *mut _ as *mut c_void;
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    let address = u32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
-    if let Some(response) = crate::service::fw_upgrade::send_fw_byte(state, &hal, address) {
-        core::ptr::copy_nonoverlapping(response.as_ptr(), data, 8);
-        hal.send_packet(&response, PacketType::ResponseByte as u8);
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_handle_api_msgs(ptype: u8, data: *const u8, dev: *mut c_void) {
-    if data.is_null() { return; }
-    super::config::handle_api_msg(ptype, *data, data.add(1), dev);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn rust_handle_api_read_all_msgs(dev: *mut c_void) {
-    super::config::handle_api_read_all(dev);
 }
 
 // ============================================================

@@ -3,7 +3,6 @@
 
 use crate::domain::structs::*;
 use crate::domain::constants::*;
-use crate::service::config_api;
 
 // ============================================================
 // Default config (replaces C defaults.c)
@@ -60,17 +59,3 @@ pub static DEFAULT_CONFIG: Config = Config {
     checksum: 0,
 };
 
-// Thin FFI wrappers — create PicoHal and delegate to service layer.
-// Unsafe boundary: convert raw C pointers to slices/references here.
-pub unsafe fn handle_api_msg(ptype: u8, api_idx: u8, data: *const u8, dev: *mut core::ffi::c_void) {
-    let state = crate::domain::structs::device_from_ptr(dev);
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    let data_slice = core::slice::from_raw_parts(data, 8);
-    config_api::handle_api_msg(state, &hal, ptype, api_idx, data_slice);
-}
-
-pub unsafe fn handle_api_read_all(dev: *mut core::ffi::c_void) {
-    let state = crate::domain::structs::device_from_ptr(dev);
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    config_api::handle_api_read_all(state, &hal);
-}
