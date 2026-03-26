@@ -50,7 +50,8 @@ extern "C" {
     /// Assigns C function pointers (process_*_report) to report_handler array
     pub fn hal_set_report_handler(iface: *mut c_void, report_id: u8, handler_type: u8);
 
-    pub fn hal_toggle_led();
+    pub fn hal_toggle_led() -> u8;
+    pub fn set_keyboard_leds(leds: u8, dev: *mut c_void);
     pub fn hal_read_fw_running_u32(address: u32) -> u32;
     pub fn hal_kbd_queue_peek(dev: *mut c_void, out: *mut u8) -> bool;
     pub fn hal_kbd_queue_remove(dev: *mut c_void, out: *mut u8) -> bool;

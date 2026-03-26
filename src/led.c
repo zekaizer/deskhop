@@ -48,38 +48,6 @@ uint8_t toggle_led(void) {
     return new_led_state;
 }
 
-void blink_led(device_t *state) {
-    /* Since LEDs might be ON previously, we go OFF, ON, OFF, ON, OFF */
-    state->blinks_left     = 5;
-    state->last_led_change = time_us_32();
-}
-
-void led_blinking_task(device_t *state) {
-    const int blink_interval_us = 80000; /* 80 ms off, 80 ms on */
-    static uint8_t leds;
-
-    /* If there is no more blinking to be done, exit immediately */
-    if (state->blinks_left == 0)
-        return;
-
-    /* We have some blinks left to do, check if they are due, exit if not */
-    if ((time_us_32()) - state->last_led_change < blink_interval_us)
-        return;
-
-    /* Toggle the LED state */
-    uint8_t new_led_state = toggle_led();
-
-    /* Also keyboard leds (if it's connected locally) since on-board leds are not visible */
-    leds = new_led_state * 0x07; /* Numlock, capslock, scrollock */
-
-    if (state->keyboard_connected)
-        set_keyboard_leds(leds, state);
-
-    /* Decrement the counter and update the last-changed timestamp */
-    state->blinks_left--;
-    state->last_led_change = time_us_32();
-
-    /* Restore LEDs in the last pass */
-    if (state->blinks_left == 0)
-        restore_leds(state);
-}
+/* blink_led() and led_blinking_task() are now in Rust:
+   - blink_led: Indicator::blink() → C blink_led in hal_shim (sets blinks_left)
+   - led_blinking_task: #[export_name] in hal/ffi/tasks.rs → service::tasks::led_blink_tick */

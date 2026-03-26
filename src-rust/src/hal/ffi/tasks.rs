@@ -34,6 +34,15 @@ pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
     crate::service::tasks::heartbeat_tick(state, &hal);
 }
 
+// --- LED blinking task ---
+
+#[export_name = "led_blinking_task"]
+pub unsafe extern "C" fn rust_led_blinking_task(dev: *mut c_void) {
+    let hal = crate::hal::pico::PicoHal::new(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
+    crate::service::tasks::led_blink_tick(state, &hal);
+}
+
 // --- Screensaver task ---
 
 #[export_name = "screensaver_task"]

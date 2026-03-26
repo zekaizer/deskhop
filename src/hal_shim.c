@@ -98,6 +98,11 @@ bool hal_queue_try_add_uart(device_t *dev, const uint8_t *data) {
    hal_blink_led, hal_reboot — Rust calls underlying C functions directly.
    hal_watchdog_update kept (Pico SDK function). */
 
+void blink_led(device_t *state) {
+    state->blinks_left = 5;
+    state->last_led_change = time_us_32();
+}
+
 void hal_watchdog_update(void) { watchdog_update(); }
 
 void hal_reset_usb_boot(void) {
@@ -181,7 +186,7 @@ void hal_queue_system_packet(device_t *dev, const uint8_t *payload) { queue_syst
 
 extern device_t *device;
 
-void hal_toggle_led(void) { toggle_led(); }
+uint8_t hal_toggle_led(void) { return toggle_led(); }
 
 void hal_debug_dump_state(device_t *dev) {
     dh_debug_printf("tud=%d kbd=%d mse=%d role=%d out=%d c1=%llu\n",

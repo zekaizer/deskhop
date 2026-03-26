@@ -87,6 +87,36 @@ pub fn screensaver_tick(
     Some(hal.now_us_32())
 }
 
+/// Execute one LED blink step. Called at 30 Hz from Core1 scheduler.
+///
+/// 5 transitions at 80ms intervals: OFF→ON→OFF→ON→OFF.
+/// On the last transition, restore_leds() resets to normal active-output state.
+pub fn led_blink_tick(
+    state: &mut Device,
+    hal: &(impl Indicator + OutputControl + Timer),
+) {
+    use crate::domain::blink::{blink_step, BlinkAction};
+
+    let now = hal.now_us_32();
+    match blink_step(state.blinks_left, state.last_led_change, now) {
+        BlinkAction::Idle | BlinkAction::Wait => {}
+        BlinkAction::Toggle => {
+            let led_on = hal.toggle();
+            if state.keyboard_connected {
+                hal.set_keyboard_leds(if led_on { 0x07 } else { 0x00 });
+            }
+            state.blinks_left -= 1;
+            state.last_led_change = now as i32;
+        }
+        BlinkAction::ToggleAndRestore => {
+            hal.toggle();
+            state.blinks_left -= 1;
+            state.last_led_change = now as i32;
+            hal.sync_leds();
+        }
+    }
+}
+
 /// Build and send heartbeat packet. Handle config mode timeout.
 pub fn heartbeat_tick(
     state: &Device,

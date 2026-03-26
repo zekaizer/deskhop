@@ -213,7 +213,14 @@ impl OutputControl for MockHal {
 
 impl Indicator for MockHal {
     fn blink(&self) { self.blink_count.set(self.blink_count.get() + 1); }
-    fn toggle(&self) { self.toggle_count.set(self.toggle_count.get() + 1); }
+    fn toggle(&self) -> bool {
+        let n = self.toggle_count.get() + 1;
+        self.toggle_count.set(n);
+        n % 2 == 1 // alternates: false→true→false→...
+    }
+    fn set_keyboard_leds(&self, _leds: u8) {
+        // Tracked via toggle_count for now
+    }
 }
 
 // ---- Trace ----

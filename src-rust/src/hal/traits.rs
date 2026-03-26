@@ -110,8 +110,12 @@ pub trait OutputControl {
 
 /// On-board status indicator (LED or equivalent).
 pub trait Indicator {
+    /// Start a blink sequence (sets blinks_left counter).
     fn blink(&self);
-    fn toggle(&self);
+    /// Toggle on-board LED, returns new state (true = ON).
+    fn toggle(&self) -> bool;
+    /// Set keyboard LEDs (Num/Caps/Scroll) via USB host SET_REPORT.
+    fn set_keyboard_leds(&self, leds: u8);
 }
 
 /// Debug/diagnostic output.

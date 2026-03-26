@@ -256,8 +256,13 @@ impl Indicator for PicoHal {
     }
 
     #[inline]
-    fn toggle(&self) {
-        unsafe { device::hal_toggle_led() }
+    fn toggle(&self) -> bool {
+        unsafe { device::hal_toggle_led() != 0 }
+    }
+
+    #[inline]
+    fn set_keyboard_leds(&self, leds: u8) {
+        unsafe { device::set_keyboard_leds(leds, self.dev) }
     }
 }
 
