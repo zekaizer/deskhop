@@ -29,11 +29,6 @@ extern const config_t default_config;
  *  Functions and data structures for accessing and modifying configuration.
  *==============================================================================*/
 
-extern const field_map_t api_field_map[];
-const field_map_t* get_field_map_entry(uint32_t);
-const field_map_t* get_field_map_index(uint32_t);
-size_t             get_field_map_length(void);
-
 /*==============================================================================
  *  Configuration Management and Packet Processing
  *  Functions for loading, saving, wiping, and resetting device configuration.

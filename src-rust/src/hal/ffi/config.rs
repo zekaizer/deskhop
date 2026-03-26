@@ -3,7 +3,7 @@
 
 use crate::domain::structs::*;
 use crate::domain::constants::*;
-use crate::service::config_api::{self, FIELDS, find_field};
+use crate::service::config_api;
 
 // ============================================================
 // Default config (replaces C defaults.c)
@@ -59,38 +59,6 @@ pub static DEFAULT_CONFIG: Config = Config {
     _reserved: 0,
     checksum: 0,
 };
-
-// ============================================================
-// FFI exports — thin wrappers over service::config_api
-// ============================================================
-
-#[export_name = "get_field_map_length"]
-pub extern "C" fn rust_get_field_map_length() -> u32 {
-    FIELDS.len() as u32
-}
-
-
-#[export_name = "hal_get_field_map_idx"]
-pub extern "C" fn rust_hal_get_field_map_idx(i: u32) -> u8 {
-    let idx = if (i as usize) >= FIELDS.len() { FIELDS.len() - 1 } else { i as usize };
-    FIELDS[idx].idx
-}
-
-#[export_name = "hal_get_field_map"]
-pub unsafe extern "C" fn rust_hal_get_field_map(
-    api_idx: u8, offset: *mut u32, len: *mut u32, readonly: *mut bool,
-) -> i32 {
-    match find_field(api_idx) {
-        Some(f) => {
-            // offset not used by Rust callers -- set to 0
-            *offset = 0;
-            *len = f.len as u32;
-            *readonly = f.readonly;
-            0
-        }
-        None => -1,
-    }
-}
 
 // Thin FFI wrappers — create PicoHal and delegate to service layer.
 // Unsafe boundary: convert raw C pointers to slices/references here.
