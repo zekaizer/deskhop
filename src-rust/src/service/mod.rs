@@ -3,5 +3,6 @@
 
 pub mod backend;
 pub mod frontend;
+pub mod msg_bridge;
 pub mod router;
 pub mod tasks;

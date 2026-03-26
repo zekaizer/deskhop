@@ -229,9 +229,7 @@ pub unsafe extern "C" fn rust_handle_simple_msg(ptype: u8, data: *const u8, dev:
 pub unsafe extern "C" fn rust_handle_output_select(dev: *mut c_void, output: u8) {
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    state.active_output = output;
-    if state.tud_connected { crate::service::backend::host_link::release_all_keys(state, &hal); }
-    hal.sync_leds();
+    crate::service::msg_bridge::handle_output_select(state, &hal, output);
 }
 
 #[no_mangle]
@@ -241,13 +239,7 @@ pub unsafe extern "C" fn rust_handle_keyboard_uart_full(dev: *mut c_void, data: 
     let state = crate::domain::structs::device_from_ptr(dev);
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
-    crate::domain::msg_handlers::handle_keyboard_uart(&arr, state);
-    let combined = crate::domain::kbd_state::combine_kbd_states(state);
-    hal.route_kbd(state, &combined as *const _ as *const u8);
-    // UART keyboard data: always update activity (even when routed to peer)
-    if !state.is_active_output() {
-        hal.touch_activity(state);
-    }
+    crate::service::msg_bridge::handle_kbd_from_peer(state, &hal, &arr);
 }
 
 #[no_mangle]
@@ -255,11 +247,9 @@ pub unsafe extern "C" fn rust_handle_mouse_uart_full(dev: *mut c_void, data: *co
     if data.is_null() { return; }
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    hal.push_mouse_report(data);
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
-    crate::domain::msg_handlers::handle_mouse_uart(&arr, state);
-    hal.touch_activity(state);
+    crate::service::msg_bridge::handle_mouse_from_peer(state, &hal, &arr);
 }
 
 #[no_mangle]
@@ -278,22 +268,12 @@ pub unsafe extern "C" fn rust_handle_sync_borders(dev: *mut c_void, data: *const
     if data.is_null() { return; }
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    let idx = state.active_output as usize;
-    if idx >= state.config.output.len() { return; }
-    if state.is_active_output() {
-        match get_border_position(state.pointer_y) {
-            BorderUpdate::Top(v) => state.config.output[idx].border.top = v,
-            BorderUpdate::Bottom(v) => state.config.output[idx].border.bottom = v,
-        }
-        let b = &state.config.output[idx].border;
-        let bytes = border_to_bytes(b.top, b.bottom);
-        hal.send_packet(bytes.as_ptr(), PacketType::SyncBorders as u8, 8);
-    } else {
-        let border = &mut state.config.output[idx].border;
-        border.top = i32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
-        border.bottom = i32::from_le_bytes([*data.add(4), *data.add(5), *data.add(6), *data.add(7)]);
-    }
-    hal.save();
+    let remote = {
+        let mut arr = [0u8; 8];
+        core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
+        arr
+    };
+    crate::service::msg_bridge::handle_sync_borders(state, &hal, Some(&remote));
 }
 
 // ============================================================
