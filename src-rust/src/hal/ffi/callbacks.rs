@@ -151,14 +151,12 @@ pub unsafe extern "C" fn rust_process_system_report(
 // ============================================================
 
 /// Full mouse report processing pipeline.
-/// Called directly from TinyUSB callback (process_report_f signature).
-
 #[export_name = "process_mouse_report"]
 pub unsafe extern "C" fn rust_process_mouse_report(
     raw_report: *mut u8,
     len: i32,
     _itf: u8,
-    iface_ptr: *mut c_void,  // hid_interface_t*
+    iface_ptr: *mut c_void,
 ) {
     if raw_report.is_null() || iface_ptr.is_null() { return; }
 
@@ -167,86 +165,52 @@ pub unsafe extern "C" fn rust_process_mouse_report(
     let hal = crate::hal::pico::PicoHal::new(dev);
     let iface = iface_from_ptr(iface_ptr);
 
-    let mut values = [0i32; 5];
+    // Extract raw HID values (unsafe pointer work stays in ffi)
+    let values = extract_mouse_values(raw_report, len, iface, state.mouse_buttons);
+
+    // Delegate to service
+    crate::service::frontend::mouse_pipeline::process_report(state, &hal, &values);
+}
+
+/// Extract mouse values from raw HID report (boot protocol or descriptor-based).
+unsafe fn extract_mouse_values(
+    raw_report: *mut u8,
+    len: i32,
+    iface: &crate::domain::structs::HidInterface,
+    fallback_buttons: i16,
+) -> mouse_logic::MouseValues {
     const HID_PROTOCOL_BOOT: u8 = 0;
+    let mut v = [0i32; 5];
 
     if iface.protocol == HID_PROTOCOL_BOOT {
-        values[0] = *raw_report.add(1) as i8 as i32; // x
-        values[1] = *raw_report.add(2) as i8 as i32; // y
-        values[2] = *raw_report.add(3) as i8 as i32; // wheel
-        values[3] = 0; // pan (not in boot)
-        values[4] = *raw_report as i32; // buttons
+        v[0] = *raw_report.add(1) as i8 as i32;
+        v[1] = *raw_report.add(2) as i8 as i32;
+        v[2] = *raw_report.add(3) as i8 as i32;
+        v[4] = *raw_report as i32;
     } else {
         let uses_id = iface.uses_report_id;
         let report_slice = core::slice::from_raw_parts(raw_report, len as usize);
 
         fn extract_val(report: &[u8], uses_id: bool, rv: &ReportVal) -> Option<i32> {
-            let rid = { rv.report_id };
             let src = if uses_id {
-                if report[0] != rid { return None; }
+                if report[0] != rv.report_id { return None; }
                 &report[1..]
             } else { report };
-            let offset = { rv.offset };
-            let size = { rv.size };
-            Some(crate::domain::hid_report::get_report_value(src, offset, size))
+            Some(crate::domain::hid_report::get_report_value(src, rv.offset, rv.size))
         }
 
-        if let Some(v) = extract_val(report_slice, uses_id, &iface.mouse.move_x) { values[0] = v; }
-        if let Some(v) = extract_val(report_slice, uses_id, &iface.mouse.move_y) { values[1] = v; }
-        if let Some(v) = extract_val(report_slice, uses_id, &iface.mouse.wheel) { values[2] = v; }
-        if let Some(v) = extract_val(report_slice, uses_id, &iface.mouse.pan) { values[3] = v; }
-        if let Some(v) = extract_val(report_slice, uses_id, &iface.mouse.buttons) {
-            values[4] = v;
+        if let Some(val) = extract_val(report_slice, uses_id, &iface.mouse.move_x) { v[0] = val; }
+        if let Some(val) = extract_val(report_slice, uses_id, &iface.mouse.move_y) { v[1] = val; }
+        if let Some(val) = extract_val(report_slice, uses_id, &iface.mouse.wheel) { v[2] = val; }
+        if let Some(val) = extract_val(report_slice, uses_id, &iface.mouse.pan) { v[3] = val; }
+        if let Some(val) = extract_val(report_slice, uses_id, &iface.mouse.buttons) {
+            v[4] = val;
         } else {
-            values[4] = state.mouse_buttons as i32;
+            v[4] = fallback_buttons as i32;
         }
     }
 
-    let mouse_vals = mouse_logic::MouseValues {
-        move_x: values[0],
-        move_y: values[1],
-        wheel: values[2],
-        pan: values[3],
-        buttons: values[4],
-    };
-
-    let output_idx = state.active_output as usize;
-    if output_idx >= state.config.output.len() { return; }
-    let output = &state.config.output[output_idx];
-
-    let (new_x, new_y, dir) = mouse_logic::update_mouse_position(
-        state.pointer_x, state.pointer_y, &mouse_vals,
-        output.speed_x, output.speed_y,
-        state.mouse_zoom, state.config.enable_acceleration != 0,
-        state.config.jump_threshold,
-    );
-    state.pointer_x = new_x;
-    state.pointer_y = new_y;
-    state.mouse_buttons = mouse_vals.buttons as i16;
-
-    let report = mouse_logic::create_mouse_report(
-        state.pointer_x, state.pointer_y, &mouse_vals,
-        state.relative_mouse, state.gaming_mode,
-    );
-
-    let report_bytes = [
-        report.buttons,
-        report.x.to_le_bytes()[0], report.x.to_le_bytes()[1],
-        report.y.to_le_bytes()[0], report.y.to_le_bytes()[1],
-        report.wheel as u8,
-        report.pan as u8,
-        report.mode,
-    ];
-
-    hal.route_mouse(state, report_bytes.as_ptr());
-
-    // Screen switch handling
-    let c_dir = match dir {
-        mouse_logic::SwitchDirection::None => return,
-        mouse_logic::SwitchDirection::Left => 1i32,
-        mouse_logic::SwitchDirection::Right => 2i32,
-    };
-    rust_do_screen_switch(dev, c_dir);
+    mouse_logic::MouseValues { move_x: v[0], move_y: v[1], wheel: v[2], pan: v[3], buttons: v[4] }
 }
 
 // ============================================================
@@ -499,150 +463,42 @@ pub unsafe extern "C" fn rust_screenlock_handler(dev: *mut c_void) {
 // Screen switch (from screen_switch.rs)
 // ============================================================
 
-const MACOS_SWITCH_MOVE_X: i16 = 10;
-const MACOS_SWITCH_MOVE_COUNT: usize = 5;
-
-/// Helper to output a mouse report via the routing logic
-
-unsafe fn output_report(hal: &(impl ReportQueue + PeerLink), state: &crate::domain::structs::Device, report: &[u8; 8]) {
-    if state.is_active_output() {
-        hal.push_mouse_report(report.as_ptr());
-    } else {
-        hal.send_packet(
-            report.as_ptr(), PacketType::MouseReport as u8, 8,
-        );
-    }
-}
-
-/// Replace C's switch_to_another_pc
-
 #[no_mangle]
 pub unsafe extern "C" fn rust_switch_to_another_pc(
-    dev: *mut c_void,
-    output_number: u32,
-    output_to: i32,
-    direction: i32,  // LEFT=1, RIGHT=2
+    dev: *mut c_void, output_number: u32, output_to: i32, direction: i32,
 ) {
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    let output_idx = state.active_output as usize;
-    if output_idx >= state.config.output.len() { return; }
-
-    let mouse_park_pos = state.config.output[output_idx].mouse_park_pos;
-    let mouse_y = match mouse_park_pos {
-        0 => MIN_SCREEN_COORD,
-        1 => MAX_SCREEN_COORD,
-        _ => state.pointer_y,
-    };
-
-    let hidden = [
-        0u8,
-        MAX_SCREEN_COORD.to_le_bytes()[0], MAX_SCREEN_COORD.to_le_bytes()[1],
-        mouse_y.to_le_bytes()[0], mouse_y.to_le_bytes()[1],
-        0, 0, 0,
-    ];
-
-    output_report(&hal, state, &hidden);
-    hal.switch_output(output_to as u8);
-
-    state.pointer_x = if direction == 1 { MAX_SCREEN_COORD } else { MIN_SCREEN_COORD };
-
-    let other = 1 - output_number;
-    if (output_number as usize) < state.config.output.len()
-        && (other as usize) < state.config.output.len()
-    {
-        let from = &state.config.output[output_number as usize];
-        let to = &state.config.output[other as usize];
-        state.pointer_y = mouse::scale_y_coordinate(
-            state.pointer_y,
-            (from.border.top, from.border.bottom),
-            (to.border.top, to.border.bottom),
-        );
-    }
+    crate::service::frontend::mouse_pipeline::switch_to_peer(
+        state, &hal, output_number, output_to, direction,
+    );
 }
-
-/// Replace C's switch_virtual_desktop_macos
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_switch_virtual_desktop_macos(dev: *mut c_void, direction: i32) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::domain::structs::device_from_ptr(dev);
-    let left = direction == 1;
-
-    let edge_x = if left { MIN_SCREEN_COORD } else { MAX_SCREEN_COORD };
-    let edge = [
-        state.mouse_buttons as u8,
-        edge_x.to_le_bytes()[0], edge_x.to_le_bytes()[1],
-        (MAX_SCREEN_COORD / 2).to_le_bytes()[0], (MAX_SCREEN_COORD / 2).to_le_bytes()[1],
-        0, 0, ABSOLUTE,
-    ];
-    output_report(&hal, state, &edge);
-
-    let move_x: i16 = if left { -MACOS_SWITCH_MOVE_X } else { MACOS_SWITCH_MOVE_X };
-    let rel = [
-        state.mouse_buttons as u8,
-        move_x.to_le_bytes()[0], move_x.to_le_bytes()[1],
-        0, 0, 0, 0, RELATIVE,
-    ];
-    for _ in 0..MACOS_SWITCH_MOVE_COUNT {
-        output_report(&hal, state, &rel);
-    }
+    // Kept for C export compatibility — delegates to do_screen_switch path
+    rust_do_screen_switch(dev, direction);
 }
-
-/// Replace C's switch_virtual_desktop
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_switch_virtual_desktop(
     dev: *mut c_void, os: u8, new_index: i32, direction: i32,
 ) {
-    let state = crate::domain::structs::device_from_ptr(dev);
-    use crate::domain::constants::{OS_MACOS, OS_WINDOWS};
-
-    match os {
-        OS_MACOS => rust_switch_virtual_desktop_macos(dev, direction),
-        OS_WINDOWS => { state.relative_mouse = new_index > 1; }
-        _ => {}
-    }
-
-    state.pointer_x = if direction == 2 { MIN_SCREEN_COORD } else { MAX_SCREEN_COORD };
+    // Kept for C export compatibility
+    let _ = (os, new_index); // handled inside do_screen_switch path
+    rust_do_screen_switch(dev, direction);
 }
-
-/// Replace C's do_screen_switch
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_do_screen_switch(dev: *mut c_void, direction: i32) {
+    let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    let output_idx = state.active_output as usize;
-    if output_idx >= state.config.output.len() { return; }
-
-    let output = &state.config.output[output_idx];
     let dir = match direction {
         1 => mouse_logic::SwitchDirection::Left,
         2 => mouse_logic::SwitchDirection::Right,
         _ => return,
     };
-
-    let ctx = mouse_logic::SwitchContext {
-        switch_lock: state.switch_lock,
-        gaming_mode: state.gaming_mode,
-        mouse_buttons: state.mouse_buttons,
-        screen_pos: output.pos,
-        screen_index: output.screen_index,
-        screen_count: output.screen_count,
-    };
-
-    match mouse_logic::decide_screen_switch(dir, &ctx) {
-        mouse_logic::ScreenSwitchAction::Nothing => {}
-        mouse_logic::ScreenSwitchAction::SwitchToOtherPc => {
-            let output_number = output.number;
-            rust_switch_to_another_pc(dev, output_number, (1 - state.active_output) as i32, direction);
-        }
-        mouse_logic::ScreenSwitchAction::SwitchVirtualDesktop { new_index } => {
-            let os = output.os;
-            rust_switch_virtual_desktop(dev, os, new_index as i32, direction);
-            state.config.output[output_idx].screen_index = new_index;
-        }
-    }
+    crate::service::frontend::mouse_pipeline::do_screen_switch(state, &hal, dir);
 }
 
 // ============================================================
