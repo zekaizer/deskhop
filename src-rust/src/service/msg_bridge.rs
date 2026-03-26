@@ -338,7 +338,6 @@ mod tests {
     #[test]
     fn test_sync_borders_active_max_coord_is_bottom() {
         use crate::domain::constants::MAX_SCREEN_COORD;
-        use crate::domain::actions::BorderUpdate;
 
         let hal = MockHal::new();
         let mut state = Device::zeroed();
@@ -356,5 +355,100 @@ mod tests {
         // Packet sent to peer
         assert_eq!(hal.sent_packets.borrow().len(), 1);
         assert_eq!(hal.config_saved.get(), 1);
+    }
+
+    // ---- additional edge-case tests ----
+
+    #[test]
+    fn test_set_report_role_1_updates_index_0() {
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.board_role = 1; // other = 1 - 1 = 0
+        state.active_output = 0; // NOT active (board_role=1 != active_output=0)
+        state.keyboard_connected = true;
+
+        handle_set_report(&mut state, &hal, 0x05);
+
+        // "other" index = 1 - 1 = 0
+        assert_eq!(state.keyboard_leds[0], 0x05);
+        assert_eq!(hal.leds_synced.get(), 1);
+    }
+
+    #[test]
+    fn test_mouse_from_peer_zero_report() {
+        let hal = MockHal::new();
+        hal.set_time(3_000_000);
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        // Pre-set some values
+        state.pointer_x = 100;
+        state.pointer_y = 200;
+        state.mouse_buttons = 3;
+
+        handle_mouse_from_peer(&mut state, &hal, &[0u8; 8]);
+
+        // Mouse report still queued
+        assert_eq!(hal.mouse_reports.borrow().len(), 1);
+        // State reset to zero
+        assert_eq!(state.mouse_buttons, 0);
+        assert_eq!(state.pointer_x, 0);
+        assert_eq!(state.pointer_y, 0);
+        // Activity still updated
+        assert_eq!(state.last_activity[0], 3_000_000);
+    }
+
+    #[test]
+    fn test_output_select_same_output() {
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.active_output = 1;
+        state.usb_connected = true;
+
+        // Select the already-selected output
+        handle_output_select(&mut state, &hal, 1);
+
+        assert_eq!(state.active_output, 1);
+        // LED sync should still happen
+        assert_eq!(hal.leds_synced.get(), 1);
+    }
+
+    #[test]
+    fn test_sync_borders_halfway_point() {
+        use crate::domain::constants::MAX_SCREEN_COORD;
+
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.active_output = 0;
+        state.pointer_y = MAX_SCREEN_COORD / 2; // exactly at midpoint
+
+        handle_sync_borders(&mut state, &hal, None);
+
+        // Exactly at half → Top border (not > half)
+        assert_eq!(state.config.output[0].border.top, (MAX_SCREEN_COORD / 2) as i32);
+        assert_eq!(state.config.output[0].border.bottom, 0);
+    }
+
+    #[test]
+    fn test_kbd_from_peer_with_keys_routes_combined() {
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.active_output = 0; // active
+
+        // Local has key 'A' (0x04) in slot 2
+        state.local_kbd_states[0].keycode[0] = 0x04;
+        state.max_kbd_idx = 0;
+
+        // Peer sends key 'B' (0x05) with LeftShift modifier
+        let peer_data: [u8; 8] = [0x02, 0, 0x05, 0, 0, 0, 0, 0];
+        handle_kbd_from_peer(&mut state, &hal, &peer_data);
+
+        let reports = hal.kbd_reports.borrow();
+        assert_eq!(reports.len(), 1);
+        // Combined modifier should include peer's LeftShift (0x02)
+        // and combined keycodes should include both 0x04 and 0x05
+        let report = &reports[0];
+        assert!(report[0] & 0x02 != 0); // LeftShift present
     }
 }

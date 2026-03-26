@@ -305,4 +305,77 @@ mod tests {
         assert_eq!(hal.sent_values.borrow().len(), 1);
         assert_eq!(hal.sent_values.borrow()[0], (1, PacketType::WipeConfig as u8));
     }
+
+    // ---- execute_action dispatch tests ----
+
+    #[test]
+    fn execute_output_toggle() {
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.active_output = 0;
+        state.switch_lock = false;
+
+        execute_action(&mut state, &hal, HotkeyAction::OutputToggle);
+
+        assert_eq!(state.active_output, 1);
+        assert_eq!(hal.output_switched.get(), Some(1));
+    }
+
+    #[test]
+    fn execute_output_toggle_blocked_by_switch_lock() {
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.active_output = 0;
+        state.switch_lock = true;
+
+        execute_action(&mut state, &hal, HotkeyAction::OutputToggle);
+
+        // Should not switch — switch_lock blocks it
+        assert_eq!(state.active_output, 0);
+        assert_eq!(hal.output_switched.get(), None);
+    }
+
+    #[test]
+    fn execute_mouse_zoom_toggle_sends_to_peer() {
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.mouse_zoom = false;
+
+        execute_action(&mut state, &hal, HotkeyAction::MouseZoomToggle);
+
+        assert!(state.mouse_zoom);
+        let vals = hal.sent_values.borrow();
+        assert_eq!(vals.len(), 1);
+        assert_eq!(vals[0], (1, PacketType::MouseZoom as u8));
+    }
+
+    #[test]
+    fn execute_switch_lock_toggle_sends_to_peer() {
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.switch_lock = false;
+
+        execute_action(&mut state, &hal, HotkeyAction::SwitchLockToggle);
+
+        assert!(state.switch_lock);
+        let vals = hal.sent_values.borrow();
+        assert_eq!(vals.len(), 1);
+        assert_eq!(vals[0], (1, PacketType::SwitchLock as u8));
+    }
+
+    #[test]
+    fn execute_gaming_mode_toggle_sends_to_peer() {
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.gaming_mode = false;
+
+        execute_action(&mut state, &hal, HotkeyAction::GamingModeToggle);
+
+        assert!(state.gaming_mode);
+        let vals = hal.sent_values.borrow();
+        assert_eq!(vals.len(), 1);
+        assert_eq!(vals[0], (1, PacketType::GamingMode as u8));
+    }
 }
