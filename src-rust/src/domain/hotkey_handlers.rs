@@ -141,4 +141,42 @@ mod tests {
             _ => panic!("Expected SendToRemote"),
         }
     }
+
+    #[test]
+    fn test_screensaver_pong_mode_from_disabled() {
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.config.output[0].screensaver.mode = 0;
+        assert_eq!(screensaver_pong_mode(&state), Some(1));
+    }
+
+    #[test]
+    fn test_screensaver_jitter_mode_from_disabled() {
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.config.output[0].screensaver.mode = 0;
+        assert_eq!(screensaver_jitter_mode(&state), Some(2));
+    }
+
+    #[test]
+    fn test_screensaver_pong_mode_already_pong() {
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.config.output[0].screensaver.mode = 1;
+        assert_eq!(screensaver_pong_mode(&state), Some(1));
+    }
+
+    #[test]
+    fn test_needs_config_scratch_not_active() {
+        let mut state = Device::zeroed();
+        state.config_mode_active = false;
+        assert!(needs_config_scratch(&state));
+    }
+
+    #[test]
+    fn test_needs_config_scratch_already_active() {
+        let mut state = Device::zeroed();
+        state.config_mode_active = true;
+        assert!(!needs_config_scratch(&state));
+    }
 }

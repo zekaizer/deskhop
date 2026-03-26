@@ -108,4 +108,61 @@ mod tests {
         assert!(hal.kbd_reports.borrow().is_empty());
         assert_eq!(hal.sent_packets.borrow().len(), 1);
     }
+
+    #[test]
+    fn test_process_report_hotkey_passthrough() {
+        use crate::domain::constants::{KEYBOARD_MODIFIER_RIGHTALT, KEYBOARD_MODIFIER_RIGHTCTRL};
+        let mut state = Device::zeroed();
+        // MouseZoomToggle: RightAlt + RightCtrl, no keys, pass_to_os=true
+        let modifier = KEYBOARD_MODIFIER_RIGHTALT | KEYBOARD_MODIFIER_RIGHTCTRL;
+        let report = [modifier, 0, 0, 0, 0, 0, 0, 0];
+        match process_report(&mut state, &report, 0) {
+            KbdAction::HotkeyPassthrough { action, acknowledge } => {
+                assert_eq!(action, HotkeyAction::MouseZoomToggle);
+                assert!(acknowledge);
+            }
+            other => panic!("Expected HotkeyPassthrough, got {:?}", kbd_action_name(&other)),
+        }
+    }
+
+    #[test]
+    fn test_route_combined_updates_timestamp() {
+        let hal = MockHal::new();
+        hal.set_time(42_000_000);
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.active_output = 0; // active
+
+        route_combined(&mut state, &hal);
+
+        // touch_activity should have been called by route_kbd
+        assert_eq!(state.last_activity[0], 42_000_000);
+    }
+
+    #[test]
+    fn test_process_report_state_update() {
+        let mut state = Device::zeroed();
+        // Send a report with modifier=0x01, key=0x04 (A)
+        let report = [0x01, 0, 0x04, 0x05, 0, 0, 0, 0];
+        let result = process_report(&mut state, &report, 0);
+
+        // Should be Route (not a hotkey)
+        assert!(matches!(result, KbdAction::Route));
+
+        // kbd_state should have been updated via update_kbd_state
+        assert_eq!(state.local_kbd_states[0].modifier, 0x01);
+        assert_eq!(state.local_kbd_states[0].keycode[0], 0x04);
+        assert_eq!(state.local_kbd_states[0].keycode[1], 0x05);
+    }
+}
+
+/// Debug helper for test assertions
+#[cfg(test)]
+fn kbd_action_name(action: &KbdAction) -> &'static str {
+    match action {
+        KbdAction::HotkeyConsumed { .. } => "HotkeyConsumed",
+        KbdAction::HotkeyPassthrough { .. } => "HotkeyPassthrough",
+        KbdAction::Dropped => "Dropped",
+        KbdAction::Route => "Route",
+    }
 }

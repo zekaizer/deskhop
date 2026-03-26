@@ -317,4 +317,70 @@ mod tests {
         assert!(apply_action(&HandlerAction::FlashLed, &mut state));
         assert!(apply_action(&HandlerAction::SetActiveOutput(1), &mut state));
     }
+
+    #[test]
+    fn test_handle_keyboard_uart_updates_remote_state() {
+        let mut state = Device::zeroed();
+        let data = [0x03, 0x00, 0x04, 0x05, 0x06, 0x00, 0x00, 0x00];
+        handle_keyboard_uart(&data, &mut state);
+        assert_eq!(state.remote_kbd_state.modifier, 0x03);
+        assert_eq!(state.remote_kbd_state.reserved, 0x00);
+        assert_eq!(state.remote_kbd_state.keycode[0], 0x04);
+        assert_eq!(state.remote_kbd_state.keycode[1], 0x05);
+        assert_eq!(state.remote_kbd_state.keycode[2], 0x06);
+    }
+
+    #[test]
+    fn test_handle_keyboard_uart_empty_report() {
+        let mut state = Device::zeroed();
+        let data = [0u8; 8];
+        handle_keyboard_uart(&data, &mut state);
+        assert_eq!(state.remote_kbd_state.modifier, 0);
+        assert_eq!(state.remote_kbd_state.keycode, [0; 6]);
+    }
+
+    #[test]
+    fn test_handle_keyboard_uart_with_modifiers() {
+        let mut state = Device::zeroed();
+        // Left Ctrl + Left Shift = 0x03, keys: A(0x04), B(0x05)
+        let data = [0x03, 0x00, 0x04, 0x05, 0x00, 0x00, 0x00, 0x00];
+        handle_keyboard_uart(&data, &mut state);
+        assert_eq!(state.remote_kbd_state.modifier, 0x03);
+        assert_eq!(state.remote_kbd_state.keycode[0], 0x04);
+        assert_eq!(state.remote_kbd_state.keycode[1], 0x05);
+        // Remaining keycodes should be zero
+        assert_eq!(state.remote_kbd_state.keycode[2..], [0; 4]);
+    }
+
+    #[test]
+    fn test_handle_mouse_uart_updates_activity_flag() {
+        let mut state = Device::zeroed();
+        // buttons=2, x=100 (0x0064), y=-50 (0xFFCE)
+        let data = [0x02, 0x64, 0x00, 0xCE, 0xFF, 0x00, 0x00, 0x00];
+        handle_mouse_uart(&data, &mut state);
+        assert_eq!(state.mouse_buttons, 2);
+        assert_eq!(state.pointer_x, 100);
+        assert_eq!(state.pointer_y, -50);
+    }
+
+    #[test]
+    fn test_handle_mouse_uart_empty_report() {
+        let mut state = Device::zeroed();
+        let data = [0u8; 8];
+        handle_mouse_uart(&data, &mut state);
+        assert_eq!(state.mouse_buttons, 0);
+        assert_eq!(state.pointer_x, 0);
+        assert_eq!(state.pointer_y, 0);
+    }
+
+    #[test]
+    fn test_handle_mouse_uart_with_buttons() {
+        let mut state = Device::zeroed();
+        // buttons=0x07 (left+right+middle), x=0, y=0
+        let data = [0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        handle_mouse_uart(&data, &mut state);
+        assert_eq!(state.mouse_buttons, 7);
+        assert_eq!(state.pointer_x, 0);
+        assert_eq!(state.pointer_y, 0);
+    }
 }

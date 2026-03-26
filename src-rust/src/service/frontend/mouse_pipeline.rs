@@ -304,4 +304,65 @@ mod tests {
         output_report_raw(&hal, &state, &report);
         assert_eq!(hal.sent_packets.borrow().len(), 1);
     }
+
+    #[test]
+    fn test_process_report_with_zoom() {
+        let hal = MockHal::new();
+        let mut state_zoom = make_state_with_output();
+        state_zoom.pointer_x = 16000;
+        state_zoom.pointer_y = 16000;
+        state_zoom.mouse_zoom = true;
+
+        let mut state_normal = make_state_with_output();
+        state_normal.pointer_x = 16000;
+        state_normal.pointer_y = 16000;
+        state_normal.mouse_zoom = false;
+
+        let values = MouseValues { move_x: 200, move_y: 100, wheel: 0, pan: 0, buttons: 0 };
+
+        process_report(&mut state_zoom, &hal, &values);
+        let zoom_x = state_zoom.pointer_x;
+
+        let hal2 = MockHal::new();
+        process_report(&mut state_normal, &hal2, &values);
+        let normal_x = state_normal.pointer_x;
+
+        // Zoom mode should produce less movement (speed >> 2)
+        assert!(zoom_x < normal_x, "zoom_x={} should be less than normal_x={}", zoom_x, normal_x);
+    }
+
+    #[test]
+    fn test_process_report_gaming_mode_no_switch() {
+        let hal = MockHal::new();
+        let mut state = make_state_with_output();
+        state.gaming_mode = true;
+        state.pointer_x = 100; // near left edge
+
+        // Large leftward movement that would normally trigger screen switch
+        let values = MouseValues { move_x: -500, move_y: 0, wheel: 0, pan: 0, buttons: 0 };
+        process_report(&mut state, &hal, &values);
+
+        // No screen switch should occur (gaming mode blocks it)
+        assert_eq!(hal.output_switched.get(), None);
+        // Report should still be routed
+        assert_eq!(hal.mouse_reports.borrow().len(), 1);
+    }
+
+    #[test]
+    fn test_switch_to_peer_preserves_y() {
+        let hal = MockHal::new();
+        let mut state = make_state_with_output();
+        state.config.output[0].mouse_park_pos = 2; // previous = preserve Y
+        state.pointer_y = 12345;
+
+        switch_to_peer(&mut state, &hal, 0, 1, 2); // switch right
+
+        assert_eq!(hal.output_switched.get(), Some(1));
+        // Verify the hidden report used the preserved Y (not MIN or MAX)
+        let reports = hal.mouse_reports.borrow();
+        assert!(!reports.is_empty());
+        let hidden = &reports[0];
+        let y_in_report = i16::from_le_bytes([hidden[3], hidden[4]]);
+        assert_eq!(y_in_report, 12345);
+    }
 }

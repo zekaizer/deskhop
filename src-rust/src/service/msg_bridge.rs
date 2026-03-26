@@ -222,4 +222,76 @@ mod tests {
         assert_eq!(state.keyboard_leds[1], 0x03);
         assert_eq!(hal.leds_synced.get(), 0); // no sync when active
     }
+
+    #[test]
+    fn test_output_select_not_connected() {
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.usb_connected = false;
+
+        handle_output_select(&mut state, &hal, 1);
+
+        assert_eq!(state.active_output, 1);
+        // release_all_keys NOT called (no kbd report queued)
+        assert!(hal.kbd_reports.borrow().is_empty());
+        // sync_leds IS called regardless of usb_connected
+        assert_eq!(hal.leds_synced.get(), 1);
+    }
+
+    #[test]
+    fn test_sync_borders_out_of_range_output() {
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.active_output = 99; // out of range
+
+        // Should not crash and should not save
+        handle_sync_borders(&mut state, &hal, None);
+
+        assert_eq!(hal.config_saved.get(), 0);
+        assert!(hal.sent_packets.borrow().is_empty());
+    }
+
+    #[test]
+    fn test_kbd_from_peer_always_updates_activity() {
+        let hal = MockHal::new();
+        hal.set_time(7_000_000);
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.active_output = 0; // active output
+
+        handle_kbd_from_peer(&mut state, &hal, &[0u8; 8]);
+
+        // route_kbd calls touch_activity for active output
+        assert_eq!(state.last_activity[0], 7_000_000);
+
+        // Now test inactive: activity should also be updated
+        let hal2 = MockHal::new();
+        hal2.set_time(9_000_000);
+        let mut state2 = Device::zeroed();
+        state2.board_role = 0;
+        state2.active_output = 1; // NOT active
+
+        handle_kbd_from_peer(&mut state2, &hal2, &[0u8; 8]);
+
+        assert_eq!(state2.last_activity[0], 9_000_000);
+    }
+
+    #[test]
+    fn test_mouse_from_peer_updates_state() {
+        let hal = MockHal::new();
+        hal.set_time(2_000_000);
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+
+        // buttons=3, x=0x0100(256), y=0x0200(512)
+        let data = [3, 0x00, 0x01, 0x00, 0x02, 0, 0, 0];
+        handle_mouse_from_peer(&mut state, &hal, &data);
+
+        // handle_mouse_uart should have updated pointer state
+        assert_eq!(state.mouse_buttons, 3);
+        assert_eq!(state.pointer_x, 256);
+        assert_eq!(state.pointer_y, 512);
+        // Activity updated
+        assert_eq!(state.last_activity[0], 2_000_000);
+    }
 }

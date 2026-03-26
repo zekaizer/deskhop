@@ -157,4 +157,99 @@ mod tests {
         let (_, rc) = extract_kbd_data(&report, &iface, &kbd);
         assert_eq!(rc, 0);
     }
+
+    #[test]
+    fn test_extract_boot_protocol_full_report() {
+        // Standard 8-byte boot protocol report with all fields populated
+        let iface = HidInterface { protocol: 0, ..zeroed_iface() };
+        let kbd = KeyboardDescriptor::default();
+        let report = [0xFF, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
+        let (out, rc) = extract_kbd_data(&report, &iface, &kbd);
+        assert_eq!(rc, KBD_REPORT_LENGTH as i32);
+        assert_eq!(out[0], 0xFF); // modifier
+        assert_eq!(out[1], 0x00); // reserved
+        assert_eq!(out[2], 0x04); // keycode[0] = A
+        assert_eq!(out[3], 0x05); // keycode[1] = B
+        assert_eq!(out[4], 0x06); // keycode[2] = C
+        assert_eq!(out[5], 0x07); // keycode[3] = D
+        assert_eq!(out[6], 0x08); // keycode[4] = E
+        assert_eq!(out[7], 0x09); // keycode[5] = F
+    }
+
+    #[test]
+    fn test_extract_boot_protocol_with_report_id() {
+        // 9-byte report (report ID prefix) — boot protocol skips first byte
+        let iface = HidInterface { protocol: 0, ..zeroed_iface() };
+        let kbd = KeyboardDescriptor::default();
+        let report = [0x01, 0x03, 0x00, 0x04, 0x05, 0x00, 0x00, 0x00, 0x00];
+        let (out, rc) = extract_kbd_data(&report, &iface, &kbd);
+        assert_eq!(rc, KBD_REPORT_LENGTH as i32);
+        assert_eq!(out[0], 0x03); // modifier (was at index 1)
+        assert_eq!(out[2], 0x04); // first keycode
+        assert_eq!(out[3], 0x05); // second keycode
+    }
+
+    #[test]
+    fn test_extract_nkro_basic() {
+        // Non-boot, NKRO keyboard with bitmap-based key extraction
+        let mut iface = zeroed_iface();
+        iface.protocol = 1; // not boot
+        iface.uses_report_id = false;
+
+        let mut kbd = KeyboardDescriptor::default();
+        kbd.is_nkro = true;
+        kbd.modifier = ReportVal {
+            offset: 0,
+            offset_idx: 0, // modifier at byte 0
+            size: 8,       // MODIFIER_BIT_LENGTH
+            usage_min: 0,
+            usage_max: 0,
+            ..ReportVal::default()
+        };
+        kbd.nkro = ReportVal {
+            offset: 0,
+            offset_idx: 1,    // NKRO bitmap starts at byte 1
+            size: 8,          // 8 bits = 8 usage codes
+            usage_min: 0,
+            usage_max: 7,     // (7 - 0 + 1) == 8 == size
+            ..ReportVal::default()
+        };
+
+        // Report: modifier=0x01, then NKRO bitmap byte
+        // Bitmap 0b00010100 = bits 2 and 4 set → usage codes 2, 4
+        let report = [0x01, 0b00010100, 0, 0, 0, 0, 0, 0];
+        let (out, rc) = extract_kbd_data(&report, &iface, &kbd);
+        assert!(rc > 0);
+        assert_eq!(out[0], 0x01); // modifier preserved
+        // Keys extracted from bitmap
+        assert_eq!(out[2], 2); // usage_min + bit 2
+        assert_eq!(out[3], 4); // usage_min + bit 4
+    }
+
+    #[test]
+    fn test_extract_standard_keycode_mapping() {
+        // Non-boot, non-NKRO, uses_report_id=true → extract_kbd_other path
+        let mut iface = zeroed_iface();
+        iface.protocol = 1;        // not boot
+        iface.uses_report_id = true;
+
+        let mut kbd = KeyboardDescriptor::default();
+        kbd.is_nkro = false;
+        kbd.modifier = ReportVal {
+            offset: 0,
+            offset_idx: 0, // modifier at byte 0 (after report ID skip)
+            ..ReportVal::default()
+        };
+        // Mark key_array positions that hold keycodes
+        kbd.key_array[2] = true; // byte 2 is a key
+        kbd.key_array[3] = true; // byte 3 is a key
+
+        // Report: [report_id, modifier, reserved, key1, key2, ...]
+        let report = [0x01, 0x02, 0x00, 0x04, 0x05, 0x00, 0x00, 0x00, 0x00];
+        let (out, rc) = extract_kbd_data(&report, &iface, &kbd);
+        assert_eq!(rc, KBD_REPORT_LENGTH as i32);
+        assert_eq!(out[0], 0x02); // modifier from byte 0 of payload
+        assert_eq!(out[2], 0x04); // key from key_array[2]
+        assert_eq!(out[3], 0x05); // key from key_array[3]
+    }
 }
