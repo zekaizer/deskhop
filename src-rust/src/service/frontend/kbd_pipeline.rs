@@ -155,6 +155,35 @@ mod tests {
         assert_eq!(state.local_kbd_states[0].keycode[0], 0x04);
         assert_eq!(state.local_kbd_states[0].keycode[1], 0x05);
     }
+
+    #[test]
+    fn test_process_report_hotkey_consumed_output_toggle() {
+        use crate::domain::constants::{HOTKEY_MODIFIER, HOTKEY_TOGGLE};
+        let mut state = Device::zeroed();
+        // HOTKEY_MODIFIER = KEYBOARD_MODIFIER_LEFTCTRL (0x01)
+        // HOTKEY_TOGGLE = HID_KEY_CAPS_LOCK (0x39)
+        let report = [HOTKEY_MODIFIER, 0, HOTKEY_TOGGLE, 0, 0, 0, 0, 0];
+        match process_report(&mut state, &report, 0) {
+            KbdAction::HotkeyConsumed { action, acknowledge } => {
+                assert_eq!(action, HotkeyAction::OutputToggle);
+                assert!(!acknowledge);
+            }
+            other => panic!("Expected HotkeyConsumed(OutputToggle), got {:?}", kbd_action_name(&other)),
+        }
+    }
+
+    #[test]
+    fn test_process_report_six_key_rollover() {
+        let mut state = Device::zeroed();
+        // Fill all 6 keycode slots with non-hotkey keys
+        let report = [0x00, 0, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
+        match process_report(&mut state, &report, 0) {
+            KbdAction::Route => {} // expected — no hotkey, no crash
+            other => panic!("Expected Route with 6-key rollover, got {:?}", kbd_action_name(&other)),
+        }
+        // Verify all 6 keys stored
+        assert_eq!(state.local_kbd_states[0].keycode, [0x04, 0x05, 0x06, 0x07, 0x08, 0x09]);
+    }
 }
 
 /// Debug helper for test assertions

@@ -102,4 +102,33 @@ mod tests {
         assert_eq!(hal.kbd_reports.borrow().len(), 1);
         assert_eq!(hal.kbd_reports.borrow()[0], [0u8; 8]);
     }
+
+    #[test]
+    fn test_send_kbd_suspended_wakes() {
+        let hal = MockHal::new();
+        hal.usb_suspended.set(true);
+        hal.kbd_queue_in.borrow_mut().push([0x01, 0, 0x04, 0, 0, 0, 0, 0]);
+        let mut state = Device::zeroed();
+        state.usb_connected = true;
+
+        send_pending_kbd(&state, &hal);
+
+        // Report should be sent (hid_ready defaults to 0xFF → all ready)
+        // remote_wakeup was called (no panic), and report was consumed
+        assert!(hal.kbd_queue_in.borrow().is_empty());
+    }
+
+    #[test]
+    fn test_send_kbd_hid_not_ready() {
+        let hal = MockHal::new();
+        hal.hid_ready_map.set(0); // no endpoints ready
+        hal.kbd_queue_in.borrow_mut().push([0x01, 0, 0x04, 0, 0, 0, 0, 0]);
+        let mut state = Device::zeroed();
+        state.usb_connected = true;
+
+        send_pending_kbd(&state, &hal);
+
+        // Report should stay in queue — hid_ready returned false
+        assert_eq!(hal.kbd_queue_in.borrow().len(), 1);
+    }
 }

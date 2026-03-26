@@ -295,4 +295,66 @@ mod tests {
         // Activity updated
         assert_eq!(state.last_activity[0], 2_000_000);
     }
+
+    #[test]
+    fn test_kbd_from_peer_combined_routing() {
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.active_output = 0; // active — routes locally
+
+        // Pre-set local kbd state with modifier=0x01 (LeftCtrl)
+        state.local_kbd_states[0].modifier = 0x01;
+        state.max_kbd_idx = 0;
+
+        // Peer sends report with modifier=0x02 (LeftShift)
+        let peer_report: [u8; 8] = [0x02, 0, 0, 0, 0, 0, 0, 0];
+        handle_kbd_from_peer(&mut state, &hal, &peer_report);
+
+        // Combined should have modifier = 0x01 | 0x02 = 0x03
+        let reports = hal.kbd_reports.borrow();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0][0], 0x03); // modifier byte = OR'd
+    }
+
+    #[test]
+    fn test_handle_mouse_from_peer_role_out_of_range() {
+        let hal = MockHal::new();
+        hal.set_time(1_000_000);
+        let mut state = Device::zeroed();
+        state.board_role = 5; // out of range (last_activity has NUM_SCREENS=2 entries)
+
+        let data = [1, 10, 0, 20, 0, 0, 0, 0];
+        // Should not panic — the role bounds check prevents out-of-bounds write
+        handle_mouse_from_peer(&mut state, &hal, &data);
+
+        // Report should still be pushed to queue regardless of role
+        assert_eq!(hal.mouse_reports.borrow().len(), 1);
+        // Activity NOT updated (role out of range)
+        assert_eq!(state.last_activity[0], 0);
+        assert_eq!(state.last_activity[1], 0);
+    }
+
+    #[test]
+    fn test_sync_borders_active_max_coord_is_bottom() {
+        use crate::domain::constants::MAX_SCREEN_COORD;
+        use crate::domain::actions::BorderUpdate;
+
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.active_output = 0; // active
+        state.pointer_y = MAX_SCREEN_COORD; // at bottom edge
+
+        handle_sync_borders(&mut state, &hal, None);
+
+        // pointer_y > MAX_SCREEN_COORD/2 → Bottom border
+        // get_border_position(MAX_SCREEN_COORD) = BorderUpdate::Bottom(32767)
+        assert_eq!(state.config.output[0].border.bottom, MAX_SCREEN_COORD as i32);
+        // Top border should remain at default (0)
+        assert_eq!(state.config.output[0].border.top, 0);
+        // Packet sent to peer
+        assert_eq!(hal.sent_packets.borrow().len(), 1);
+        assert_eq!(hal.config_saved.get(), 1);
+    }
 }

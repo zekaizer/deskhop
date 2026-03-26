@@ -365,4 +365,83 @@ mod tests {
         let y_in_report = i16::from_le_bytes([hidden[3], hidden[4]]);
         assert_eq!(y_in_report, 12345);
     }
+
+    #[test]
+    fn test_process_report_screen_count_one_no_switch() {
+        let hal = MockHal::new();
+        let mut state = make_state_with_output();
+        state.config.output[0].screen_count = 1;
+        state.config.output[0].screen_index = 1;
+        state.config.output[0].pos = 2; // RIGHT — other PC is LEFT
+        state.pointer_x = 100; // near left edge
+
+        // Large leftward movement — would normally trigger Left switch
+        let values = MouseValues { move_x: -500, move_y: 0, wheel: 0, pan: 0, buttons: 0 };
+        process_report(&mut state, &hal, &values);
+
+        // With screen_count=1 and screen_index=1, going LEFT (toward other PC)
+        // should trigger SwitchToOtherPc. But we want to verify behavior:
+        // screen_count=1 means only one virtual desktop — no virtual desktop switching
+        // However, it will still switch to other PC since screen_index=1.
+        // To truly prevent switch, we need the switch direction to match screen_pos.
+        // Let's set pos=1 (LEFT) so going LEFT (same direction) tries virtual desktop,
+        // but screen_count=1 means no more screens → Nothing.
+        let hal2 = MockHal::new();
+        let mut state2 = make_state_with_output();
+        state2.config.output[0].screen_count = 1;
+        state2.config.output[0].screen_index = 1;
+        state2.config.output[0].pos = 1; // LEFT
+        state2.pointer_x = 100;
+
+        let values = MouseValues { move_x: -500, move_y: 0, wheel: 0, pan: 0, buttons: 0 };
+        process_report(&mut state2, &hal2, &values);
+
+        // Going Left with pos=LEFT, screen_index=1, screen_count=1
+        // → screen_pos == dir_val, screen_index not < screen_count → Nothing
+        assert_eq!(hal2.output_switched.get(), None);
+    }
+
+    #[test]
+    fn test_process_report_output_out_of_range() {
+        let hal = MockHal::new();
+        let mut state = make_state_with_output();
+        state.active_output = 99; // out of range
+
+        let values = MouseValues { move_x: 100, move_y: 50, wheel: 0, pan: 0, buttons: 0 };
+        // Should not crash — early return due to output_idx >= output.len()
+        process_report(&mut state, &hal, &values);
+
+        // No reports should be routed
+        assert!(hal.mouse_reports.borrow().is_empty());
+        assert!(hal.sent_packets.borrow().is_empty());
+    }
+
+    #[test]
+    fn test_border_y_scaling_accuracy() {
+        let hal = MockHal::new();
+        let mut state = make_state_with_output();
+        // Output 0: border top=1000, bottom=2000 → from_range = 32767 - 1000 - 2000 = 29767
+        state.config.output[0].border.top = 1000;
+        state.config.output[0].border.bottom = 2000;
+        state.config.output[0].number = 0;
+        // Output 1: border top=3000, bottom=4000 → to_range = 32767 - 3000 - 4000 = 25767
+        state.config.output[1].border.top = 3000;
+        state.config.output[1].border.bottom = 4000;
+        state.config.output[1].number = 1;
+
+        state.pointer_y = 16000;
+
+        // switch_to_peer from output 0 to output 1
+        switch_to_peer(&mut state, &hal, 0, 1, 2);
+
+        // scale_y_coordinate: (y - from_top) * to_range / from_range + to_top
+        let from_top = 1000i64;
+        let from_bottom = 2000i64;
+        let to_top = 3000i64;
+        let to_bottom = 4000i64;
+        let from_range = 32767 - from_top - from_bottom; // 29767
+        let to_range = 32767 - to_top - to_bottom;       // 25767
+        let expected = ((16000 - from_top) * to_range / from_range + to_top) as i16;
+        assert_eq!(state.pointer_y, expected);
+    }
 }
