@@ -152,6 +152,14 @@ impl ReportQueue for MockHal {
     fn pop_mouse_report(&self, out: &mut [u8]) -> bool { Self::pop_from(&self.mouse_queue_in, out) }
 }
 
+// ---- HidQueue ----
+
+impl HidQueue for MockHal {
+    fn peek_hid_report(&self, _out: &mut [u8]) -> bool { false }
+    fn pop_hid_report(&self, _out: &mut [u8]) -> bool { false }
+    fn send_hid_report(&self, _instance: u8, _report_id: u8, _data: &[u8]) -> bool { true }
+}
+
 // ---- PacketQueue ----
 
 impl PacketQueue for MockHal {

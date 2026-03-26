@@ -146,6 +146,25 @@ impl ReportQueue for PicoHal {
     }
 }
 
+// ---- HidQueue ----
+
+impl HidQueue for PicoHal {
+    #[inline]
+    fn peek_hid_report(&self, out: &mut [u8]) -> bool {
+        unsafe { device::hal_hid_queue_peek(self.dev, out.as_mut_ptr()) }
+    }
+
+    #[inline]
+    fn pop_hid_report(&self, out: &mut [u8]) -> bool {
+        unsafe { device::hal_hid_queue_remove(self.dev, out.as_mut_ptr()) }
+    }
+
+    #[inline]
+    fn send_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) -> bool {
+        unsafe { device::hal_tud_hid_n_report(instance, report_id, data.as_ptr(), data.len() as u8) }
+    }
+}
+
 // ---- PacketQueue ----
 
 impl PacketQueue for PicoHal {

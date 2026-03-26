@@ -13,13 +13,7 @@ void heartbeat_output_task(device_t *s) {
 #endif
 }
 
-/* HID queue → USB device */
-void process_hid_queue_task(device_t *s) {
-    hid_generic_pkt_t p;
-    if (!queue_try_peek(&s->hid_queue_out, &p) || !tud_hid_n_ready(p.instance)) return;
-    if (tud_hid_n_report(p.instance, p.report_id, p.data, p.len))
-        queue_try_remove(&s->hid_queue_out, &p);
-}
+/* process_hid_queue_task — now in Rust (service::tasks::process_hid_queue) */
 
 /* Firmware upgrade (flash + queue) */
 void firmware_upgrade_task(device_t *s) {

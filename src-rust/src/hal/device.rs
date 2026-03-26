@@ -71,6 +71,11 @@ extern "C" {
     pub fn watchdog_update();
     pub fn hal_queue_cfg_packet(dev: *mut c_void, packet: *const u8);
 
+    // ---- HID output queue ----
+    pub fn hal_hid_queue_peek(dev: *mut c_void, out: *mut u8) -> bool;
+    pub fn hal_hid_queue_remove(dev: *mut c_void, out: *mut u8) -> bool;
+    pub fn hal_tud_hid_n_report(instance: u8, report_id: u8, data: *const u8, len: u8) -> bool;
+
     // ---- DMA ----
     pub fn hal_dma_channel_is_busy(dev: *mut c_void) -> bool;
     pub fn hal_dma_tx_send(dev: *mut c_void, buf: *const u8, len: u32);

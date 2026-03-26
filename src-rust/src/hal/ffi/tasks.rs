@@ -34,6 +34,14 @@ pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
     crate::service::tasks::heartbeat_tick(state, &hal);
 }
 
+// --- HID output queue task ---
+
+#[export_name = "process_hid_queue_task"]
+pub unsafe extern "C" fn rust_process_hid_queue_task(dev: *mut c_void) {
+    let hal = crate::hal::pico::PicoHal::new(dev);
+    crate::service::tasks::process_hid_queue(&hal);
+}
+
 // --- LED blinking task ---
 
 #[export_name = "led_blinking_task"]

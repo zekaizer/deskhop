@@ -50,6 +50,30 @@ pub fn flush_outbox(hal: &(impl Transfer + PeerLink)) {
     hal.transmit(&raw);
 }
 
+/// Size of hid_generic_pkt_t: instance(1) + report_id(1) + type(1) + len(1) + data(12) = 16
+const HID_GENERIC_PKT_SIZE: usize = 16;
+
+/// Send one pending HID report from the output queue via TinyUSB.
+/// Peek → check if TinyUSB endpoint is ready → send → remove on success.
+pub fn process_hid_queue(
+    hal: &(impl HidQueue + UsbDevice),
+) {
+    let mut buf = [0u8; HID_GENERIC_PKT_SIZE];
+    if !hal.peek_hid_report(&mut buf) { return; }
+
+    let instance = buf[0];
+    let report_id = buf[1];
+    // buf[2] = type (unused in send path)
+    let len = buf[3] as usize;
+    let data = &buf[4..4 + len.min(12)];
+
+    if !hal.hid_ready(instance) { return; }
+
+    if hal.send_hid_report(instance, report_id, data) {
+        hal.pop_hid_report(&mut buf);
+    }
+}
+
 /// Check screensaver activation and generate mouse report if needed.
 /// Returns updated last_pointer_move timestamp, or None if no report generated.
 pub fn screensaver_tick(

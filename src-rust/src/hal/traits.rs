@@ -60,6 +60,15 @@ pub trait ReportQueue {
     fn pop_mouse_report(&self, out: &mut [u8]) -> bool;
 }
 
+/// HID output queue — generic HID reports (keyboard, mouse, vendor) waiting
+/// to be sent to the USB host via TinyUSB.
+pub trait HidQueue {
+    fn peek_hid_report(&self, out: &mut [u8]) -> bool;
+    fn pop_hid_report(&self, out: &mut [u8]) -> bool;
+    /// Send a generic HID report via TinyUSB. Returns true on success.
+    fn send_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) -> bool;
+}
+
 /// Control packet queues (consumer control, system control, config).
 pub trait PacketQueue {
     fn push_consumer_control(&self, payload: &[u8]);

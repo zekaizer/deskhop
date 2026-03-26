@@ -235,6 +235,17 @@ void hal_queue_cfg_packet(device_t *dev, const uint8_t *packet) {
 
 /* API field map + access moved to Rust (hal/ffi/api_config.rs) */
 
+/* HID output queue — generic HID reports waiting to be sent via TinyUSB */
+bool hal_hid_queue_peek(device_t *dev, uint8_t *out) {
+    return queue_try_peek(&dev->hid_queue_out, out);
+}
+bool hal_hid_queue_remove(device_t *dev, uint8_t *out) {
+    return queue_try_remove(&dev->hid_queue_out, out);
+}
+bool hal_tud_hid_n_report(uint8_t instance, uint8_t report_id, const uint8_t *data, uint8_t len) {
+    return tud_hid_n_report(instance, report_id, data, len);
+}
+
 /* Queue peek/remove for kbd and mouse */
 bool hal_kbd_queue_peek(device_t *dev, uint8_t *out) {
     return queue_try_peek(&dev->kbd_queue, out);
