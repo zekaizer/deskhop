@@ -144,7 +144,7 @@ pub unsafe extern "C" fn rust_config_enable(dev: *mut core::ffi::c_void) {
     if !state.config_mode_active {
         hal.set_boot_flag();
     }
-    crate::app::host_link::release_all_keys(state, &hal);
+    crate::service::backend::host_link::release_all_keys(state, &hal);
     state.reboot_requested = true;
 }
 
@@ -178,7 +178,7 @@ pub unsafe extern "C" fn rust_screenlock_handler(dev: *mut core::ffi::c_void) {
             report[0] = modifier; report[2] = key;
             if state.board_role == out {
                 hal.push_kbd_report(report.as_ptr());
-                crate::app::host_link::release_all_keys(state, &hal);
+                crate::service::backend::host_link::release_all_keys(state, &hal);
             } else {
                 hal.send_packet(report.as_ptr(), PacketType::KeyboardReport as u8, 8);
                 hal.send_packet([0u8; 8].as_ptr(), PacketType::KeyboardReport as u8, 8);

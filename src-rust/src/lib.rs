@@ -1,8 +1,8 @@
 #![no_std]
 
-pub mod app;
 pub mod domain;
 pub mod hal;
+pub mod service;
 
 #[cfg(not(test))]
 use core::panic::PanicInfo;

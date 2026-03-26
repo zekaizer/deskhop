@@ -8,7 +8,7 @@ static mut DBG_COUNT: u32 = 0;
 pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    crate::app::tasks::check_system_health(state, &hal);
+    crate::service::tasks::check_system_health(state, &hal);
 
     // Debug: dump state every ~5s (30Hz × 150)
     use crate::hal::traits::Trace;
@@ -37,7 +37,7 @@ pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
         }
     }
 
-    if let Some(t) = crate::app::tasks::screensaver_tick(state, &hal, LAST_POINTER_MOVE, &report_bytes) {
+    if let Some(t) = crate::service::tasks::screensaver_tick(state, &hal, LAST_POINTER_MOVE, &report_bytes) {
         LAST_POINTER_MOVE = t;
     }
 }
@@ -46,5 +46,5 @@ pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
 pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    crate::app::tasks::heartbeat_tick(state, &hal);
+    crate::service::tasks::heartbeat_tick(state, &hal);
 }

@@ -90,7 +90,7 @@ pub unsafe extern "C" fn rust_process_mouse_report(
         report.mode,
     ];
 
-    use crate::app::router::ReportRouter;
+    use crate::service::router::ReportRouter;
     hal.route_mouse(state, report_bytes.as_ptr());
 
     // Screen switch handling

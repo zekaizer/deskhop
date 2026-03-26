@@ -1,4 +1,4 @@
-use crate::app::router::ReportRouter;
+use crate::service::router::ReportRouter;
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_send_consumer_control(dev: *mut core::ffi::c_void, raw_report: *const u8) {

@@ -53,7 +53,7 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
     }
 
     // Send key via combined report — route based on active output
-    use crate::app::router::ReportRouter;
+    use crate::service::router::ReportRouter;
     let combined = crate::domain::kbd_state::combine_kbd_states(state);
     hal.route_kbd(state, &combined as *const _ as *const u8);
 }

@@ -2,7 +2,7 @@
 
 use crate::domain::constants::PacketType;
 use crate::domain::actions::{get_border_position, BorderUpdate};
-use crate::app::router::ReportRouter;
+use crate::service::router::ReportRouter;
 use crate::hal::traits::*;
 
 fn border_to_bytes(top: i32, bottom: i32) -> [u8; 8] {
@@ -26,7 +26,7 @@ pub unsafe extern "C" fn rust_handle_output_select(dev: *mut core::ffi::c_void, 
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
     state.active_output = output;
-    if state.tud_connected { crate::app::host_link::release_all_keys(state, &hal); }
+    if state.tud_connected { crate::service::backend::host_link::release_all_keys(state, &hal); }
     hal.sync_leds();
 }
 

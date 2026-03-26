@@ -21,7 +21,7 @@ pub unsafe extern "C" fn rust_write_raw_packet(dst: *mut u8, packet_ptr: *const 
 #[export_name = "process_uart_tx_task"]
 pub unsafe extern "C" fn rust_process_uart_tx_task(dev: *mut core::ffi::c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);
-    crate::app::tasks::flush_outbox(&hal);
+    crate::service::tasks::flush_outbox(&hal);
 }
 
 #[export_name = "get_ptr_delta"]
