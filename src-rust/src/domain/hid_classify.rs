@@ -1,7 +1,7 @@
 // HID descriptor data extraction — determines which handler should process
 // a parsed report value based on usage page / global usage / usage matching.
 
-use crate::app::hid_parser::*;
+use crate::domain::hid_parser::*;
 
 /// What kind of HID data was found during descriptor parsing
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

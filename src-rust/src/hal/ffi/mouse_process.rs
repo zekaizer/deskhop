@@ -1,6 +1,6 @@
 use core::ffi::c_void;
-use crate::app::mouse_logic;
-use crate::app::hid_parser::ReportVal;
+use crate::domain::mouse_logic;
+use crate::domain::hid_parser::ReportVal;
 
 /// Full mouse report processing pipeline.
 /// Called directly from TinyUSB callback (process_report_f signature).
@@ -14,10 +14,10 @@ pub unsafe extern "C" fn rust_process_mouse_report(
 ) {
     if raw_report.is_null() || iface_ptr.is_null() { return; }
 
-    let state = crate::app::structs::get_global_device();
+    let state = crate::domain::structs::get_global_device();
     let dev = state as *mut _ as *mut c_void;
     let hal = crate::hal::pico::PicoHal::new(dev);
-    let iface = crate::app::structs::iface_from_ptr(iface_ptr);
+    let iface = crate::domain::structs::iface_from_ptr(iface_ptr);
 
     let mut values = [0i32; 5];
     const HID_PROTOCOL_BOOT: u8 = 0;
@@ -40,7 +40,7 @@ pub unsafe extern "C" fn rust_process_mouse_report(
             } else { report };
             let offset = { rv.offset };
             let size = { rv.size };
-            Some(crate::app::hid_report::get_report_value(src, offset, size))
+            Some(crate::domain::hid_report::get_report_value(src, offset, size))
         }
 
         if let Some(v) = extract_val(report_slice, uses_id, &iface.mouse.move_x) { values[0] = v; }

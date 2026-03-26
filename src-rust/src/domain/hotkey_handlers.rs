@@ -1,7 +1,7 @@
 // Hotkey handler implementations — pure state logic, no HAL dependency.
 // HAL calls (send_value, set_active_output, etc.) are in hal/ffi/handlers.rs.
 
-use crate::app::structs::Device;
+use crate::domain::structs::Device;
 
 /// Toggle output between A and B. Returns true if toggled (false if locked).
 pub fn output_toggle(state: &mut Device) -> bool {

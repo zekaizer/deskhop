@@ -1,7 +1,7 @@
 // API field map — Rust-native field access, no offset_of needed.
 // Replaces C api_config.c field map + hal_shim.c accessors.
 
-use crate::app::structs::Device;
+use crate::domain::structs::Device;
 
 struct FieldDef {
     idx: u8,
@@ -202,10 +202,10 @@ pub unsafe fn handle_api_msg(ptype: u8, api_idx: u8, data: *const u8, dev: *mut 
         None => return,
     };
 
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
 
-    const SET_VAL: u8 = crate::app::constants::PacketType::SetVal as u8;
-    const GET_VAL: u8 = crate::app::constants::PacketType::GetVal as u8;
+    const SET_VAL: u8 = crate::domain::constants::PacketType::SetVal as u8;
+    const GET_VAL: u8 = crate::domain::constants::PacketType::GetVal as u8;
 
     use crate::hal::traits::*;
     let hal = crate::hal::pico::PicoHal::new(dev);
@@ -227,7 +227,7 @@ pub unsafe fn handle_api_msg(ptype: u8, api_idx: u8, data: *const u8, dev: *mut 
 pub unsafe fn handle_api_read_all(dev: *mut core::ffi::c_void) {
     for f in FIELDS.iter() {
         handle_api_msg(
-            crate::app::constants::PacketType::GetVal as u8,
+            crate::domain::constants::PacketType::GetVal as u8,
             f.idx, [f.idx, 0, 0, 0, 0, 0, 0, 0].as_ptr(), dev,
         );
     }

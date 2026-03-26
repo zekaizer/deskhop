@@ -1,6 +1,6 @@
-use crate::app::constants::{ABSOLUTE, RELATIVE};
-use crate::app::mouse;
-use crate::app::screensaver::MouseReport;
+use crate::domain::constants::{ABSOLUTE, RELATIVE};
+use crate::domain::mouse;
+use crate::domain::screensaver::MouseReport;
 
 /// Extended precision mouse movement values (from HID report extraction)
 #[derive(Debug, Clone, Copy, Default)]

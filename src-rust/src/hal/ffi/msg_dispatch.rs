@@ -1,7 +1,7 @@
 // UART message handler FFI — process_packet dispatcher callbacks.
 
-use crate::app::constants::PacketType;
-use crate::app::handlers::{get_border_position, BorderUpdate};
+use crate::domain::constants::PacketType;
+use crate::domain::actions::{get_border_position, BorderUpdate};
 use crate::app::router::ReportRouter;
 use crate::hal::traits::*;
 
@@ -14,17 +14,17 @@ fn border_to_bytes(top: i32, bottom: i32) -> [u8; 8] {
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_simple_msg(ptype: u8, data: *const u8, dev: *mut core::ffi::c_void) -> u8 {
     if data.is_null() { return 0; }
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
-    let action = crate::app::msg_handlers::handle_simple_msg(ptype, &arr, state);
-    if crate::app::msg_handlers::apply_action(&action, state) { 1 } else { 0 }
+    let action = crate::domain::msg_handlers::handle_simple_msg(ptype, &arr, state);
+    if crate::domain::msg_handlers::apply_action(&action, state) { 1 } else { 0 }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_output_select(dev: *mut core::ffi::c_void, output: u8) {
     let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     state.active_output = output;
     if state.tud_connected { crate::app::host_link::release_all_keys(state, &hal); }
     hal.sync_leds();
@@ -34,11 +34,11 @@ pub unsafe extern "C" fn rust_handle_output_select(dev: *mut core::ffi::c_void, 
 pub unsafe extern "C" fn rust_handle_keyboard_uart_full(dev: *mut core::ffi::c_void, data: *const u8) {
     if data.is_null() { return; }
     let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
-    crate::app::msg_handlers::handle_keyboard_uart(&arr, state);
-    let combined = crate::app::kbd_state::combine_kbd_states(state);
+    crate::domain::msg_handlers::handle_keyboard_uart(&arr, state);
+    let combined = crate::domain::kbd_state::combine_kbd_states(state);
     hal.route_kbd(state, &combined as *const _ as *const u8);
     // UART keyboard data: always update activity (even when routed to peer)
     if !state.is_active_output() {
@@ -50,18 +50,18 @@ pub unsafe extern "C" fn rust_handle_keyboard_uart_full(dev: *mut core::ffi::c_v
 pub unsafe extern "C" fn rust_handle_mouse_uart_full(dev: *mut core::ffi::c_void, data: *const u8) {
     if data.is_null() { return; }
     let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     hal.push_mouse_report(data);
     let mut arr = [0u8; 8];
     core::ptr::copy_nonoverlapping(data, arr.as_mut_ptr(), 8);
-    crate::app::msg_handlers::handle_mouse_uart(&arr, state);
+    crate::domain::msg_handlers::handle_mouse_uart(&arr, state);
     hal.touch_activity(state);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_set_report(dev: *mut core::ffi::c_void, led_value: u8) {
     let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     let other = 1usize.wrapping_sub(state.board_role as usize);
     if other < state.keyboard_leds.len() { state.keyboard_leds[other] = led_value; }
     if state.keyboard_connected && !state.is_active_output() {
@@ -73,7 +73,7 @@ pub unsafe extern "C" fn rust_handle_set_report(dev: *mut core::ffi::c_void, led
 pub unsafe extern "C" fn rust_handle_sync_borders(dev: *mut core::ffi::c_void, data: *const u8) {
     if data.is_null() { return; }
     let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     let idx = state.active_output as usize;
     if idx >= state.config.output.len() { return; }
     if state.is_active_output() {

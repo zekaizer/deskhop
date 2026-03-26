@@ -1,13 +1,13 @@
 // Firmware upgrade + API message FFI handlers.
 
-use crate::app::constants::PacketType;
+use crate::domain::constants::PacketType;
 use crate::hal::traits::*;
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_handle_response_byte(data: *const u8, dev: *mut core::ffi::c_void) {
     if data.is_null() { return; }
     let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
 
     let address = u32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
 
@@ -26,7 +26,7 @@ pub unsafe extern "C" fn rust_handle_response_byte(data: *const u8, dev: *mut co
 
     if address < STAGING_IMAGE_SIZE - FLASH_SECTOR_SIZE {
         for i in 0..4 {
-            state.fw.checksum = crate::app::crc::crc32_iter(state.fw.checksum, *data.add(4 + i));
+            state.fw.checksum = crate::domain::crc::crc32_iter(state.fw.checksum, *data.add(4 + i));
         }
     }
 
@@ -44,7 +44,7 @@ pub unsafe extern "C" fn rust_handle_response_byte(data: *const u8, dev: *mut co
 pub unsafe extern "C" fn rust_handle_request_byte(data: *mut u8) {
     if data.is_null() { return; }
     // No dev pointer — use global device for PicoHal
-    let state = crate::app::structs::get_global_device();
+    let state = crate::domain::structs::get_global_device();
     let dev = state as *mut _ as *mut core::ffi::c_void;
     let hal = crate::hal::pico::PicoHal::new(dev);
 

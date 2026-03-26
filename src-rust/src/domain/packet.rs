@@ -1,5 +1,5 @@
-use crate::app::constants::*;
-use crate::app::crc::calc_checksum;
+use crate::domain::constants::*;
+use crate::domain::crc::calc_checksum;
 
 /// UART packet structure mirroring the C uart_packet_t.
 /// Layout: type (1 byte) + data (8 bytes) + checksum (1 byte) = 10 bytes

@@ -45,7 +45,7 @@ pub struct HotkeyMatch {
 
 /// Check all hotkeys against a report. Returns first match.
 pub fn check_all_hotkeys(report: &KeyboardReport) -> Option<HotkeyMatch> {
-    use crate::app::constants::*;
+    use crate::domain::constants::*;
 
     static HOTKEYS: &[HotkeyCombo] = &[
         HotkeyCombo { modifier: HOTKEY_MODIFIER, keys: &[HOTKEY_TOGGLE], pass_to_os: false, acknowledge: false, action: HotkeyAction::OutputToggle },

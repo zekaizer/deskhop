@@ -1,6 +1,7 @@
 #![no_std]
 
 pub mod app;
+pub mod domain;
 pub mod hal;
 
 #[cfg(not(test))]
@@ -51,7 +52,7 @@ pub extern "C" fn rust_main_loop(dev: *mut c_void) -> ! {
     let hal = unsafe { hal::pico::PicoHal::new(dev) };
 
     // Store device pointer for FFI functions without dev parameter
-    app::structs::set_global_device(dev);
+    domain::structs::set_global_device(dev);
 
     // Kick watchdog before scheduler starts (initial_setup enables it)
     hal.kick();
@@ -88,7 +89,7 @@ pub extern "C" fn rust_core1_loop(dev: *mut c_void) -> ! {
 
     loop {
         unsafe {
-            let device = app::structs::device_from_ptr(dev);
+            let device = domain::structs::device_from_ptr(dev);
             device.core1_last_loop_pass = hal.now_us_64();
         }
         scheduler::run_all_tasks(&mut tasks, dev, &hal);

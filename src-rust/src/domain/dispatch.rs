@@ -1,6 +1,6 @@
-use crate::app::constants::PacketType;
-use crate::app::crc::calc_checksum;
-use crate::app::packet::UartPacket;
+use crate::domain::constants::PacketType;
+use crate::domain::crc::calc_checksum;
+use crate::domain::packet::UartPacket;
 
 /// Result of packet validation
 #[derive(Debug, PartialEq, Eq)]
@@ -93,7 +93,7 @@ pub fn process_packet(packet: &UartPacket) -> Result<DispatchAction, PacketError
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::constants::PACKET_DATA_LENGTH;
+    use crate::domain::constants::PACKET_DATA_LENGTH;
 
     fn make_valid_packet(ptype: u8) -> UartPacket {
         let data = [0u8; PACKET_DATA_LENGTH];
@@ -164,7 +164,7 @@ mod tests {
     fn test_process_packet_with_data() {
         let mut pkt = make_valid_packet(PacketType::OutputSelect as u8);
         pkt.data[0] = 1; // output B
-        pkt.checksum = crate::app::crc::calc_checksum(&pkt.data);
+        pkt.checksum = crate::domain::crc::calc_checksum(&pkt.data);
         assert_eq!(process_packet(&pkt), Ok(DispatchAction::OutputSelect));
     }
 

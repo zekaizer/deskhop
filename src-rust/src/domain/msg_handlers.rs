@@ -2,9 +2,9 @@
 // These process incoming packet data and return state changes
 // instead of directly modifying device_t.
 
-use crate::app::constants::PacketType;
-use crate::app::handlers::{should_start_fw_upgrade, FwUpgradeState};
-use crate::app::structs::Device;
+use crate::domain::constants::PacketType;
+use crate::domain::actions::{should_start_fw_upgrade, FwUpgradeState};
+use crate::domain::structs::Device;
 
 /// Result of processing a UART message — tells the caller what to do
 #[derive(Debug)]
@@ -252,7 +252,7 @@ mod tests {
     #[test]
     fn test_apply_fw_upgrade() {
         let mut state = Device::zeroed();
-        let fw = crate::app::handlers::FwUpgradeState {
+        let fw = crate::domain::actions::FwUpgradeState {
             upgrade_in_progress: true,
             byte_done: true,
             address: 0,

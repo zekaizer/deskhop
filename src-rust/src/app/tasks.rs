@@ -1,10 +1,10 @@
 // Task logic — extracted from hal/ffi/tasks.rs for testability.
 // All functions are generic over HAL traits, enabling MockHal in tests.
 
-use crate::app::constants::{PacketType, RAW_PACKET_LENGTH};
-use crate::app::packet;
-use crate::app::screensaver::{self, ScreensaverConfig};
-use crate::app::structs::Device;
+use crate::domain::constants::{PacketType, RAW_PACKET_LENGTH};
+use crate::domain::packet;
+use crate::domain::screensaver::{self, ScreensaverConfig};
+use crate::domain::structs::Device;
 use crate::hal::traits::*;
 
 const CORE1_HANG_TIMEOUT_US: u64 = 500_000;

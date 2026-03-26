@@ -1,5 +1,5 @@
 use core::ffi::c_void;
-use crate::app::structs::{iface_from_ptr, get_keyboard};
+use crate::domain::structs::{iface_from_ptr, get_keyboard};
 
 const KBD_REPORT_LENGTH: usize = 8;
 const MAX_KEYS: usize = 32;
@@ -53,8 +53,8 @@ unsafe fn extract_kbd_boot(raw_report: *const u8, len: i32, out: *mut u8) -> i32
 
 unsafe fn extract_kbd_other(
     raw_report: *const u8,
-    iface: &crate::app::structs::HidInterface,
-    kbd: &crate::app::structs::KeyboardDescriptor,
+    iface: &crate::domain::structs::HidInterface,
+    kbd: &crate::domain::structs::KeyboardDescriptor,
     out: *mut u8,
 ) -> i32 {
     let mut src = raw_report;
@@ -79,8 +79,8 @@ unsafe fn extract_kbd_other(
 
 unsafe fn extract_kbd_nkro(
     raw_report: *const u8, len: usize,
-    iface: &crate::app::structs::HidInterface,
-    kbd: &crate::app::structs::KeyboardDescriptor,
+    iface: &crate::domain::structs::HidInterface,
+    kbd: &crate::domain::structs::KeyboardDescriptor,
     out: *mut u8,
 ) -> i32 {
     let usage_min = { kbd.nkro.usage_min };
@@ -109,7 +109,7 @@ unsafe fn extract_kbd_nkro(
     let nkro_report = core::slice::from_raw_parts(nkro_ptr, core::cmp::min(len, 32));
     let keycode = core::slice::from_raw_parts_mut(out.add(2), KEYS_IN_USB_REPORT);
 
-    crate::app::hid_report::extract_bit_variable(
+    crate::domain::hid_report::extract_bit_variable(
         nkro_report, usage_min, usage_max, 0, keycode,
     ) as i32
 }

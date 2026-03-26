@@ -1,8 +1,8 @@
 // Default configuration — replaces C defaults.c.
 // Exported as `default_config` for C load_config() to reference.
 
-use crate::app::structs::*;
-use crate::app::constants::*;
+use crate::domain::structs::*;
+use crate::domain::constants::*;
 
 #[export_name = "default_config"]
 pub static DEFAULT_CONFIG: Config = Config {

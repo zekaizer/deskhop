@@ -4,8 +4,8 @@
 pub unsafe extern "C" fn rust_get_report_value(report: *const u8, len: i32, val: *const u8) -> i32 {
     if report.is_null() || val.is_null() || len <= 0 { return 0; }
     let slice = core::slice::from_raw_parts(report, len as usize);
-    let rv = core::ptr::read_unaligned(val as *const crate::app::hid_parser::ReportVal);
-    crate::app::hid_report::get_report_value(slice, rv.offset, rv.size)
+    let rv = core::ptr::read_unaligned(val as *const crate::domain::hid_parser::ReportVal);
+    crate::domain::hid_report::get_report_value(slice, rv.offset, rv.size)
 }
 
 #[export_name = "extract_kbd_data"]

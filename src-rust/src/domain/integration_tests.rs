@@ -2,18 +2,18 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::app::constants::*;
-    use crate::app::crc;
-    use crate::app::dispatch;
-    use crate::app::hid_parser;
-    use crate::app::hid_report;
-    use crate::app::keyboard;
-    use crate::app::mouse;
-    use crate::app::mouse_logic;
-    use crate::app::msg_handlers;
-    use crate::app::packet;
-    use crate::app::screensaver;
-    use crate::app::structs::Device;
+    use crate::domain::constants::*;
+    use crate::domain::crc;
+    use crate::domain::dispatch;
+    use crate::domain::hid_parser;
+    use crate::domain::hid_report;
+    use crate::domain::keyboard;
+    use crate::domain::mouse;
+    use crate::domain::mouse_logic;
+    use crate::domain::msg_handlers;
+    use crate::domain::packet;
+    use crate::domain::screensaver;
+    use crate::domain::structs::Device;
 
     /// Test full packet roundtrip: create → serialize → parse → validate
     #[test]
@@ -124,8 +124,8 @@ mod tests {
     /// Test keyboard state combine with full report slots
     #[test]
     fn test_kbd_combine_overflow() {
-        use crate::app::kbd_state;
-        use crate::app::structs::HidKeyboardReport;
+        use crate::domain::kbd_state;
+        use crate::domain::structs::HidKeyboardReport;
 
         let mut state = Device::zeroed();
         // Fill all 6 slots in keyboard 0
@@ -211,8 +211,8 @@ mod tests {
     /// Test extract classify covers all HID usage types
     #[test]
     fn test_extract_classify_all_types() {
-        use crate::app::extract::*;
-        use crate::app::hid_parser::*;
+        use crate::domain::hid_classify::*;
+        use crate::domain::hid_parser::*;
 
         let types = [
             (HID_USAGE_PAGE_BUTTON, HID_USAGE_DESKTOP_MOUSE, 0, ExtractedType::MouseButtons),

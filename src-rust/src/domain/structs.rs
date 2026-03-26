@@ -1,8 +1,8 @@
 // Core data structures mirroring C's structs.h, screen.h, flash.h, packet.h
 // These must maintain exact layout compatibility with C (#[repr(C)]).
 
-use crate::app::constants::{NUM_SCREENS, PACKET_DATA_LENGTH, RAW_PACKET_LENGTH};
-use crate::app::hid_parser::ReportVal;
+use crate::domain::constants::{NUM_SCREENS, PACKET_DATA_LENGTH, RAW_PACKET_LENGTH};
+use crate::domain::hid_parser::ReportVal;
 
 // From hid_parser.h
 pub const MAX_DEVICES: usize = 4;
@@ -349,7 +349,7 @@ pub unsafe fn get_global_device<'a>() -> &'a mut Device {
 #[no_mangle] pub static RUST_SIZEOF_HID_INTERFACE: u32 = core::mem::size_of::<HidInterface>() as u32;
 #[no_mangle] pub static RUST_SIZEOF_KEYBOARD_DESC: u32 = core::mem::size_of::<KeyboardDescriptor>() as u32;
 #[no_mangle] pub static RUST_SIZEOF_MOUSE_DESC: u32 = core::mem::size_of::<MouseDescriptor>() as u32;
-#[no_mangle] pub static RUST_SIZEOF_REPORT_VAL: u32 = core::mem::size_of::<crate::app::hid_parser::ReportVal>() as u32;
+#[no_mangle] pub static RUST_SIZEOF_REPORT_VAL: u32 = core::mem::size_of::<crate::domain::hid_parser::ReportVal>() as u32;
 #[no_mangle] pub static RUST_OFFSET_TUD_CONNECTED: u32 = core::mem::offset_of!(Device, tud_connected) as u32;
 #[no_mangle] pub static RUST_OFFSET_ACTIVE_OUTPUT: u32 = core::mem::offset_of!(Device, active_output) as u32;
 #[no_mangle] pub static RUST_OFFSET_CORE1_TIMESTAMP: u32 = core::mem::offset_of!(Device, core1_last_loop_pass) as u32;
@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn test_intermediate_struct_sizes() {
-        use crate::app::hid_parser::ReportVal;
+        use crate::domain::hid_parser::ReportVal;
 
         // ReportVal must be packed = 23 bytes
         assert_eq!(mem::size_of::<ReportVal>(), 23, "ReportVal");
@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn test_report_val_field_offsets() {
-        use crate::app::hid_parser::ReportVal;
+        use crate::domain::hid_parser::ReportVal;
         // Verify packed layout matches C report_val_t
         assert_eq!(mem::offset_of!(ReportVal, offset), 0);
         assert_eq!(mem::offset_of!(ReportVal, offset_idx), 2);

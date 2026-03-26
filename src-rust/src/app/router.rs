@@ -2,8 +2,8 @@
 // Routes HID reports to local queue (active output) or peer link (inactive).
 // Centralizes the is_active_output() branching scattered across ffi/ modules.
 
-use crate::app::constants::PacketType;
-use crate::app::structs::{Device, KBD_REPORT_LENGTH};
+use crate::domain::constants::PacketType;
+use crate::domain::structs::{Device, KBD_REPORT_LENGTH};
 use crate::hal::traits::*;
 
 /// Automatic report routing based on active output state.

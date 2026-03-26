@@ -1,4 +1,4 @@
-use crate::app::{constants, crc};
+use crate::domain::{constants, crc};
 
 // Direct C name exports — replaces flash_config.c CRC wrappers
 

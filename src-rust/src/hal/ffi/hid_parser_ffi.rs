@@ -1,6 +1,6 @@
 use core::ffi::c_void;
-use crate::app::hid_parser;
-use crate::app::structs::iface_from_ptr;
+use crate::domain::hid_parser;
+use crate::domain::structs::iface_from_ptr;
 
 /// Replace C's parse_report_descriptor with Rust parser.
 /// Parses the HID descriptor, then calls extract_data for each

@@ -1,4 +1,4 @@
-use crate::app::screensaver::{PongState, JitterState, MouseReport as SSMouseReport};
+use crate::domain::screensaver::{PongState, JitterState, MouseReport as SSMouseReport};
 
 static mut PONG_STATE: PongState = PongState::new();
 static mut JITTER_STATE: JitterState = JitterState::new();

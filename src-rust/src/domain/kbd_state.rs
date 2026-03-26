@@ -1,7 +1,7 @@
 // Keyboard state management — pure logic, no HAL dependency.
 
-use crate::app::structs::Device;
-use crate::app::structs::{HidKeyboardReport, MAX_DEVICES};
+use crate::domain::structs::Device;
+use crate::domain::structs::{HidKeyboardReport, MAX_DEVICES};
 
 /// Update keyboard state for a specific device index
 pub fn update_kbd_state(state: &mut Device, report: &HidKeyboardReport, device_idx: u8) {

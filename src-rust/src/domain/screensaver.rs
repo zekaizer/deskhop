@@ -1,4 +1,4 @@
-use crate::app::constants::{MAX_SCREEN_COORD, MIN_SCREEN_COORD, RELATIVE};
+use crate::domain::constants::{MAX_SCREEN_COORD, MIN_SCREEN_COORD, RELATIVE};
 
 const JITTER_DISTANCE: i16 = 2;
 

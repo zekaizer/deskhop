@@ -1,7 +1,7 @@
 use core::ffi::c_void;
-use crate::app::hid_parser::*;
-use crate::app::extract::{classify_report_val, is_padding, ExtractedType};
-use crate::app::structs::{iface_from_ptr, HidInterface, MAX_REPORTS, MAX_KEYBOARDS, MAX_KEYS, MAX_CC_BUTTONS};
+use crate::domain::hid_parser::*;
+use crate::domain::hid_classify::{classify_report_val, is_padding, ExtractedType};
+use crate::domain::structs::{iface_from_ptr, HidInterface, MAX_REPORTS, MAX_KEYBOARDS, MAX_KEYS, MAX_CC_BUTTONS};
 use crate::hal::device;
 
 /// Rust implementation of extract_data — replaces C version.

@@ -1,6 +1,6 @@
 // Packet FFI wrappers.
 
-use crate::app::{constants, packet};
+use crate::domain::{constants, packet};
 
 #[export_name = "write_raw_packet"]
 pub unsafe extern "C" fn rust_write_raw_packet(dst: *mut u8, packet_ptr: *const u8) {
@@ -26,6 +26,6 @@ pub unsafe extern "C" fn rust_process_uart_tx_task(dev: *mut core::ffi::c_void) 
 
 #[export_name = "get_ptr_delta"]
 pub unsafe extern "C" fn rust_get_ptr_delta(current: u32, dev: *mut core::ffi::c_void) -> u32 {
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     packet::get_ptr_delta(current, state.dma_ptr, 1024)
 }

@@ -2,8 +2,8 @@
 // Output: drain inter-core queues and send HID reports to USB host.
 // Input (future): receive vendor reports (HID++, etc.) from host.
 
-use crate::app::constants::ITF_NUM_HID;
-use crate::app::structs::Device;
+use crate::domain::constants::ITF_NUM_HID;
+use crate::domain::structs::Device;
 use crate::hal::traits::*;
 
 /// Send one pending keyboard report to the host if the endpoint is ready.
@@ -45,8 +45,8 @@ pub fn release_all_keys(
     state: &mut Device,
     hal: &impl ReportQueue,
 ) {
-    crate::app::kbd_state::release_all_keys(state);
-    let empty = crate::app::structs::HidKeyboardReport::default();
+    crate::domain::kbd_state::release_all_keys(state);
+    let empty = crate::domain::structs::HidKeyboardReport::default();
     hal.push_kbd_report(&empty as *const _ as *const u8);
 }
 

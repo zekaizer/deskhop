@@ -7,7 +7,7 @@ static mut DBG_COUNT: u32 = 0;
 #[export_name = "kick_watchdog_task"]
 pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     crate::app::tasks::check_system_health(state, &hal);
 
     // Debug: dump state every ~5s (30Hz × 150)
@@ -24,7 +24,7 @@ static mut LAST_POINTER_MOVE: u32 = 0;
 #[export_name = "screensaver_task"]
 pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
 
     // Generate report from static state (pong/jitter)
     let mut report_bytes = [0u8; 8];
@@ -45,6 +45,6 @@ pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     crate::app::tasks::heartbeat_tick(state, &hal);
 }

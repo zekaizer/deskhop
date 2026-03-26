@@ -1,8 +1,8 @@
 // Hotkey handler FFI — dispatches app logic + HAL side effects.
 
-use crate::app::constants::PacketType;
-use crate::app::handlers::{get_border_position, BorderUpdate};
-use crate::app::keyboard::HotkeyAction;
+use crate::domain::constants::PacketType;
+use crate::domain::actions::{get_border_position, BorderUpdate};
+use crate::domain::keyboard::HotkeyAction;
 use crate::hal::traits::*;
 
 /// Execute a hotkey action by its enum variant. Called from kbd_process.
@@ -40,8 +40,8 @@ unsafe fn hal_from(dev: *mut core::ffi::c_void) -> crate::hal::pico::PicoHal {
 #[no_mangle]
 pub unsafe extern "C" fn rust_output_toggle(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
-    if crate::app::hotkey_handlers::output_toggle(state) {
+    let state = crate::domain::structs::device_from_ptr(dev);
+    if crate::domain::hotkey_handlers::output_toggle(state) {
         hal.switch_output(state.active_output);
     }
 }
@@ -50,8 +50,8 @@ pub unsafe extern "C" fn rust_output_toggle(dev: *mut core::ffi::c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn rust_mouse_zoom_toggle(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
-    let val = crate::app::hotkey_handlers::mouse_zoom_toggle(state);
+    let state = crate::domain::structs::device_from_ptr(dev);
+    let val = crate::domain::hotkey_handlers::mouse_zoom_toggle(state);
     hal.send_value(val as u8, PacketType::MouseZoom as u8);
 }
 
@@ -59,8 +59,8 @@ pub unsafe extern "C" fn rust_mouse_zoom_toggle(dev: *mut core::ffi::c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn rust_switch_lock_toggle(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
-    let val = crate::app::hotkey_handlers::switch_lock_toggle(state);
+    let state = crate::domain::structs::device_from_ptr(dev);
+    let val = crate::domain::hotkey_handlers::switch_lock_toggle(state);
     hal.send_value(val as u8, PacketType::SwitchLock as u8);
 }
 
@@ -68,8 +68,8 @@ pub unsafe extern "C" fn rust_switch_lock_toggle(dev: *mut core::ffi::c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn rust_gaming_mode_toggle(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
-    let val = crate::app::hotkey_handlers::gaming_mode_toggle(state);
+    let state = crate::domain::structs::device_from_ptr(dev);
+    let val = crate::domain::hotkey_handlers::gaming_mode_toggle(state);
     hal.send_value(val as u8, PacketType::GamingMode as u8);
 }
 
@@ -97,9 +97,9 @@ pub unsafe extern "C" fn rust_wipe_config_hotkey(dev: *mut core::ffi::c_void) {
 }
 
 
-fn screensaver_dispatch(hal: &impl PeerLink, state: &mut crate::app::structs::Device, mode: u8) {
-    use crate::app::hotkey_handlers::ScreensaverAction;
-    match crate::app::hotkey_handlers::screensaver_set(state, mode) {
+fn screensaver_dispatch(hal: &impl PeerLink, state: &mut crate::domain::structs::Device, mode: u8) {
+    use crate::domain::hotkey_handlers::ScreensaverAction;
+    match crate::domain::hotkey_handlers::screensaver_set(state, mode) {
         ScreensaverAction::UpdatedLocally => {}
         ScreensaverAction::SendToRemote(m) => {
             hal.send_value(m, PacketType::Screensaver as u8);
@@ -111,8 +111,8 @@ fn screensaver_dispatch(hal: &impl PeerLink, state: &mut crate::app::structs::De
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_pong_enable(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
-    if let Some(mode) = crate::app::hotkey_handlers::screensaver_pong_mode(state) {
+    let state = crate::domain::structs::device_from_ptr(dev);
+    if let Some(mode) = crate::domain::hotkey_handlers::screensaver_pong_mode(state) {
         screensaver_dispatch(&hal, state, mode);
     }
 }
@@ -121,8 +121,8 @@ pub unsafe extern "C" fn rust_screensaver_pong_enable(dev: *mut core::ffi::c_voi
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_jitter_enable(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
-    if let Some(mode) = crate::app::hotkey_handlers::screensaver_jitter_mode(state) {
+    let state = crate::domain::structs::device_from_ptr(dev);
+    if let Some(mode) = crate::domain::hotkey_handlers::screensaver_jitter_mode(state) {
         screensaver_dispatch(&hal, state, mode);
     }
 }
@@ -131,7 +131,7 @@ pub unsafe extern "C" fn rust_screensaver_jitter_enable(dev: *mut core::ffi::c_v
 #[no_mangle]
 pub unsafe extern "C" fn rust_screensaver_disable(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     screensaver_dispatch(&hal, state, 0);
 }
 
@@ -139,7 +139,7 @@ pub unsafe extern "C" fn rust_screensaver_disable(dev: *mut core::ffi::c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn rust_config_enable(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     // Order matters: set scratch FIRST, release keys, THEN request reboot.
     if !state.config_mode_active {
         hal.set_boot_flag();
@@ -152,7 +152,7 @@ pub unsafe extern "C" fn rust_config_enable(dev: *mut core::ffi::c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn rust_screen_border_hotkey(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     let idx = state.active_output as usize;
     if idx >= state.config.output.len() { return; }
     if state.is_active_output() {
@@ -171,9 +171,9 @@ pub unsafe extern "C" fn rust_screen_border_hotkey(dev: *mut core::ffi::c_void) 
 #[no_mangle]
 pub unsafe extern "C" fn rust_screenlock_handler(dev: *mut core::ffi::c_void) {
     let hal = hal_from(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     for out in 0..2u8 {
-        if let Some((modifier, key)) = crate::app::handlers::screenlock_keys(state.config.output[out as usize].os) {
+        if let Some((modifier, key)) = crate::domain::actions::screenlock_keys(state.config.output[out as usize].os) {
             let mut report = [0u8; 8];
             report[0] = modifier; report[2] = key;
             if state.board_role == out {

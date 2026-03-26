@@ -1,4 +1,4 @@
-use crate::app::constants::MAX_SCREEN_COORD;
+use crate::domain::constants::MAX_SCREEN_COORD;
 
 /// Determine which screen border (top or bottom) to set based on pointer Y.
 /// If pointer is above halfway, sets bottom; otherwise sets top.

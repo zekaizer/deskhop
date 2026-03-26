@@ -1,6 +1,6 @@
 use core::ffi::c_void;
-use crate::app::constants::{MAX_SCREEN_COORD, MIN_SCREEN_COORD, ABSOLUTE, RELATIVE};
-use crate::app::mouse;
+use crate::domain::constants::{MAX_SCREEN_COORD, MIN_SCREEN_COORD, ABSOLUTE, RELATIVE};
+use crate::domain::mouse;
 use crate::hal::traits::*;
 
 const MACOS_SWITCH_MOVE_X: i16 = 10;
@@ -13,12 +13,12 @@ unsafe fn hal_from(dev: *mut c_void) -> crate::hal::pico::PicoHal {
 
 /// Helper to output a mouse report via the routing logic
 
-unsafe fn output_report(hal: &(impl ReportQueue + PeerLink), state: &crate::app::structs::Device, report: &[u8; 8]) {
+unsafe fn output_report(hal: &(impl ReportQueue + PeerLink), state: &crate::domain::structs::Device, report: &[u8; 8]) {
     if state.is_active_output() {
         hal.push_mouse_report(report.as_ptr());
     } else {
         hal.send_packet(
-            report.as_ptr(), crate::app::constants::PacketType::MouseReport as u8, 8,
+            report.as_ptr(), crate::domain::constants::PacketType::MouseReport as u8, 8,
         );
     }
 }
@@ -33,7 +33,7 @@ pub unsafe extern "C" fn rust_switch_to_another_pc(
     direction: i32,  // LEFT=1, RIGHT=2
 ) {
     let hal = hal_from(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     let output_idx = state.active_output as usize;
     if output_idx >= state.config.output.len() { return; }
 
@@ -75,7 +75,7 @@ pub unsafe extern "C" fn rust_switch_to_another_pc(
 #[no_mangle]
 pub unsafe extern "C" fn rust_switch_virtual_desktop_macos(dev: *mut c_void, direction: i32) {
     let hal = hal_from(dev);
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     let left = direction == 1;
 
     let edge_x = if left { MIN_SCREEN_COORD } else { MAX_SCREEN_COORD };
@@ -104,8 +104,8 @@ pub unsafe extern "C" fn rust_switch_virtual_desktop_macos(dev: *mut c_void, dir
 pub unsafe extern "C" fn rust_switch_virtual_desktop(
     dev: *mut c_void, os: u8, new_index: i32, direction: i32,
 ) {
-    let state = crate::app::structs::device_from_ptr(dev);
-    use crate::app::constants::{OS_MACOS, OS_WINDOWS};
+    let state = crate::domain::structs::device_from_ptr(dev);
+    use crate::domain::constants::{OS_MACOS, OS_WINDOWS};
 
     match os {
         OS_MACOS => rust_switch_virtual_desktop_macos(dev, direction),
@@ -120,9 +120,9 @@ pub unsafe extern "C" fn rust_switch_virtual_desktop(
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_do_screen_switch(dev: *mut c_void, direction: i32) {
-    use crate::app::mouse_logic::*;
+    use crate::domain::mouse_logic::*;
 
-    let state = crate::app::structs::device_from_ptr(dev);
+    let state = crate::domain::structs::device_from_ptr(dev);
     let output_idx = state.active_output as usize;
     if output_idx >= state.config.output.len() { return; }
 
