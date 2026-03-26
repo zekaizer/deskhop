@@ -32,7 +32,7 @@ pub trait UsbDevice {
     fn is_suspended(&self) -> bool;
     fn remote_wakeup(&self);
     fn hid_ready(&self, instance: u8) -> bool;
-    fn send_keyboard_report(&self, report_id: u8, modifier: u8, keycode: *const u8) -> bool;
+    fn send_keyboard_report(&self, report_id: u8, modifier: u8, keycode: &[u8]) -> bool;
     fn send_mouse_report(
         &self,
         mode: u8,
@@ -44,27 +44,27 @@ pub trait UsbDevice {
     ) -> bool;
     /// Send an arbitrary HID report on a given instance.
     /// Enables vendor protocol passthrough (HID++ short/long/very-long reports, etc.)
-    fn send_raw_report(&self, instance: u8, report_id: u8, data: *const u8, len: u16) -> bool {
-        let _ = (instance, report_id, data, len);
+    fn send_raw_report(&self, instance: u8, report_id: u8, data: &[u8]) -> bool {
+        let _ = (instance, report_id, data);
         false
     }
 }
 
 /// HID report queues (mouse/keyboard) between cores.
 pub trait ReportQueue {
-    fn push_mouse_report(&self, report: *const u8);
-    fn push_kbd_report(&self, report: *const u8);
-    fn peek_kbd_report(&self, out: *mut u8) -> bool;
-    fn pop_kbd_report(&self, out: *mut u8) -> bool;
-    fn peek_mouse_report(&self, out: *mut u8) -> bool;
-    fn pop_mouse_report(&self, out: *mut u8) -> bool;
+    fn push_mouse_report(&self, report: &[u8]);
+    fn push_kbd_report(&self, report: &[u8]);
+    fn peek_kbd_report(&self, out: &mut [u8]) -> bool;
+    fn pop_kbd_report(&self, out: &mut [u8]) -> bool;
+    fn peek_mouse_report(&self, out: &mut [u8]) -> bool;
+    fn pop_mouse_report(&self, out: &mut [u8]) -> bool;
 }
 
 /// Control packet queues (consumer control, system control, config).
 pub trait PacketQueue {
-    fn push_consumer_control(&self, payload: *const u8);
-    fn push_system_control(&self, payload: *const u8);
-    fn push_config_packet(&self, packet: *const u8);
+    fn push_consumer_control(&self, payload: &[u8]);
+    fn push_system_control(&self, payload: &[u8]);
+    fn push_config_packet(&self, packet: &[u8]);
 }
 
 /// Inter-board communication link (high-level send + outbound queue).
@@ -72,13 +72,13 @@ pub trait PeerLink {
     /// Build and enqueue a single-value packet.
     fn send_value(&self, value: u8, packet_type: u8);
     /// Build and enqueue a data packet.
-    fn send_packet(&self, data: *const u8, packet_type: u8, length: i32);
+    fn send_packet(&self, data: &[u8], packet_type: u8);
     /// Enqueue a pre-built packet to the outbound buffer.
-    fn enqueue(&self, packet: *const u8);
+    fn enqueue(&self, packet: &[u8]);
     /// Try to enqueue raw data to the outbound buffer.
-    fn try_enqueue(&self, data: *const u8) -> bool;
+    fn try_enqueue(&self, data: &[u8]) -> bool;
     /// Dequeue one packet from the outbound buffer for transmission.
-    fn dequeue(&self, out: *mut u8) -> bool;
+    fn dequeue(&self, out: &mut [u8]) -> bool;
 }
 
 /// Physical data transfer channel.
@@ -87,7 +87,7 @@ pub trait PeerLink {
 /// An async executor could wrap is_busy + transmit into a single future.
 pub trait Transfer {
     fn is_busy(&self) -> bool;
-    fn transmit(&self, buf: *const u8, len: u32);
+    fn transmit(&self, buf: &[u8]);
 }
 
 /// Persistent configuration storage.

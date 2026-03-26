@@ -94,8 +94,8 @@ impl UsbDevice for PicoHal {
     }
 
     #[inline]
-    fn send_keyboard_report(&self, report_id: u8, modifier: u8, keycode: *const u8) -> bool {
-        unsafe { device::hal_tud_hid_keyboard_report(report_id, modifier, keycode) }
+    fn send_keyboard_report(&self, report_id: u8, modifier: u8, keycode: &[u8]) -> bool {
+        unsafe { device::hal_tud_hid_keyboard_report(report_id, modifier, keycode.as_ptr()) }
     }
 
     #[inline]
@@ -116,33 +116,33 @@ impl UsbDevice for PicoHal {
 
 impl ReportQueue for PicoHal {
     #[inline]
-    fn push_mouse_report(&self, report: *const u8) {
-        unsafe { device::hal_queue_mouse_report(self.dev, report) }
+    fn push_mouse_report(&self, report: &[u8]) {
+        unsafe { device::hal_queue_mouse_report(self.dev, report.as_ptr()) }
     }
 
     #[inline]
-    fn push_kbd_report(&self, report: *const u8) {
-        unsafe { device::hal_queue_kbd_report(self.dev, report) }
+    fn push_kbd_report(&self, report: &[u8]) {
+        unsafe { device::hal_queue_kbd_report(self.dev, report.as_ptr()) }
     }
 
     #[inline]
-    fn peek_kbd_report(&self, out: *mut u8) -> bool {
-        unsafe { device::hal_kbd_queue_peek(self.dev, out) }
+    fn peek_kbd_report(&self, out: &mut [u8]) -> bool {
+        unsafe { device::hal_kbd_queue_peek(self.dev, out.as_mut_ptr()) }
     }
 
     #[inline]
-    fn pop_kbd_report(&self, out: *mut u8) -> bool {
-        unsafe { device::hal_kbd_queue_remove(self.dev, out) }
+    fn pop_kbd_report(&self, out: &mut [u8]) -> bool {
+        unsafe { device::hal_kbd_queue_remove(self.dev, out.as_mut_ptr()) }
     }
 
     #[inline]
-    fn peek_mouse_report(&self, out: *mut u8) -> bool {
-        unsafe { device::hal_mouse_queue_peek(self.dev, out) }
+    fn peek_mouse_report(&self, out: &mut [u8]) -> bool {
+        unsafe { device::hal_mouse_queue_peek(self.dev, out.as_mut_ptr()) }
     }
 
     #[inline]
-    fn pop_mouse_report(&self, out: *mut u8) -> bool {
-        unsafe { device::hal_mouse_queue_remove(self.dev, out) }
+    fn pop_mouse_report(&self, out: &mut [u8]) -> bool {
+        unsafe { device::hal_mouse_queue_remove(self.dev, out.as_mut_ptr()) }
     }
 }
 
@@ -150,18 +150,18 @@ impl ReportQueue for PicoHal {
 
 impl PacketQueue for PicoHal {
     #[inline]
-    fn push_consumer_control(&self, payload: *const u8) {
-        unsafe { device::hal_queue_cc_packet(self.dev, payload) }
+    fn push_consumer_control(&self, payload: &[u8]) {
+        unsafe { device::hal_queue_cc_packet(self.dev, payload.as_ptr()) }
     }
 
     #[inline]
-    fn push_system_control(&self, payload: *const u8) {
-        unsafe { device::hal_queue_system_packet(self.dev, payload) }
+    fn push_system_control(&self, payload: &[u8]) {
+        unsafe { device::hal_queue_system_packet(self.dev, payload.as_ptr()) }
     }
 
     #[inline]
-    fn push_config_packet(&self, packet: *const u8) {
-        unsafe { device::hal_queue_cfg_packet(self.dev, packet) }
+    fn push_config_packet(&self, packet: &[u8]) {
+        unsafe { device::hal_queue_cfg_packet(self.dev, packet.as_ptr()) }
     }
 }
 
@@ -174,23 +174,23 @@ impl PeerLink for PicoHal {
     }
 
     #[inline]
-    fn send_packet(&self, data: *const u8, packet_type: u8, length: i32) {
-        unsafe { device::queue_packet(data, packet_type, length) }
+    fn send_packet(&self, data: &[u8], packet_type: u8) {
+        unsafe { device::queue_packet(data.as_ptr(), packet_type, data.len() as i32) }
     }
 
     #[inline]
-    fn enqueue(&self, packet: *const u8) {
-        unsafe { device::hal_queue_uart_packet(self.dev, packet) }
+    fn enqueue(&self, packet: &[u8]) {
+        unsafe { device::hal_queue_uart_packet(self.dev, packet.as_ptr()) }
     }
 
     #[inline]
-    fn try_enqueue(&self, data: *const u8) -> bool {
-        unsafe { device::hal_queue_try_add_uart(self.dev, data) }
+    fn try_enqueue(&self, data: &[u8]) -> bool {
+        unsafe { device::hal_queue_try_add_uart(self.dev, data.as_ptr()) }
     }
 
     #[inline]
-    fn dequeue(&self, out: *mut u8) -> bool {
-        unsafe { device::hal_uart_tx_queue_remove(self.dev, out) }
+    fn dequeue(&self, out: &mut [u8]) -> bool {
+        unsafe { device::hal_uart_tx_queue_remove(self.dev, out.as_mut_ptr()) }
     }
 }
 
@@ -203,8 +203,8 @@ impl Transfer for PicoHal {
     }
 
     #[inline]
-    fn transmit(&self, buf: *const u8, len: u32) {
-        unsafe { device::hal_dma_tx_send(self.dev, buf, len) }
+    fn transmit(&self, buf: &[u8]) {
+        unsafe { device::hal_dma_tx_send(self.dev, buf.as_ptr(), buf.len() as u32) }
     }
 }
 

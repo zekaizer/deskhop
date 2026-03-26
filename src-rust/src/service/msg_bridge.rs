@@ -18,7 +18,8 @@ pub fn handle_kbd_from_peer(
 ) {
     msg_handlers::handle_keyboard_uart(data, state);
     let combined = kbd_state::combine_kbd_states(state);
-    hal.route_kbd(state, &combined as *const _ as *const u8);
+    let bytes = unsafe { core::slice::from_raw_parts(&combined as *const _ as *const u8, core::mem::size_of_val(&combined)) };
+    hal.route_kbd(state, bytes);
     // UART keyboard: always update activity (even when routed to peer)
     if !state.is_active_output() {
         hal.touch_activity(state);
@@ -32,7 +33,7 @@ pub fn handle_mouse_from_peer(
     hal: &(impl ReportQueue + Timer),
     data: &[u8; 8],
 ) {
-    hal.push_mouse_report(data.as_ptr());
+    hal.push_mouse_report(data);
     msg_handlers::handle_mouse_uart(data, state);
     // Update activity timestamp directly (no routing decision needed)
     let role = state.board_role as usize;
@@ -72,7 +73,7 @@ pub fn handle_sync_borders(
         // Send to peer
         let b = &state.config.output[idx].border;
         let bytes = border_to_bytes(b.top, b.bottom);
-        hal.send_packet(bytes.as_ptr(), PacketType::SyncBorders as u8, 8);
+        hal.send_packet(&bytes, PacketType::SyncBorders as u8);
     } else if let Some(data) = remote_data {
         // Remote: apply border values from peer
         let border = &mut state.config.output[idx].border;

@@ -1,7 +1,9 @@
 // Task logic — extracted from hal/ffi/tasks.rs for testability.
 // All functions are generic over HAL traits, enabling MockHal in tests.
 
-use crate::domain::constants::{PacketType, RAW_PACKET_LENGTH};
+use crate::domain::constants::PacketType;
+#[cfg(test)]
+use crate::domain::constants::RAW_PACKET_LENGTH;
 use crate::domain::packet;
 use crate::domain::screensaver::{self, ScreensaverConfig};
 use crate::domain::structs::Device;
@@ -29,7 +31,7 @@ pub fn check_system_health(
 pub fn flush_outbox(hal: &(impl Transfer + PeerLink)) {
     if hal.is_busy() { return; }
     let mut pkt_bytes = [0u8; 10];
-    if !hal.dequeue(pkt_bytes.as_mut_ptr()) { return; }
+    if !hal.dequeue(&mut pkt_bytes) { return; }
     let pkt = packet::UartPacket {
         ptype: pkt_bytes[0],
         data: {
@@ -40,7 +42,7 @@ pub fn flush_outbox(hal: &(impl Transfer + PeerLink)) {
         checksum: pkt_bytes[9],
     };
     let raw = packet::write_raw_packet(&pkt);
-    hal.transmit(raw.as_ptr(), RAW_PACKET_LENGTH as u32);
+    hal.transmit(&raw);
 }
 
 /// Check screensaver activation and generate mouse report if needed.
@@ -76,7 +78,7 @@ pub fn screensaver_tick(
 
     if ss.mode != 1 && ss.mode != 2 { return None; }
 
-    hal.push_mouse_report(report_bytes.as_ptr());
+    hal.push_mouse_report(report_bytes);
     Some(hal.now_us_32())
 }
 
@@ -101,7 +103,7 @@ pub fn heartbeat_tick(
     pkt[2] = ((version >> 8) & 0xFF) as u8;
     pkt[5] = state.active_output;
 
-    hal.enqueue(pkt.as_ptr());
+    hal.enqueue(&pkt);
 }
 
 #[cfg(test)]

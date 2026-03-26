@@ -177,7 +177,7 @@ pub fn handle_api_msg<H: Timer + PacketQueue>(
         response[0] = GET_VAL;
         response[1] = api_idx;
         read_field(state, api_idx, &mut response[2..]);
-        hal.push_config_packet(response.as_ptr());
+        hal.push_config_packet(&response);
     }
 
     state.config_mode_timer = hal.now_us_64() + 300_000_000;

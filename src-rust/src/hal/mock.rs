@@ -22,7 +22,7 @@ pub struct MockHal {
     pub kbd_reports: RefCell<Vec<[u8; 8]>>,
     pub outbound_packets: RefCell<Vec<[u8; 10]>>,
     pub sent_values: RefCell<Vec<(u8, u8)>>,
-    pub sent_packets: RefCell<Vec<(Vec<u8>, u8, i32)>>,
+    pub sent_packets: RefCell<Vec<(Vec<u8>, u8)>>,
     pub cc_packets: RefCell<Vec<[u8; 4]>>,
     pub system_packets: RefCell<Vec<[u8; 2]>>,
     pub config_packets: RefCell<Vec<[u8; 10]>>,
@@ -85,24 +85,27 @@ impl MockHal {
         self.time_us.set(us);
     }
 
-    fn copy_buf<const N: usize>(ptr: *const u8) -> [u8; N] {
+    fn copy_buf<const N: usize>(src: &[u8]) -> [u8; N] {
         let mut buf = [0u8; N];
-        unsafe { core::ptr::copy_nonoverlapping(ptr, buf.as_mut_ptr(), N); }
+        let len = src.len().min(N);
+        buf[..len].copy_from_slice(&src[..len]);
         buf
     }
 
-    fn pop_from<const N: usize>(queue: &RefCell<Vec<[u8; N]>>, out: *mut u8) -> bool {
+    fn pop_from<const N: usize>(queue: &RefCell<Vec<[u8; N]>>, out: &mut [u8]) -> bool {
         let mut q = queue.borrow_mut();
         if q.is_empty() { return false; }
         let item = q.remove(0);
-        unsafe { core::ptr::copy_nonoverlapping(item.as_ptr(), out, N); }
+        let len = out.len().min(N);
+        out[..len].copy_from_slice(&item[..len]);
         true
     }
 
-    fn peek_from<const N: usize>(queue: &RefCell<Vec<[u8; N]>>, out: *mut u8) -> bool {
+    fn peek_from<const N: usize>(queue: &RefCell<Vec<[u8; N]>>, out: &mut [u8]) -> bool {
         let q = queue.borrow();
         if q.is_empty() { return false; }
-        unsafe { core::ptr::copy_nonoverlapping(q[0].as_ptr(), out, N); }
+        let len = out.len().min(N);
+        out[..len].copy_from_slice(&q[0][..len]);
         true
     }
 }
@@ -130,35 +133,35 @@ impl UsbDevice for MockHal {
     fn is_suspended(&self) -> bool { self.usb_suspended.get() }
     fn remote_wakeup(&self) {}
     fn hid_ready(&self, instance: u8) -> bool { self.hid_ready_map.get() & (1 << instance) != 0 }
-    fn send_keyboard_report(&self, _report_id: u8, _modifier: u8, _keycode: *const u8) -> bool { true }
+    fn send_keyboard_report(&self, _report_id: u8, _modifier: u8, _keycode: &[u8]) -> bool { true }
     fn send_mouse_report(&self, _mode: u8, _buttons: u8, _x: i16, _y: i16, _wheel: i8, _pan: i8) -> bool { true }
 }
 
 // ---- ReportQueue ----
 
 impl ReportQueue for MockHal {
-    fn push_mouse_report(&self, report: *const u8) {
+    fn push_mouse_report(&self, report: &[u8]) {
         self.mouse_reports.borrow_mut().push(Self::copy_buf::<8>(report));
     }
-    fn push_kbd_report(&self, report: *const u8) {
+    fn push_kbd_report(&self, report: &[u8]) {
         self.kbd_reports.borrow_mut().push(Self::copy_buf::<8>(report));
     }
-    fn peek_kbd_report(&self, out: *mut u8) -> bool { Self::peek_from(&self.kbd_queue_in, out) }
-    fn pop_kbd_report(&self, out: *mut u8) -> bool { Self::pop_from(&self.kbd_queue_in, out) }
-    fn peek_mouse_report(&self, out: *mut u8) -> bool { Self::peek_from(&self.mouse_queue_in, out) }
-    fn pop_mouse_report(&self, out: *mut u8) -> bool { Self::pop_from(&self.mouse_queue_in, out) }
+    fn peek_kbd_report(&self, out: &mut [u8]) -> bool { Self::peek_from(&self.kbd_queue_in, out) }
+    fn pop_kbd_report(&self, out: &mut [u8]) -> bool { Self::pop_from(&self.kbd_queue_in, out) }
+    fn peek_mouse_report(&self, out: &mut [u8]) -> bool { Self::peek_from(&self.mouse_queue_in, out) }
+    fn pop_mouse_report(&self, out: &mut [u8]) -> bool { Self::pop_from(&self.mouse_queue_in, out) }
 }
 
 // ---- PacketQueue ----
 
 impl PacketQueue for MockHal {
-    fn push_consumer_control(&self, payload: *const u8) {
+    fn push_consumer_control(&self, payload: &[u8]) {
         self.cc_packets.borrow_mut().push(Self::copy_buf::<4>(payload));
     }
-    fn push_system_control(&self, payload: *const u8) {
+    fn push_system_control(&self, payload: &[u8]) {
         self.system_packets.borrow_mut().push(Self::copy_buf::<2>(payload));
     }
-    fn push_config_packet(&self, packet: *const u8) {
+    fn push_config_packet(&self, packet: &[u8]) {
         self.config_packets.borrow_mut().push(Self::copy_buf::<10>(packet));
     }
 }
@@ -169,16 +172,14 @@ impl PeerLink for MockHal {
     fn send_value(&self, value: u8, packet_type: u8) {
         self.sent_values.borrow_mut().push((value, packet_type));
     }
-    fn send_packet(&self, data: *const u8, packet_type: u8, length: i32) {
-        let mut buf = alloc::vec![0u8; length as usize];
-        unsafe { core::ptr::copy_nonoverlapping(data, buf.as_mut_ptr(), length as usize); }
-        self.sent_packets.borrow_mut().push((buf, packet_type, length));
+    fn send_packet(&self, data: &[u8], packet_type: u8) {
+        self.sent_packets.borrow_mut().push((data.to_vec(), packet_type));
     }
-    fn enqueue(&self, packet: *const u8) {
+    fn enqueue(&self, packet: &[u8]) {
         self.outbound_packets.borrow_mut().push(Self::copy_buf::<10>(packet));
     }
-    fn try_enqueue(&self, _data: *const u8) -> bool { true }
-    fn dequeue(&self, out: *mut u8) -> bool {
+    fn try_enqueue(&self, _data: &[u8]) -> bool { true }
+    fn dequeue(&self, out: &mut [u8]) -> bool {
         Self::pop_from(&self.outbound_queue_in, out)
     }
 }
@@ -187,10 +188,8 @@ impl PeerLink for MockHal {
 
 impl Transfer for MockHal {
     fn is_busy(&self) -> bool { self.tx_busy.get() }
-    fn transmit(&self, buf: *const u8, len: u32) {
-        let mut data = alloc::vec![0u8; len as usize];
-        unsafe { core::ptr::copy_nonoverlapping(buf, data.as_mut_ptr(), len as usize); }
-        self.transmitted.borrow_mut().push((data, len));
+    fn transmit(&self, buf: &[u8]) {
+        self.transmitted.borrow_mut().push((buf.to_vec(), buf.len() as u32));
     }
 }
 

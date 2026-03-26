@@ -367,7 +367,7 @@ pub unsafe extern "C" fn rust_screen_border_hotkey(dev: *mut c_void) {
     }
     let b = &state.config.output[idx].border;
     let bytes = border_to_bytes(b.top, b.bottom);
-    hal.send_packet(bytes.as_ptr(), PacketType::SyncBorders as u8, 8);
+    hal.send_packet(&bytes, PacketType::SyncBorders as u8);
 }
 
 #[no_mangle]
@@ -379,11 +379,11 @@ pub unsafe extern "C" fn rust_screenlock_handler(dev: *mut c_void) {
             let mut report = [0u8; 8];
             report[0] = modifier; report[2] = key;
             if state.board_role == out {
-                hal.push_kbd_report(report.as_ptr());
+                hal.push_kbd_report(&report);
                 crate::service::backend::host_link::release_all_keys(state, &hal);
             } else {
-                hal.send_packet(report.as_ptr(), PacketType::KeyboardReport as u8, 8);
-                hal.send_packet([0u8; 8].as_ptr(), PacketType::KeyboardReport as u8, 8);
+                hal.send_packet(&report, PacketType::KeyboardReport as u8);
+                hal.send_packet(&[0u8; 8], PacketType::KeyboardReport as u8);
             }
         }
     }
@@ -440,7 +440,8 @@ pub unsafe extern "C" fn rust_send_consumer_control(dev: *mut c_void, raw_report
     if raw_report.is_null() { return; }
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    hal.route_consumer(state, raw_report);
+    let slice = core::slice::from_raw_parts(raw_report, 4);
+    hal.route_consumer(state, slice);
 }
 
 #[no_mangle]
@@ -448,7 +449,8 @@ pub unsafe extern "C" fn rust_send_system_control(dev: *mut c_void, raw_report: 
     if raw_report.is_null() { return; }
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    hal.route_system(state, raw_report);
+    let slice = core::slice::from_raw_parts(raw_report, 2);
+    hal.route_system(state, slice);
 }
 
 // ============================================================
@@ -474,7 +476,7 @@ pub unsafe extern "C" fn rust_handle_request_byte(data: *mut u8) {
     let address = u32::from_le_bytes([*data, *data.add(1), *data.add(2), *data.add(3)]);
     if let Some(response) = crate::service::fw_upgrade::send_fw_byte(state, &hal, address) {
         core::ptr::copy_nonoverlapping(response.as_ptr(), data, 8);
-        hal.send_packet(data, PacketType::ResponseByte as u8, 8);
+        hal.send_packet(&response, PacketType::ResponseByte as u8);
     }
 }
 

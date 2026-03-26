@@ -13,11 +13,11 @@ pub fn send_pending_kbd(
 ) {
     if !state.usb_connected { return; }
     let mut report = [0u8; 8];
-    if !hal.peek_kbd_report(report.as_mut_ptr()) { return; }
+    if !hal.peek_kbd_report(&mut report) { return; }
     if hal.is_suspended() { hal.remote_wakeup(); }
     if !hal.hid_ready(ITF_NUM_HID) { return; }
-    if hal.send_keyboard_report(1, report[0], report[2..].as_ptr()) {
-        hal.pop_kbd_report(report.as_mut_ptr());
+    if hal.send_keyboard_report(1, report[0], &report[2..]) {
+        hal.pop_kbd_report(&mut report);
     }
 }
 
@@ -28,7 +28,7 @@ pub fn send_pending_mouse(
 ) {
     if !state.usb_connected { return; }
     let mut r = [0u8; 8];
-    if !hal.peek_mouse_report(r.as_mut_ptr()) { return; }
+    if !hal.peek_mouse_report(&mut r) { return; }
     if hal.is_suspended() { hal.remote_wakeup(); }
     if !hal.hid_ready(ITF_NUM_HID) { return; }
     if hal.send_mouse_report(
@@ -36,7 +36,7 @@ pub fn send_pending_mouse(
         i16::from_le_bytes([r[1], r[2]]), i16::from_le_bytes([r[3], r[4]]),
         r[5] as i8, r[6] as i8,
     ) {
-        hal.pop_mouse_report(r.as_mut_ptr());
+        hal.pop_mouse_report(&mut r);
     }
 }
 
@@ -47,7 +47,8 @@ pub fn release_all_keys(
 ) {
     crate::domain::kbd_state::release_all_keys(state);
     let empty = crate::domain::structs::HidKeyboardReport::default();
-    hal.push_kbd_report(&empty as *const _ as *const u8);
+    let bytes = unsafe { core::slice::from_raw_parts(&empty as *const _ as *const u8, core::mem::size_of::<crate::domain::structs::HidKeyboardReport>()) };
+    hal.push_kbd_report(bytes);
 }
 
 #[cfg(test)]

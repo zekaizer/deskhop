@@ -55,7 +55,8 @@ pub fn route_combined(
     hal: &impl ReportRouter,
 ) {
     let combined = kbd_state::combine_kbd_states(state);
-    hal.route_kbd(state, &combined as *const _ as *const u8);
+    let bytes = unsafe { core::slice::from_raw_parts(&combined as *const _ as *const u8, core::mem::size_of::<HidKeyboardReport>()) };
+    hal.route_kbd(state, bytes);
 }
 
 #[cfg(test)]

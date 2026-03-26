@@ -50,7 +50,7 @@ pub fn process_report(
         report.mode,
     ];
 
-    hal.route_mouse(state, report_bytes.as_ptr());
+    hal.route_mouse(state, &report_bytes);
 
     if dir != SwitchDirection::None {
         do_screen_switch(state, hal, dir);
@@ -147,9 +147,9 @@ pub fn switch_to_peer(
 /// Route a mouse report based on active output (without timestamp — used for switch animations).
 fn output_report_raw(hal: &(impl ReportQueue + PeerLink), state: &Device, report: &[u8; 8]) {
     if state.is_active_output() {
-        hal.push_mouse_report(report.as_ptr());
+        hal.push_mouse_report(report);
     } else {
-        hal.send_packet(report.as_ptr(), PacketType::MouseReport as u8, 8);
+        hal.send_packet(report, PacketType::MouseReport as u8);
     }
 }
 

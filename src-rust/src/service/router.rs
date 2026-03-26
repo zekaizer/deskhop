@@ -3,45 +3,45 @@
 // Centralizes the is_active_output() branching scattered across ffi/ modules.
 
 use crate::domain::constants::PacketType;
-use crate::domain::structs::{Device, KBD_REPORT_LENGTH};
+use crate::domain::structs::Device;
 use crate::hal::traits::*;
 
 /// Automatic report routing based on active output state.
 /// Blanket-implemented for any type satisfying the required HAL traits.
 pub trait ReportRouter: ReportQueue + PacketQueue + PeerLink + Timer {
-    fn route_mouse(&self, state: &mut Device, report: *const u8) {
+    fn route_mouse(&self, state: &mut Device, report: &[u8]) {
         if state.is_active_output() {
             self.push_mouse_report(report);
             self.touch_activity(state);
         } else {
-            self.send_packet(report, PacketType::MouseReport as u8, 8);
+            self.send_packet(report, PacketType::MouseReport as u8);
         }
     }
 
-    fn route_kbd(&self, state: &mut Device, report: *const u8) {
+    fn route_kbd(&self, state: &mut Device, report: &[u8]) {
         if state.is_active_output() {
             self.push_kbd_report(report);
             self.touch_activity(state);
         } else {
-            self.send_packet(report, PacketType::KeyboardReport as u8, KBD_REPORT_LENGTH as i32);
+            self.send_packet(report, PacketType::KeyboardReport as u8);
         }
     }
 
-    fn route_consumer(&self, state: &mut Device, report: *const u8) {
+    fn route_consumer(&self, state: &mut Device, report: &[u8]) {
         if state.is_active_output() {
             self.push_consumer_control(report);
             self.touch_activity(state);
         } else {
-            self.send_packet(report, PacketType::ConsumerControl as u8, 4);
+            self.send_packet(report, PacketType::ConsumerControl as u8);
         }
     }
 
-    fn route_system(&self, state: &mut Device, report: *const u8) {
+    fn route_system(&self, state: &mut Device, report: &[u8]) {
         if state.is_active_output() {
             self.push_system_control(report);
             self.touch_activity(state);
         } else {
-            self.send_packet(report, PacketType::SystemControl as u8, 1);
+            self.send_packet(report, PacketType::SystemControl as u8);
         }
     }
 
@@ -70,7 +70,7 @@ mod tests {
         state.active_output = 0; // active
 
         let report = [1u8, 10, 0, 20, 0, 0, 0, 0];
-        hal.route_mouse(&mut state, report.as_ptr());
+        hal.route_mouse(&mut state, &report);
 
         assert_eq!(hal.mouse_reports.borrow().len(), 1);
         assert_eq!(state.last_activity[0], 1_000_000);
@@ -86,7 +86,7 @@ mod tests {
         state.active_output = 1; // inactive
 
         let report = [1u8, 10, 0, 20, 0, 0, 0, 0];
-        hal.route_mouse(&mut state, report.as_ptr());
+        hal.route_mouse(&mut state, &report);
 
         assert!(hal.mouse_reports.borrow().is_empty());
         assert_eq!(hal.sent_packets.borrow().len(), 1);
@@ -102,7 +102,7 @@ mod tests {
         state.active_output = 0; // active
 
         let report = [0x01u8, 0, 0x04, 0, 0, 0, 0, 0];
-        hal.route_kbd(&mut state, report.as_ptr());
+        hal.route_kbd(&mut state, &report);
 
         assert_eq!(hal.kbd_reports.borrow().len(), 1);
         assert_eq!(state.last_activity[0], 3_000_000);
