@@ -92,16 +92,6 @@ pub unsafe extern "C" fn rust_hal_get_field_map(
     }
 }
 
-#[export_name = "hal_api_read_field"]
-pub unsafe extern "C" fn rust_hal_api_read_field(_offset: u32, _len: u32, _out: *mut u8) {
-    // Legacy -- not used by Rust api_config path
-}
-
-#[export_name = "hal_api_write_field"]
-pub unsafe extern "C" fn rust_hal_api_write_field(_offset: u32, _len: u32, _data: *const u8) {
-    // Legacy -- not used by Rust api_config path
-}
-
 // Thin FFI wrappers — create PicoHal and delegate to service layer
 pub unsafe fn handle_api_msg(ptype: u8, api_idx: u8, data: *const u8, dev: *mut core::ffi::c_void) {
     let state = crate::domain::structs::device_from_ptr(dev);

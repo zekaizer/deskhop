@@ -3,6 +3,7 @@
 use core::ffi::c_void;
 use crate::domain::constants::PacketType;
 use crate::domain::actions::{get_border_position, border_to_bytes, BorderUpdate};
+use crate::domain::hid_routing;
 use crate::domain::keyboard::HotkeyAction;
 use crate::domain::mouse_logic;
 use crate::domain::hid_parser::{self, ReportVal};
@@ -87,34 +88,13 @@ pub unsafe extern "C" fn rust_process_consumer_report(
     if raw_report.is_null() || iface.is_null() || length < 2 { return; }
     let ifc = iface_from_ptr(iface);
 
-    let mut new_report = [0u8; 4]; // CONSUMER_CONTROL_LENGTH
+    let raw = core::slice::from_raw_parts(raw_report, length as usize);
+    let report_id = *raw_report;
+    let kbd = get_keyboard(ifc, report_id);
+    let new_report = hid_routing::parse_consumer_report(
+        raw, ifc.consumer.is_variable, &kbd.cc_array,
+    );
 
-    if ifc.consumer.is_variable {
-        let report_id = *raw_report;
-        let kbd = get_keyboard(ifc, report_id);
-        let max_buttons = 16i32; // MAX_CC_BUTTONS
-        let max_bits = 8 * (length - 1);
-        let limit = if max_buttons < max_bits { max_buttons } else { max_bits };
-
-        for i in 0..limit {
-            let bit_idx = i % 8;
-            let byte_idx = i >> 3;
-            if (*raw_report.add((byte_idx + 1) as usize) >> bit_idx) & 1 != 0 {
-                let idx = i as usize;
-                if idx < kbd.cc_array.len() {
-                    let cc_val = kbd.cc_array[idx];
-                    new_report[0] = (cc_val & 0xFF) as u8;
-                    new_report[1] = ((cc_val >> 8) & 0xFF) as u8;
-                }
-            }
-        }
-    } else {
-        for i in 0..core::cmp::min((length - 1) as usize, 4) {
-            new_report[i] = *raw_report.add(i + 1);
-        }
-    }
-
-    // Route: local queue if active output, UART if not
     let dev = crate::domain::structs::get_global_device() as *mut _ as *mut c_void;
     rust_send_consumer_control(dev, new_report.as_ptr());
 }

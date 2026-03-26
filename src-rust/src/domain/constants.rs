@@ -9,10 +9,6 @@ pub const CHECKSUM_LENGTH: usize = 1;
 pub const PACKET_LENGTH: usize = TYPE_LENGTH + PACKET_DATA_LENGTH + CHECKSUM_LENGTH;
 pub const RAW_PACKET_LENGTH: usize = START_LENGTH + PACKET_LENGTH;
 
-// Output identifiers
-pub const OUTPUT_A: u8 = 0;
-pub const OUTPUT_B: u8 = 1;
-
 // Mouse modes
 pub const ABSOLUTE: u8 = 0;
 pub const RELATIVE: u8 = 1;
@@ -21,7 +17,7 @@ pub const RELATIVE: u8 = 1;
 pub const OS_LINUX: u8 = 1;
 pub const OS_MACOS: u8 = 2;
 pub const OS_WINDOWS: u8 = 3;
-pub const OS_ANDROID: u8 = 4;
+
 
 // HID keyboard modifiers (from TinyUSB hid.h)
 pub const KEYBOARD_MODIFIER_LEFTCTRL: u8 = 0x01;
@@ -59,11 +55,6 @@ pub const NUM_SCREENS: usize = 2;
 
 // HID interface numbers
 pub const ITF_NUM_HID: u8 = 0;
-pub const ITF_NUM_HID_REL_M: u8 = 1;
-pub const ITF_NUM_HID_VENDOR: u8 = 2;
-
-// DMA ring buffer
-pub const DMA_RX_BUFFER_SIZE: u32 = 1024;
 
 /// UART packet types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

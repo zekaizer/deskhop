@@ -64,6 +64,9 @@ extern "C" {
     pub fn hal_debug_dump_state(dev: *mut c_void);
 
     // ---- Pico SDK direct ----
+    // Unused from Rust (PicoHal::kick() calls hal_watchdog_update instead),
+    // but kept for potential C linkage.
+    #[allow(dead_code)]
     pub fn watchdog_update();
     pub fn hal_queue_cfg_packet(dev: *mut c_void, packet: *const u8);
 
