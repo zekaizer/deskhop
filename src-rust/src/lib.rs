@@ -88,6 +88,10 @@ pub extern "C" fn rust_core1_loop(dev: *mut c_void) -> ! {
     ];
 
     loop {
+        // SAFETY(dual-core): u64 write is NOT atomic on Cortex-M0+. Core0 reads
+        // this field in check_system_health() (service/tasks.rs). A torn read may
+        // yield a stale timestamp, causing at most one missed watchdog kick or one
+        // false hang detection. This is tolerable — the next iteration corrects it.
         unsafe {
             let device = domain::structs::device_from_ptr(dev);
             device.core1_last_loop_pass = hal.now_us_64();

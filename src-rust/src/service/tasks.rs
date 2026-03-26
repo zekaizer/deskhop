@@ -12,6 +12,11 @@ use crate::hal::traits::*;
 const CORE1_HANG_TIMEOUT_US: u64 = 500_000;
 
 /// Check core1 liveness and refresh system health. Returns true if healthy.
+///
+/// SAFETY(dual-core): `core1_last_loop_pass` is a u64 written by Core1 and read
+/// here on Core0. On Cortex-M0+ u64 reads are not atomic — a torn read could
+/// yield a garbage timestamp. Worst case: one false hang detection (no kick) or
+/// one spurious kick. Both are tolerable and self-correct on the next iteration.
 pub fn check_system_health(
     state: &Device,
     hal: &(impl Timer + Watchdog),

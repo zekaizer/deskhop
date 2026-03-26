@@ -227,67 +227,85 @@ pub struct QueueOpaque {
 
 /* ================================================================== *
  * structs.h — device_t (the main state struct)
+ *
+ * # Core Ownership Model (RP2040 dual-core)
+ *
+ * Core0 runs USB device tasks + main loop (keyboard/mouse pipelines,
+ * hotkey dispatch, config API, UART TX).
+ * Core1 runs USB host tasks + peripheral loop (packet RX, LED, screensaver,
+ * firmware upgrade, heartbeat).
+ *
+ * Field annotations:
+ *   [C0]     = Core0-exclusive write (USB callbacks, kbd/mouse pipeline)
+ *   [C1]     = Core1-exclusive write (host tasks, LED task)
+ *   [Shared] = Cross-core read; writer listed first
+ *   [Init]   = Written once at startup, then read-only
+ *
+ * Cross-core u8/bool/i16 fields are naturally atomic on Cortex-M0+
+ * (aligned single-byte or halfword access). u64 fields are NOT atomic
+ * — torn reads are possible but tolerable (see SAFETY comments in
+ * lib.rs and service/tasks.rs).
  * ================================================================== */
 
 #[repr(C)]
 pub struct Device {
-    pub kbd_dev_addr: u8,
-    pub kbd_instance: u8,
+    pub kbd_dev_addr: u8,                                       // [C0] USB host mount
+    pub kbd_instance: u8,                                       // [C0] USB host mount
 
-    pub keyboard_leds: [u8; NUM_SCREENS],
-    pub last_activity: [u64; NUM_SCREENS],
-    pub core1_last_loop_pass: u64,
-    pub active_output: u8,
-    pub board_role: u8,
+    pub keyboard_leds: [u8; NUM_SCREENS],                       // [C0] msg_bridge
+    pub last_activity: [u64; NUM_SCREENS],                      // [Shared] C0 writes, C1 reads (screensaver)
+    pub core1_last_loop_pass: u64,                              // [Shared] C1 writes, C0 reads (health check)
+    pub active_output: u8,                                      // [Shared] C0 writes, C1 reads (atomic u8)
+    pub board_role: u8,                                         // [Init]
 
-    pub local_kbd_states: [HidKeyboardReport; MAX_DEVICES],
-    pub remote_kbd_state: HidKeyboardReport,
-    pub max_kbd_idx: u8,
+    pub local_kbd_states: [HidKeyboardReport; MAX_DEVICES],     // [C0] kbd_pipeline
+    pub remote_kbd_state: HidKeyboardReport,                    // [C0] msg_bridge
+    pub max_kbd_idx: u8,                                        // [C0] kbd_pipeline
 
-    pub pointer_x: i16,
-    pub pointer_y: i16,
-    pub mouse_buttons: i16,
+    pub pointer_x: i16,                                         // [Shared] C0 writes, C1 reads (atomic i16)
+    pub pointer_y: i16,                                         // [Shared] C0 writes, C1 reads (atomic i16)
+    pub mouse_buttons: i16,                                     // [C0] mouse_pipeline
 
-    pub config: Config,
-    pub hid_queue_out: QueueOpaque,
-    pub kbd_queue: QueueOpaque,
-    pub mouse_queue: QueueOpaque,
-    pub uart_tx_queue: QueueOpaque,
+    pub config: Config,                                         // [C0] config_api, hotkey_dispatch
+    pub hid_queue_out: QueueOpaque,                             // [C0] queue ops (Pico SDK thread-safe)
+    pub kbd_queue: QueueOpaque,                                 // [C0] queue ops (Pico SDK thread-safe)
+    pub mouse_queue: QueueOpaque,                               // [C0] queue ops (Pico SDK thread-safe)
+    pub uart_tx_queue: QueueOpaque,                             // [C0] queue ops (Pico SDK thread-safe)
 
-    pub iface: [[HidInterface; MAX_INTERFACES]; MAX_DEVICES],
-    pub in_packet: UartPacketC,
+    pub iface: [[HidInterface; MAX_INTERFACES]; MAX_DEVICES],   // [C0] HID parser, extract_data
+    pub in_packet: UartPacketC,                                 // [C1] packet_receiver_task
 
-    // DMA
-    pub dma_ptr: u32,
-    pub dma_rx_channel: u32,
-    pub dma_control_channel: u32,
-    pub dma_tx_channel: u32,
+    // DMA — accessed only by C code on respective cores
+    pub dma_ptr: u32,                                           // [C1] DMA ring buffer
+    pub dma_rx_channel: u32,                                    // [Init]
+    pub dma_control_channel: u32,                               // [Init]
+    pub dma_tx_channel: u32,                                    // [Init]
 
     // Firmware
-    pub fw: FwUpgradeState,
-    pub running_fw: FirmwareMetadata,
-    pub reboot_requested: bool,
-    pub config_mode_timer: u64,
+    pub fw: FwUpgradeState,                                     // [C0] fw_upgrade service
+    pub running_fw: FirmwareMetadata,                           // [Init]
+    pub reboot_requested: bool,                                 // [C0] hotkey_dispatch
+    pub config_mode_timer: u64,                                 // [C0] heartbeat task
 
-    pub page_buffer: [u8; FLASH_PAGE_SIZE],
+    pub page_buffer: [u8; FLASH_PAGE_SIZE],                     // [C0] fw_upgrade
 
     // Connection status
-    pub usb_connected: bool,
-    pub keyboard_connected: bool,
-    pub mouse_connected: bool,
+    pub usb_connected: bool,                                    // [C0] USB callbacks (atomic bool)
+    pub keyboard_connected: bool,                               // [C0] USB callbacks
+    pub mouse_connected: bool,                                  // [C0] USB callbacks
 
     // Feature flags
-    pub mouse_zoom: bool,
-    pub switch_lock: bool,
-    pub onboard_led_state: bool,
-    pub relative_mouse: bool,
-    pub gaming_mode: bool,
-    pub config_mode_active: bool,
-    pub digitizer_active: bool,
+    pub mouse_zoom: bool,                                       // [C0] hotkey_dispatch
+    pub switch_lock: bool,                                      // [C0] hotkey_dispatch
+    pub onboard_led_state: bool,                                // [C1] LED task
+    pub relative_mouse: bool,                                   // [C0] hotkey_dispatch
+    pub gaming_mode: bool,                                      // [C0] hotkey_dispatch
+    pub config_mode_active: bool,                               // [C0] hotkey_dispatch
+    pub digitizer_active: bool,                                 // [C0] hotkey_dispatch
 
     // LED blinky
-    pub blinks_left: i32,
-    pub last_led_change: i32,
+    pub blinks_left: i32,                                       // [C1] LED task
+    pub last_led_change: i32,                                   // [C1] LED task
 }
 
 impl Device {
@@ -339,7 +357,12 @@ pub fn set_global_device(dev: *mut core::ffi::c_void) {
 }
 
 /// Get device reference from the stored global pointer.
-/// SAFETY: set_global_device must have been called first.
+///
+/// # Safety
+/// - `set_global_device` must have been called first with a valid device_t*.
+/// - **Core0 only.** All current call sites are USB callbacks on Core0.
+///   Core1 receives its device pointer via the `dev` parameter in rust_core1_loop.
+///   Calling from Core1 would create aliased `&mut Device`, which is UB.
 pub unsafe fn get_global_device<'a>() -> &'a mut Device {
     &mut *GLOBAL_DEVICE_PTR.load(Ordering::Acquire)
 }
