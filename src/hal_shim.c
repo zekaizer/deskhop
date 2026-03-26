@@ -103,6 +103,17 @@ void blink_led(device_t *state) {
     state->last_led_change = time_us_32();
 }
 
+/* UART packet + output control — moved from uart.c */
+void queue_packet(const uint8_t *d, enum packet_type_e t, int l) {
+    uart_packet_t p = {.type = t}; memcpy(p.data, d, l);
+    queue_try_add(&global_state.uart_tx_queue, &p);
+}
+void send_value(const uint8_t v, enum packet_type_e t) { queue_packet(&v, t, sizeof(uint8_t)); }
+
+void set_active_output(device_t *s, uint8_t o) {
+    s->active_output = o; restore_leds(s); send_value(o, OUTPUT_SELECT_MSG); release_all_keys(s);
+}
+
 void hal_watchdog_update(void) { watchdog_update(); }
 
 void hal_reset_usb_boot(void) {
@@ -170,8 +181,18 @@ void hal_set_report_handler(void *iface, uint8_t report_id, uint8_t handler_type
         case 3: i->report_handler[report_id] = process_system_report; break;
     }
 }
-void hal_queue_cc_packet(device_t *dev, const uint8_t *payload) { queue_cc_packet((uint8_t *)payload, dev); }
-void hal_queue_system_packet(device_t *dev, const uint8_t *payload) { queue_system_packet((uint8_t *)payload, dev); }
+/* HID generic packet queuing — inlined from uart.c */
+static void _queue_packet(const uint8_t *p, device_t *s, uint8_t t, uint8_t l, uint8_t id, uint8_t inst) {
+    hid_generic_pkt_t g = { .instance=inst, .report_id=id, .type=t, .len=l };
+    memcpy(g.data, p, l);
+    queue_try_add(&s->hid_queue_out, &g);
+}
+void hal_queue_cc_packet(device_t *dev, const uint8_t *payload) {
+    _queue_packet(payload, dev, 1, CONSUMER_CONTROL_LENGTH, REPORT_ID_CONSUMER, ITF_NUM_HID);
+}
+void hal_queue_system_packet(device_t *dev, const uint8_t *payload) {
+    _queue_packet(payload, dev, 2, SYSTEM_CONTROL_LENGTH, REPORT_ID_SYSTEM, ITF_NUM_HID);
+}
 
 
 /* ==================================================== *
@@ -207,7 +228,9 @@ uint32_t hal_read_fw_running_u32(uint32_t address) {
 }
 
 void hal_queue_cfg_packet(device_t *dev, const uint8_t *packet) {
-    queue_cfg_packet((uart_packet_t *)packet, dev);
+    uint8_t r[RAW_PACKET_LENGTH];
+    write_raw_packet(r, (uart_packet_t *)packet);
+    _queue_packet(r, dev, 0, RAW_PACKET_LENGTH, REPORT_ID_VENDOR, ITF_NUM_HID_VENDOR);
 }
 
 /* API field map + access moved to Rust (hal/ffi/api_config.rs) */
