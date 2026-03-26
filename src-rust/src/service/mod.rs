@@ -7,5 +7,6 @@ pub mod frontend;
 pub mod fw_upgrade;
 pub mod hotkey_dispatch;
 pub mod msg_bridge;
+pub mod packet_dispatch;
 pub mod router;
 pub mod tasks;
