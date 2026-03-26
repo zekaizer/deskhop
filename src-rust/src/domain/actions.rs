@@ -16,6 +16,13 @@ pub enum BorderUpdate {
     Bottom(i32),
 }
 
+/// Serialize top/bottom border values into 8-byte LE representation.
+pub fn border_to_bytes(top: i32, bottom: i32) -> [u8; 8] {
+    let t = top.to_le_bytes();
+    let b = bottom.to_le_bytes();
+    [t[0], t[1], t[2], t[3], b[0], b[1], b[2], b[3]]
+}
+
 /// Firmware upgrade state
 #[derive(Debug, Clone, Copy)]
 pub struct FwUpgradeState {

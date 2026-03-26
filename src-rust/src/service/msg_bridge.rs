@@ -1,7 +1,7 @@
 // Message bridge — handles messages received from the peer board via inter-board link.
 // Processes keyboard/mouse reports, output selection, and border synchronization.
 
-use crate::domain::actions::{get_border_position, BorderUpdate};
+use crate::domain::actions::{get_border_position, border_to_bytes, BorderUpdate};
 use crate::domain::constants::PacketType;
 use crate::domain::kbd_state;
 use crate::domain::msg_handlers;
@@ -81,12 +81,6 @@ pub fn handle_sync_borders(
     }
 
     hal.save();
-}
-
-fn border_to_bytes(top: i32, bottom: i32) -> [u8; 8] {
-    let t = top.to_le_bytes();
-    let b = bottom.to_le_bytes();
-    [t[0], t[1], t[2], t[3], b[0], b[1], b[2], b[3]]
 }
 
 #[cfg(test)]

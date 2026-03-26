@@ -48,7 +48,7 @@ pub fn receive_fw_byte(
 
 /// Read one firmware word and send it back to the peer as a response.
 pub fn send_fw_byte(
-    state: &Device,
+    _state: &Device,
     hal: &(impl ConfigStore + PeerLink),
     address: u32,
 ) -> Option<[u8; 8]> {

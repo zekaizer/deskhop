@@ -1,9 +1,8 @@
 // Keyboard input pipeline — hotkey detection, state combination, and routing.
 
-use crate::domain::keyboard::{self, KeyboardReport, HotkeyMatch};
+use crate::domain::keyboard::{self, KeyboardReport};
 use crate::domain::kbd_state;
 use crate::domain::structs::{Device, HidKeyboardReport};
-use crate::hal::traits::*;
 use crate::service::router::ReportRouter;
 
 /// Result of processing a keyboard report.

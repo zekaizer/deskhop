@@ -1,16 +1,12 @@
 // USB/UART callback FFI — all functions called from usb.c/uart.c callbacks.
 
 use core::ffi::c_void;
-use crate::domain::constants::{PacketType, MAX_SCREEN_COORD, MIN_SCREEN_COORD, ABSOLUTE, RELATIVE};
-use crate::domain::actions::{get_border_position, BorderUpdate};
+use crate::domain::constants::PacketType;
+use crate::domain::actions::{get_border_position, border_to_bytes, BorderUpdate};
 use crate::domain::keyboard::HotkeyAction;
-use crate::domain::mouse;
 use crate::domain::mouse_logic;
-use crate::domain::hid_parser::{self, ReportVal, CONSTANT, VARIABLE, ARRAY};
-use crate::domain::hid_classify::{classify_report_val, is_padding, ExtractedType};
-use crate::domain::structs::{self, iface_from_ptr, get_keyboard, HidInterface,
-                              KBD_REPORT_LENGTH, MAX_REPORTS, MAX_KEYBOARDS, MAX_KEYS,
-                              MAX_CC_BUTTONS};
+use crate::domain::hid_parser::{self, ReportVal};
+use crate::domain::structs::{iface_from_ptr, get_keyboard, KBD_REPORT_LENGTH};
 use crate::hal::device;
 use crate::hal::traits::*;
 use crate::service::router::ReportRouter;
@@ -18,12 +14,6 @@ use crate::service::router::ReportRouter;
 // ============================================================
 // Shared helpers
 // ============================================================
-
-fn border_to_bytes(top: i32, bottom: i32) -> [u8; 8] {
-    let t = top.to_le_bytes();
-    let b = bottom.to_le_bytes();
-    [t[0], t[1], t[2], t[3], b[0], b[1], b[2], b[3]]
-}
 
 unsafe fn hal_from(dev: *mut c_void) -> crate::hal::pico::PicoHal {
     crate::hal::pico::PicoHal::new(dev)
@@ -605,269 +595,50 @@ pub unsafe extern "C" fn rust_parse_report_descriptor(
 }
 
 // ============================================================
-// Keyboard data extraction (from kbd_extract.rs)
+// Keyboard data extraction — thin FFI wrapper over domain::kbd_extract
 // ============================================================
 
-const KBD_EXTRACT_REPORT_LENGTH: usize = 8;
-const KBD_EXTRACT_MAX_KEYS: usize = 32;
-const KEYS_IN_USB_REPORT: usize = 6;
-const MODIFIER_BIT_LENGTH: u16 = 8;
-const HID_PROTOCOL_BOOT: u8 = 0;
-
-/// Full extract_kbd_data -- replaces C implementation.
+/// Full extract_kbd_data -- FFI entry point.
+/// Converts raw pointers to slices and delegates to domain::kbd_extract.
 #[no_mangle]
 pub unsafe extern "C" fn rust_extract_kbd_data(
     raw_report: *mut u8,
-    _len: i32,
+    len: i32,
     _itf: u8,
     iface_ptr: *mut c_void,
     out_report: *mut u8,
 ) -> i32 {
-    if raw_report.is_null() || iface_ptr.is_null() || out_report.is_null() || _len < 8 {
+    if raw_report.is_null() || iface_ptr.is_null() || out_report.is_null() || len < 8 {
         return 0;
     }
 
-    core::ptr::write_bytes(out_report, 0, KBD_EXTRACT_REPORT_LENGTH);
-
+    let report_slice = core::slice::from_raw_parts(raw_report, len as usize);
     let iface = iface_from_ptr(iface_ptr);
     let report_id = *raw_report;
-
-    if iface.protocol == HID_PROTOCOL_BOOT {
-        return extract_kbd_boot(raw_report, _len, out_report);
-    }
-
     let kbd = get_keyboard(iface, report_id);
-    if kbd.is_nkro {
-        return extract_kbd_nkro(raw_report, _len as usize, iface, kbd, out_report);
-    }
 
-    if !iface.uses_report_id && (_len == KBD_EXTRACT_REPORT_LENGTH as i32 || _len == KBD_EXTRACT_REPORT_LENGTH as i32 + 1) {
-        return extract_kbd_boot(raw_report, _len, out_report);
-    }
-
-    extract_kbd_other(raw_report, iface, kbd, out_report)
-}
-
-unsafe fn extract_kbd_boot(raw_report: *const u8, len: i32, out: *mut u8) -> i32 {
-    let src = if len == KBD_EXTRACT_REPORT_LENGTH as i32 + 1 {
-        raw_report.add(1)
-    } else {
-        raw_report
-    };
-    core::ptr::copy_nonoverlapping(src, out, KBD_EXTRACT_REPORT_LENGTH);
-    KBD_EXTRACT_REPORT_LENGTH as i32
-}
-
-unsafe fn extract_kbd_other(
-    raw_report: *const u8,
-    iface: &HidInterface,
-    kbd: &structs::KeyboardDescriptor,
-    out: *mut u8,
-) -> i32 {
-    let mut src = raw_report;
-    if iface.uses_report_id {
-        src = src.add(1);
-    }
-
-    let mod_offset = { kbd.modifier.offset_idx } as usize;
-    *out = *src.add(mod_offset);
-
-    let mut j = 0usize;
-    for i in 0..KBD_EXTRACT_MAX_KEYS {
-        if j >= KEYS_IN_USB_REPORT { break; }
-        if kbd.key_array[i] {
-            *out.add(2 + j) = *src.add(i);
-            j += 1;
-        }
-    }
-
-    KBD_EXTRACT_REPORT_LENGTH as i32
-}
-
-unsafe fn extract_kbd_nkro(
-    raw_report: *const u8, len: usize,
-    iface: &HidInterface,
-    kbd: &structs::KeyboardDescriptor,
-    out: *mut u8,
-) -> i32 {
-    let usage_min = { kbd.nkro.usage_min };
-    let usage_max = { kbd.nkro.usage_max };
-    let nkro_size = { kbd.nkro.size };
-
-    if (usage_max - usage_min + 1) != nkro_size as i32 {
-        return -1;
-    }
-
-    let mod_size = { kbd.modifier.size };
-    if mod_size != MODIFIER_BIT_LENGTH {
-        return -1;
-    }
-
-    let mut ptr = raw_report;
-    if iface.uses_report_id {
-        ptr = ptr.add(1);
-    }
-
-    let mod_offset = { kbd.modifier.offset_idx } as usize;
-    *out = *ptr.add(mod_offset);
-
-    let nkro_offset = { kbd.nkro.offset_idx } as usize;
-    let nkro_ptr = ptr.add(nkro_offset);
-    let nkro_report = core::slice::from_raw_parts(nkro_ptr, core::cmp::min(len, 32));
-    let keycode = core::slice::from_raw_parts_mut(out.add(2), KEYS_IN_USB_REPORT);
-
-    crate::domain::hid_report::extract_bit_variable(
-        nkro_report, usage_min, usage_max, 0, keycode,
-    ) as i32
+    let (result, rc) = crate::domain::kbd_extract::extract_kbd_data(report_slice, iface, kbd);
+    core::ptr::copy_nonoverlapping(result.as_ptr(), out_report, result.len());
+    rc
 }
 
 // ============================================================
 // extract_data (from extract_data.rs)
 // ============================================================
 
-/// Rust implementation of extract_data -- replaces C version.
-/// Classifies the ReportVal and populates hid_interface_t fields directly.
+/// Rust implementation of extract_data -- thin FFI wrapper.
+/// Delegates classification + population to domain::hid_classify::populate_interface_field,
+/// then calls HAL to register the report handler if needed.
 #[no_mangle]
 pub unsafe extern "C" fn rust_extract_data(iface_ptr: *mut c_void, val_ptr: *const u8) {
     if iface_ptr.is_null() || val_ptr.is_null() { return; }
 
     let val = core::ptr::read_unaligned(val_ptr as *const ReportVal);
-    let rid = { val.report_id };
+    let rid = val.report_id;
     let iface = iface_from_ptr(iface_ptr);
 
-    match classify_report_val(&val) {
-        ExtractedType::MouseButtons => {
-            if is_padding(&val) {
-                // Add padding to existing buttons size
-                let current = { iface.mouse.buttons.size };
-                iface.mouse.buttons.size = current + { val.size };
-            } else {
-                iface.mouse.buttons = val;
-                iface.mouse.is_found = true;
-            }
-            iface.mouse.report_id = rid;
-            if (rid as usize) < MAX_REPORTS {
-                device::hal_set_report_handler(iface_ptr, rid, 0);
-            }
-        }
-        ExtractedType::MouseX => {
-            if !is_padding(&val) { iface.mouse.move_x = val; }
-            iface.mouse.report_id = rid;
-            if (rid as usize) < MAX_REPORTS {
-                device::hal_set_report_handler(iface_ptr, rid, 0);
-            }
-        }
-        ExtractedType::MouseY => {
-            if !is_padding(&val) { iface.mouse.move_y = val; }
-            iface.mouse.report_id = rid;
-            if (rid as usize) < MAX_REPORTS {
-                device::hal_set_report_handler(iface_ptr, rid, 0);
-            }
-        }
-        ExtractedType::MouseWheel => {
-            if !is_padding(&val) { iface.mouse.wheel = val; }
-            iface.mouse.report_id = rid;
-            if (rid as usize) < MAX_REPORTS {
-                device::hal_set_report_handler(iface_ptr, rid, 0);
-            }
-        }
-        ExtractedType::MousePan => {
-            if !is_padding(&val) { iface.mouse.pan = val; }
-            iface.mouse.report_id = rid;
-            if (rid as usize) < MAX_REPORTS {
-                device::hal_set_report_handler(iface_ptr, rid, 0);
-            }
-        }
-        ExtractedType::Keyboard => {
-            handle_keyboard_descriptor(iface, &val);
-            if (rid as usize) < MAX_REPORTS {
-                device::hal_set_report_handler(iface_ptr, rid, 1);
-            }
-        }
-        ExtractedType::ConsumerControl => {
-            handle_consumer_control(iface, &val);
-            iface.consumer.report_id = rid;
-            if (rid as usize) < MAX_REPORTS {
-                device::hal_set_report_handler(iface_ptr, rid, 2);
-            }
-        }
-        ExtractedType::SystemControl => {
-            if !is_padding(&val) { iface.system.val = val; }
-            iface.system.report_id = rid;
-            if (rid as usize) < MAX_REPORTS {
-                device::hal_set_report_handler(iface_ptr, rid, 3);
-            }
-        }
-        ExtractedType::Unknown => {}
+    use crate::domain::hid_classify::populate_interface_field;
+    if let Some(handler_type) = populate_interface_field(iface, &val) {
+        device::hal_set_report_handler(iface_ptr, rid, handler_type);
     }
-}
-
-/// Find keyboard index by report_id (returns index, not reference -- avoids borrow conflicts)
-fn find_keyboard_idx(iface: &HidInterface, rid: u8) -> usize {
-    if iface.num_keyboards == 1 || !iface.uses_report_id {
-        return 0;
-    }
-    for n in 0..iface.num_keyboards as usize {
-        if n < MAX_KEYBOARDS && iface.keyboards[n].report_id == rid {
-            return n;
-        }
-    }
-    0
-}
-
-/// Replaces C handle_keyboard_descriptor_values
-fn handle_keyboard_descriptor(iface: &mut HidInterface, val: &ReportVal) {
-    let item_type = { val.item_type };
-    let data_type = { val.data_type };
-    let size = { val.size };
-    let offset_idx = { val.offset_idx };
-    let usage_min = { val.usage_min };
-    let usage_max = { val.usage_max };
-
-    if item_type == CONSTANT || iface.num_keyboards >= MAX_KEYBOARDS as u8 {
-        return;
-    }
-
-    let ki = find_keyboard_idx(iface, val.report_id );
-    let kbd = &mut iface.keyboards[ki];
-
-    const KBD_MODIFIER_BIT_LENGTH: u16 = 8;
-    if size <= KBD_MODIFIER_BIT_LENGTH && data_type == VARIABLE
-        && usage_min <= 0xE0 && usage_max >= 0xE0
-    {
-        kbd.modifier = *val;
-    }
-
-    if (offset_idx as usize) < MAX_KEYS {
-        kbd.key_array[offset_idx as usize] = data_type == ARRAY;
-    }
-
-    if size > 32 && data_type == VARIABLE {
-        kbd.is_nkro = true;
-        kbd.nkro = *val;
-    }
-
-    if !kbd.is_found {
-        kbd.is_found = true;
-        iface.num_keyboards += 1;
-    }
-}
-
-/// Replaces C handle_consumer_control_values
-fn handle_consumer_control(iface: &mut HidInterface, val: &ReportVal) {
-    let offset = { val.offset } as usize;
-    let data_type = { val.data_type };
-    let usage = { val.usage };
-
-    if offset > MAX_CC_BUTTONS { return; }
-
-    let ki = find_keyboard_idx(iface, val.report_id );
-    if data_type == VARIABLE {
-        if offset < iface.keyboards[ki].cc_array.len() {
-            iface.keyboards[ki].cc_array[offset] = usage;
-        }
-        iface.consumer.is_variable = true;
-    }
-
-    iface.consumer.is_array |= data_type == ARRAY;
 }
