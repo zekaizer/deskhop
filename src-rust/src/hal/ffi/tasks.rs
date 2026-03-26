@@ -27,7 +27,7 @@ pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
     }
 }
 
-#[no_mangle]
+#[export_name = "heartbeat_output_task"]
 pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::domain::structs::device_from_ptr(dev);

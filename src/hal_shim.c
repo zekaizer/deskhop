@@ -214,6 +214,14 @@ extern device_t *device;
 
 uint8_t hal_toggle_led(void) { return toggle_led(); }
 
+bool hal_is_bootsel_pressed(void) {
+#ifdef DH_DEBUG
+    return is_bootsel_pressed();
+#else
+    return false;
+#endif
+}
+
 void hal_debug_dump_state(device_t *dev) {
     dh_debug_printf("tud=%d kbd=%d mse=%d role=%d out=%d c1=%llu\n",
         dev->tud_connected, dev->keyboard_connected, dev->mouse_connected,

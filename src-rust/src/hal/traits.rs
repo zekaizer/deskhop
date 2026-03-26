@@ -21,6 +21,8 @@ pub trait Watchdog {
     fn reboot_to_bootloader(&self) -> !;
     /// Set persistent flag for config-mode boot.
     fn set_boot_flag(&self);
+    /// Check if BOOTSEL button is pressed (debug builds only, always false in release).
+    fn is_bootsel_pressed(&self) -> bool;
 }
 
 /// USB device-side HID operations.

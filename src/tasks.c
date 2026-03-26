@@ -1,21 +1,15 @@
-/* DeskHop tasks — HAL-bound task functions + DMA buffer ops. */
+/* DeskHop tasks — remaining HAL-bound C task functions.
+   Most tasks are now in Rust (hal/ffi/tasks.rs). Only USB stubs,
+   firmware upgrade (flash-dependent), and reboot remain in C. */
 #include "main.h"
 
-extern void rust_heartbeat_output_task(device_t *);
-
-/* USB tasks */
+/* USB tasks — TinyUSB inline macros require C */
 void usb_device_task(device_t *s) { tud_task(); }
 void usb_host_task(device_t *s) { if (tuh_inited()) tuh_task(); }
-void heartbeat_output_task(device_t *s) {
-    rust_heartbeat_output_task(s);
-#ifdef DH_DEBUG
-    if (is_bootsel_pressed()) reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0);
-#endif
-}
 
-/* process_hid_queue_task — now in Rust (service::tasks::process_hid_queue) */
+/* heartbeat_output_task — now fully in Rust (#[export_name]) */
 
-/* Firmware upgrade (flash + queue) */
+/* Firmware upgrade (flash + queue) — requires direct flash/SDK access */
 void firmware_upgrade_task(device_t *s) {
     if (!s->fw.upgrade_in_progress || !s->fw.byte_done || queue_is_full(&s->uart_tx_queue)) return;
     if (s->fw.address > STAGING_IMAGE_SIZE) {
@@ -30,8 +24,6 @@ void firmware_upgrade_task(device_t *s) {
     request_byte(s, s->fw.address);
 }
 
-/* is_start_of_packet, fetch_packet — inlined into hal_shim.c */
-
 void request_byte(device_t *state, uint32_t address) {
     uart_packet_t p = { .data32[0] = address, .type = REQUEST_BYTE_MSG };
     state->fw.byte_done = false;
@@ -39,5 +31,3 @@ void request_byte(device_t *state, uint32_t address) {
 }
 
 void reboot(void) { *((volatile uint32_t*)(PPB_BASE + 0x0ED0C)) = 0x5FA0004; }
-
-/* packet_receiver_task — now in Rust (service::tasks::packet_receive_tick) */

@@ -68,6 +68,11 @@ impl Watchdog for PicoHal {
     fn set_boot_flag(&self) {
         unsafe { device::hal_set_config_mode_scratch() }
     }
+
+    #[inline]
+    fn is_bootsel_pressed(&self) -> bool {
+        unsafe { device::hal_is_bootsel_pressed() }
+    }
 }
 
 // ---- UsbDevice ----

@@ -171,11 +171,17 @@ pub fn led_blink_tick(
 }
 
 /// Build and send heartbeat packet. Handle config mode timeout.
+/// Also checks BOOTSEL button for debug flash recovery (DH_DEBUG only).
 pub fn heartbeat_tick(
     state: &Device,
     hal: &(impl Timer + Watchdog + Indicator + PeerLink),
 ) {
     if state.fw.upgrade_in_progress { return; }
+
+    // Debug: BOOTSEL button triggers USB boot for flash recovery
+    if hal.is_bootsel_pressed() {
+        hal.reboot_to_bootloader();
+    }
 
     if state.config_mode_active {
         if hal.now_us_64() > state.config_mode_timer {

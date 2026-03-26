@@ -124,6 +124,7 @@ impl Watchdog for MockHal {
     fn reboot(&self) -> ! { self.rebooted.set(true); panic!("MockHal::reboot"); }
     fn reboot_to_bootloader(&self) -> ! { panic!("MockHal::reboot_to_bootloader"); }
     fn set_boot_flag(&self) { self.boot_flag_set.set(true); }
+    fn is_bootsel_pressed(&self) -> bool { false }
 }
 
 // ---- UsbDevice ----
