@@ -1,6 +1,6 @@
 // Keyboard input pipeline — hotkey detection, state combination, and routing.
 
-use crate::domain::keyboard::{self, KeyboardReport};
+use crate::domain::keyboard;
 use crate::domain::kbd_state;
 use crate::domain::structs::{Device, HidKeyboardReport};
 use crate::service::router::ReportRouter;
@@ -27,18 +27,16 @@ pub fn process_report(
     }
 
     // Update keyboard state for this device
-    let kbd = unsafe { &*(report_bytes.as_ptr() as *const HidKeyboardReport) };
-    kbd_state::update_kbd_state(state, kbd, itf);
-
-    // Check hotkeys
-    let report_for_hotkey = KeyboardReport {
+    let kbd = HidKeyboardReport {
         modifier: report_bytes[0],
         reserved: report_bytes[1],
         keycode: [report_bytes[2], report_bytes[3], report_bytes[4],
                   report_bytes[5], report_bytes[6], report_bytes[7]],
     };
+    kbd_state::update_kbd_state(state, &kbd, itf);
 
-    if let Some(m) = keyboard::check_all_hotkeys(&report_for_hotkey) {
+    // Check hotkeys
+    if let Some(m) = keyboard::check_all_hotkeys(&kbd) {
         if m.pass_to_os {
             return KbdAction::HotkeyPassthrough { acknowledge: m.acknowledge };
         } else {

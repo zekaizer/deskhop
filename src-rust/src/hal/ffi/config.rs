@@ -69,10 +69,6 @@ pub extern "C" fn rust_get_field_map_length() -> u32 {
     FIELDS.len() as u32
 }
 
-#[export_name = "hal_get_field_map_length"]
-pub extern "C" fn rust_hal_get_field_map_length() -> u32 {
-    FIELDS.len() as u32
-}
 
 #[export_name = "hal_get_field_map_idx"]
 pub extern "C" fn rust_hal_get_field_map_idx(i: u32) -> u8 {

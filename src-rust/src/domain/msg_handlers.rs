@@ -3,7 +3,7 @@
 // instead of directly modifying device_t.
 
 use crate::domain::constants::PacketType;
-use crate::domain::actions::{should_start_fw_upgrade, FwUpgradeState};
+use crate::domain::actions::{should_start_fw_upgrade, FwUpgradeRequest};
 use crate::domain::structs::Device;
 
 /// Result of processing a UART message — tells the caller what to do
@@ -17,7 +17,7 @@ pub enum HandlerAction {
     SetScreensaverMode(u8),
     SetActiveOutput(u8),
     ToggleOutput,
-    StartFwUpgrade(FwUpgradeState),
+    StartFwUpgrade(FwUpgradeRequest),
     Reboot,
     FlashLed,
     WipeConfig,
@@ -252,7 +252,7 @@ mod tests {
     #[test]
     fn test_apply_fw_upgrade() {
         let mut state = Device::zeroed();
-        let fw = crate::domain::actions::FwUpgradeState {
+        let fw = crate::domain::actions::FwUpgradeRequest {
             upgrade_in_progress: true,
             byte_done: true,
             address: 0,

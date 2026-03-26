@@ -55,3 +55,70 @@ pub trait ReportRouter: ReportQueue + PacketQueue + PeerLink + Timer {
 }
 
 impl<T: ReportQueue + PacketQueue + PeerLink + Timer> ReportRouter for T {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hal::mock::MockHal;
+
+    #[test]
+    fn route_mouse_active_output() {
+        let hal = MockHal::new();
+        hal.set_time(1_000_000);
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.active_output = 0; // active
+
+        let report = [1u8, 10, 0, 20, 0, 0, 0, 0];
+        hal.route_mouse(&mut state, report.as_ptr());
+
+        assert_eq!(hal.mouse_reports.borrow().len(), 1);
+        assert_eq!(state.last_activity[0], 1_000_000);
+        assert!(hal.sent_packets.borrow().is_empty());
+    }
+
+    #[test]
+    fn route_mouse_inactive_output() {
+        let hal = MockHal::new();
+        hal.set_time(2_000_000);
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.active_output = 1; // inactive
+
+        let report = [1u8, 10, 0, 20, 0, 0, 0, 0];
+        hal.route_mouse(&mut state, report.as_ptr());
+
+        assert!(hal.mouse_reports.borrow().is_empty());
+        assert_eq!(hal.sent_packets.borrow().len(), 1);
+        assert_eq!(state.last_activity[0], 0); // no timestamp update
+    }
+
+    #[test]
+    fn route_kbd_active_output() {
+        let hal = MockHal::new();
+        hal.set_time(3_000_000);
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.active_output = 0; // active
+
+        let report = [0x01u8, 0, 0x04, 0, 0, 0, 0, 0];
+        hal.route_kbd(&mut state, report.as_ptr());
+
+        assert_eq!(hal.kbd_reports.borrow().len(), 1);
+        assert_eq!(state.last_activity[0], 3_000_000);
+        assert!(hal.sent_packets.borrow().is_empty());
+    }
+
+    #[test]
+    fn touch_activity_updates_timestamp() {
+        let hal = MockHal::new();
+        hal.set_time(5_000_000);
+        let mut state = Device::zeroed();
+        state.board_role = 1;
+
+        hal.touch_activity(&mut state);
+
+        assert_eq!(state.last_activity[1], 5_000_000);
+        assert_eq!(state.last_activity[0], 0); // other role untouched
+    }
+}

@@ -83,6 +83,22 @@ pub fn handle_sync_borders(
     hal.save();
 }
 
+/// Handle USB SET_REPORT callback (keyboard LED state update).
+/// Updates LED state for the "other" board role, and syncs if needed.
+pub fn handle_set_report(
+    state: &mut Device,
+    hal: &impl OutputControl,
+    led_value: u8,
+) {
+    let other = 1usize.wrapping_sub(state.board_role as usize);
+    if other < state.keyboard_leds.len() {
+        state.keyboard_leds[other] = led_value;
+    }
+    if state.keyboard_connected && !state.is_active_output() {
+        hal.sync_leds();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,5 +193,33 @@ mod tests {
         assert_eq!(state.config.output[1].border.top, 100);
         assert_eq!(state.config.output[1].border.bottom, 200);
         assert_eq!(hal.config_saved.get(), 1);
+    }
+
+    #[test]
+    fn set_report_updates_leds_and_syncs_when_inactive() {
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.active_output = 1; // NOT active
+        state.keyboard_connected = true;
+
+        handle_set_report(&mut state, &hal, 0x07);
+
+        assert_eq!(state.keyboard_leds[1], 0x07); // other = 1 - 0 = 1
+        assert_eq!(hal.leds_synced.get(), 1);
+    }
+
+    #[test]
+    fn set_report_no_sync_when_active() {
+        let hal = MockHal::new();
+        let mut state = Device::zeroed();
+        state.board_role = 0;
+        state.active_output = 0; // active
+        state.keyboard_connected = true;
+
+        handle_set_report(&mut state, &hal, 0x03);
+
+        assert_eq!(state.keyboard_leds[1], 0x03);
+        assert_eq!(hal.leds_synced.get(), 0); // no sync when active
     }
 }

@@ -23,16 +23,16 @@ pub fn border_to_bytes(top: i32, bottom: i32) -> [u8; 8] {
     [t[0], t[1], t[2], t[3], b[0], b[1], b[2], b[3]]
 }
 
-/// Firmware upgrade state
+/// Firmware upgrade request (distinct from the #[repr(C)] FwUpgradeState in structs.rs)
 #[derive(Debug, Clone, Copy)]
-pub struct FwUpgradeState {
+pub struct FwUpgradeRequest {
     pub upgrade_in_progress: bool,
     pub byte_done: bool,
     pub address: u32,
     pub checksum: u32,
 }
 
-impl FwUpgradeState {
+impl FwUpgradeRequest {
     pub const fn idle() -> Self {
         Self {
             upgrade_in_progress: false,
@@ -49,7 +49,7 @@ pub fn should_start_fw_upgrade(
     other_version: u16,
     our_version: u16,
     already_upgrading: bool,
-) -> Option<FwUpgradeState> {
+) -> Option<FwUpgradeRequest> {
     if already_upgrading {
         return None;
     }
@@ -58,7 +58,7 @@ pub fn should_start_fw_upgrade(
         return None;
     }
 
-    Some(FwUpgradeState {
+    Some(FwUpgradeRequest {
         upgrade_in_progress: true,
         byte_done: true,
         address: 0,

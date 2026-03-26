@@ -1,13 +1,4 @@
-const KEYS_IN_USB_REPORT: usize = 6;
-
-/// Mirrors TinyUSB's hid_keyboard_report_t
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[repr(C)]
-pub struct KeyboardReport {
-    pub modifier: u8,
-    pub reserved: u8,
-    pub keycode: [u8; KEYS_IN_USB_REPORT],
-}
+use crate::domain::structs::HidKeyboardReport;
 
 /// What action to perform when a hotkey matches
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,7 +35,7 @@ pub struct HotkeyMatch {
 }
 
 /// Check all hotkeys against a report. Returns first match.
-pub fn check_all_hotkeys(report: &KeyboardReport) -> Option<HotkeyMatch> {
+pub fn check_all_hotkeys(report: &HidKeyboardReport) -> Option<HotkeyMatch> {
     use crate::domain::constants::*;
 
     static HOTKEYS: &[HotkeyCombo] = &[
@@ -78,12 +69,12 @@ pub fn check_all_hotkeys(report: &KeyboardReport) -> Option<HotkeyMatch> {
 /// Check if a key exists in a keyboard report.
 // WORKAROUND(c-compat): Matches C behavior where key=0x00 returns true
 // because empty slots contain 0x00. Could filter key==0 in the future.
-pub fn key_in_report(key: u8, report: &KeyboardReport) -> bool {
+pub fn key_in_report(key: u8, report: &HidKeyboardReport) -> bool {
     report.keycode.iter().any(|&k| k == key)
 }
 
 /// Check if a keyboard report matches a specific hotkey combo
-pub fn check_specific_hotkey(hotkey: &HotkeyCombo, report: &KeyboardReport) -> bool {
+pub fn check_specific_hotkey(hotkey: &HotkeyCombo, report: &HidKeyboardReport) -> bool {
     // All specified modifiers must be present
     if hotkey.modifier != (report.modifier & hotkey.modifier) {
         return false;
@@ -95,7 +86,7 @@ pub fn check_specific_hotkey(hotkey: &HotkeyCombo, report: &KeyboardReport) -> b
 
 /// Add keys from src to dest, skipping zeros and duplicates.
 /// Returns how many keys were added.
-pub fn add_keys(dest: &mut KeyboardReport, src: &KeyboardReport) -> usize {
+pub fn add_keys(dest: &mut HidKeyboardReport, src: &HidKeyboardReport) -> usize {
     let mut added = 0;
 
     for &key in &src.keycode {
@@ -114,8 +105,8 @@ pub fn add_keys(dest: &mut KeyboardReport, src: &KeyboardReport) -> usize {
 }
 
 /// Combine multiple keyboard reports into one, merging modifiers and keys.
-pub fn combine_reports(reports: &[KeyboardReport]) -> KeyboardReport {
-    let mut combined = KeyboardReport::default();
+pub fn combine_reports(reports: &[HidKeyboardReport]) -> HidKeyboardReport {
+    let mut combined = HidKeyboardReport::default();
 
     for report in reports {
         combined.modifier |= report.modifier;
@@ -128,9 +119,10 @@ pub fn combine_reports(reports: &[KeyboardReport]) -> KeyboardReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::structs::KEYS_IN_USB_REPORT;
 
-    fn make_report(modifier: u8, keys: &[u8]) -> KeyboardReport {
-        let mut report = KeyboardReport {
+    fn make_report(modifier: u8, keys: &[u8]) -> HidKeyboardReport {
+        let mut report = HidKeyboardReport {
             modifier,
             reserved: 0,
             keycode: [0; KEYS_IN_USB_REPORT],

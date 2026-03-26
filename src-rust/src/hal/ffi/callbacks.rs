@@ -47,7 +47,7 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
     match kbd_pipeline::process_report(state, &new_report, itf) {
         KbdAction::HotkeyConsumed { acknowledge } => {
             // Extract hotkey action and execute
-            let report_for_hotkey = crate::domain::keyboard::KeyboardReport {
+            let report_for_hotkey = crate::domain::structs::HidKeyboardReport {
                 modifier: new_report[0], reserved: new_report[1],
                 keycode: [new_report[2], new_report[3], new_report[4],
                           new_report[5], new_report[6], new_report[7]],
@@ -59,7 +59,7 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
             return;
         }
         KbdAction::HotkeyPassthrough { acknowledge } => {
-            let report_for_hotkey = crate::domain::keyboard::KeyboardReport {
+            let report_for_hotkey = crate::domain::structs::HidKeyboardReport {
                 modifier: new_report[0], reserved: new_report[1],
                 keycode: [new_report[2], new_report[3], new_report[4],
                           new_report[5], new_report[6], new_report[7]],
@@ -246,11 +246,7 @@ pub unsafe extern "C" fn rust_handle_mouse_uart_full(dev: *mut c_void, data: *co
 pub unsafe extern "C" fn rust_handle_set_report(dev: *mut c_void, led_value: u8) {
     let hal = crate::hal::pico::PicoHal::new(dev);
     let state = crate::domain::structs::device_from_ptr(dev);
-    let other = 1usize.wrapping_sub(state.board_role as usize);
-    if other < state.keyboard_leds.len() { state.keyboard_leds[other] = led_value; }
-    if state.keyboard_connected && !state.is_active_output() {
-        hal.sync_leds();
-    }
+    crate::service::msg_bridge::handle_set_report(state, &hal, led_value);
 }
 
 #[no_mangle]

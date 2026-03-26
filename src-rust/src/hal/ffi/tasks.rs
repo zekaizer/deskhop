@@ -3,6 +3,8 @@
 use core::ffi::c_void;
 
 // --- Static state ---
+// These are only accessed from a single core's task scheduler, so
+// raw static mut access via addr_of_mut! is safe in practice.
 
 static mut DBG_COUNT: u32 = 0;
 static mut LAST_POINTER_MOVE: u32 = 0;
@@ -17,9 +19,10 @@ pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
 
     // Debug: dump state every ~5s (30Hz x 150)
     use crate::hal::traits::Trace;
-    DBG_COUNT += 1;
-    if DBG_COUNT >= 150 {
-        DBG_COUNT = 0;
+    let count = &mut *core::ptr::addr_of_mut!(DBG_COUNT);
+    *count += 1;
+    if *count >= 150 {
+        *count = 0;
         hal.dump_state();
     }
 }
@@ -49,8 +52,9 @@ pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
         }
     }
 
-    if let Some(t) = crate::service::tasks::screensaver_tick(state, &hal, LAST_POINTER_MOVE, &report_bytes) {
-        LAST_POINTER_MOVE = t;
+    let last_move = &mut *core::ptr::addr_of_mut!(LAST_POINTER_MOVE);
+    if let Some(t) = crate::service::tasks::screensaver_tick(state, &hal, *last_move, &report_bytes) {
+        *last_move = t;
     }
 }
 
