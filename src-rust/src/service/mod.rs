@@ -3,6 +3,7 @@
 
 pub mod backend;
 pub mod frontend;
+pub mod fw_upgrade;
 pub mod msg_bridge;
 pub mod router;
 pub mod tasks;
