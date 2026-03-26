@@ -22,13 +22,12 @@
  void     write_flash_page(uint32_t, uint8_t *);
 
  /*==============================================================================
-  *  UART Packet Fetching
-  *  Functions to handle incoming UART packets, especially for firmware updates.
+  *  Firmware Upgrade Helpers (tasks.c)
   *==============================================================================*/
- void     fetch_packet(device_t *);
- uint32_t get_ptr_delta(uint32_t, device_t *);
- bool     is_start_of_packet(device_t *);
  void     request_byte(device_t *, uint32_t);
+
+ /* fetch_packet, is_start_of_packet — now in hal_shim.c (hal_ prefixed)
+    get_ptr_delta — Rust #[export_name] */
 
  /*==============================================================================
   *  Button Interaction

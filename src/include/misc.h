@@ -14,7 +14,7 @@
 #include "structs.h"
 
 /*==============================================================================
- *  Checksum Functions
+ *  Checksum Functions (Rust #[export_name] — declarations kept for C callers)
  *==============================================================================*/
 
 uint8_t  calc_checksum(const uint8_t *, int);
@@ -29,7 +29,7 @@ bool     verify_checksum(const uart_packet_t *);
 extern device_t global_state;
 
 /*==============================================================================
- *  LED Control
+ *  LED Control (blink_led in hal_shim.c, others in led.c)
  *==============================================================================*/
 
 void    blink_led(device_t *);
