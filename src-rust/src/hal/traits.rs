@@ -92,7 +92,7 @@ pub trait Transfer {
 
 /// Persistent configuration storage.
 pub trait ConfigStore {
-    fn save(&self);
+    fn save(&self) -> bool;
     fn load(&self);
     fn wipe(&self);
     fn read_running_fw(&self, address: u32) -> u32;

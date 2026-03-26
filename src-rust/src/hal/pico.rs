@@ -212,8 +212,9 @@ impl Transfer for PicoHal {
 
 impl ConfigStore for PicoHal {
     #[inline]
-    fn save(&self) {
+    fn save(&self) -> bool {
         unsafe { device::save_config(self.dev) }
+        true // C save_config is void; assume success
     }
 
     #[inline]

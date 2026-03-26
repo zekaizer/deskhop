@@ -196,7 +196,7 @@ impl Transfer for MockHal {
 // ---- ConfigStore ----
 
 impl ConfigStore for MockHal {
-    fn save(&self) { self.config_saved.set(self.config_saved.get() + 1); }
+    fn save(&self) -> bool { self.config_saved.set(self.config_saved.get() + 1); true }
     fn load(&self) { self.config_loaded.set(self.config_loaded.get() + 1); }
     fn wipe(&self) { self.config_wiped.set(self.config_wiped.get() + 1); }
     fn read_running_fw(&self, _address: u32) -> u32 { 0 }
