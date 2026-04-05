@@ -2,6 +2,7 @@
 // Rule: `use crate::hal` is forbidden in this layer.
 
 pub mod actions;
+pub mod config;
 pub mod constants;
 pub mod crc;
 pub mod dispatch;

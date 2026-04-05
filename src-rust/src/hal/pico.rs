@@ -303,6 +303,20 @@ impl DmaRx for PicoHal {
     }
 }
 
+// ---- ConfigFlash ----
+
+impl crate::domain::config::ConfigFlash for PicoHal {
+    #[inline]
+    fn flash_read_config(&self, buf: &mut [u8]) {
+        unsafe { device::hal_flash_read_config(buf.as_mut_ptr(), buf.len() as u32) }
+    }
+
+    #[inline]
+    fn flash_write_config(&self, buf: &[u8]) {
+        unsafe { device::hal_flash_write_config(buf.as_ptr()) }
+    }
+}
+
 // ---- Trace ----
 
 impl Trace for PicoHal {

@@ -175,8 +175,7 @@ pub struct QueueOpaque {
  * DeviceState — unified mutable view over sub-struct globals
  * ================================================================== */
 
-#[allow(non_upper_case_globals)]
-pub static mut global_cfg: DeviceConfig = unsafe { core::mem::zeroed() };
+pub static mut GLOBAL_CFG: DeviceConfig = unsafe { core::mem::zeroed() };
 
 extern "C" {
     pub static mut global_hid: DeviceHid;
@@ -202,7 +201,7 @@ impl<'a> DeviceState<'a> {
     pub unsafe fn from_globals() -> Self {
         Self {
             hid: &mut *core::ptr::addr_of_mut!(global_hid),
-            cfg: &mut *core::ptr::addr_of_mut!(global_cfg),
+            cfg: &mut *core::ptr::addr_of_mut!(GLOBAL_CFG),
             fw: &mut *core::ptr::addr_of_mut!(global_fw),
             led: &mut *core::ptr::addr_of_mut!(global_led),
         }
