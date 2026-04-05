@@ -61,4 +61,4 @@
 #define _SEC(x) (x * 1000000)
 #define _TOP()  0
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-#define CURRENT_BOARD_IS_ACTIVE_OUTPUT (global_state.active_output == global_state.board_role)
+#define CURRENT_BOARD_IS_ACTIVE_OUTPUT (global_cfg.active_output == global_cfg.board_role)
