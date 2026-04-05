@@ -532,6 +532,46 @@ pub unsafe extern "C" fn rust_on_tud_set_report(
 }
 
 // ============================================================
+// Output switching — replaces C set_active_output in hal_shim.c
+// ============================================================
+
+extern "C" {
+    fn restore_leds();
+    fn release_all_keys();
+}
+
+#[export_name = "set_active_output"]
+pub unsafe extern "C" fn rust_set_active_output(output: u8) {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::global_cfg);
+    cfg.active_output = output;
+    restore_leds();
+    device::send_value(output, constants::PacketType::OutputSelect as u8);
+    release_all_keys();
+}
+
+// ============================================================
+// Debug state dump — replaces C hal_debug_dump_state in hal_shim.c
+// ============================================================
+
+extern "C" {
+    fn dh_debug_printf(fmt: *const u8, ...);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hal_debug_dump_state() {
+    let cfg = &*core::ptr::addr_of!(structs::global_cfg);
+    dh_debug_printf(
+        c"tud=%d kbd=%d mse=%d role=%d out=%d c1=%llu\n".as_ptr(),
+        cfg.tud_connected as u32,
+        cfg.keyboard_connected as u32,
+        cfg.mouse_connected as u32,
+        cfg.board_role as u32,
+        cfg.active_output as u32,
+        cfg.core1_last_loop_pass,
+    );
+}
+
+// ============================================================
 // LED control — replaces C led.c functions
 // ============================================================
 

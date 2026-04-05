@@ -60,10 +60,7 @@ void queue_packet(const uint8_t *d, enum packet_type_e t, int l) {
 }
 void send_value(const uint8_t v, enum packet_type_e t) { queue_packet(&v, t, sizeof(uint8_t)); }
 
-void set_active_output(uint8_t o) {
-    global_cfg.active_output = o;
-    restore_leds(); send_value(o, OUTPUT_SELECT_MSG); release_all_keys();
-}
+/* set_active_output is now Rust #[export_name] in callbacks.rs */
 
 void hal_watchdog_update(void) { watchdog_update(); }
 
@@ -191,11 +188,7 @@ bool hal_is_bootsel_pressed(void) {
 #endif
 }
 
-void hal_debug_dump_state(void) {
-    dh_debug_printf("tud=%d kbd=%d mse=%d role=%d out=%d c1=%llu\n",
-        global_cfg.tud_connected, global_cfg.keyboard_connected, global_cfg.mouse_connected,
-        global_cfg.board_role, global_cfg.active_output, global_cfg.core1_last_loop_pass);
-}
+/* hal_debug_dump_state is now Rust #[no_mangle] in callbacks.rs */
 
 void hal_debug_blink(int count, int delay_ms) {
     for (int i = 0; i < count; i++) {
