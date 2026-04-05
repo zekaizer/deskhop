@@ -211,7 +211,7 @@ pub struct HidKeyboardReport {
 /* ================================================================== *
  * Pico SDK queue_t — opaque, size varies by SDK version.
  * We represent it as a fixed-size blob to maintain layout.
- * Validated by _Static_assert(sizeof(queue_t) == 16) in hal_shim.c.
+ * Validated by _Static_assert in sdk_verify.h and build.rs (bindgen).
  * ================================================================== */
 
 // WORKAROUND(c-compat): queue_t is SDK-internal. We use a fixed-size

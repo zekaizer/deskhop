@@ -25,9 +25,15 @@ _Static_assert(sizeof(hid_interface_t) == HID_INTERFACE_OPAQUE_SIZE,
 _Static_assert(_Alignof(hid_interface_t) == HID_INTERFACE_OPAQUE_ALIGN,
     "hid_interface_t alignment changed — update HID_INTERFACE_OPAQUE_ALIGN in structs.h");
 
-/* MAX_DEVICES/MAX_INTERFACES must match hid_parser.h values */
+/* Verify constants match hid_parser.h values (structs.h uses #ifndef fallbacks) */
 #include "hid_parser.h"
-/* If hid_parser.h redefines these with different values, compiler warns */
+_Static_assert(MAX_DEVICES == 4,
+    "MAX_DEVICES changed — update structs.h fallback");
+_Static_assert(MAX_INTERFACES == 12,
+    "MAX_INTERFACES changed — update structs.h fallback");
+
+_Static_assert(FLASH_SECTOR_SIZE == 4096,
+    "FLASH_SECTOR_SIZE changed — update flash.h fallback");
 
 /* Accessor helpers — cast opaque to real SDK type */
 static inline queue_t* queue_from_opaque(queue_opaque_t *opaque) {

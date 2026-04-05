@@ -23,7 +23,7 @@
 #endif
 
 /* Opaque SDK types — size/alignment verified by _Static_assert in sdk_verify.h.
- * C code accesses actual SDK types via inline accessors in sdk_accessor.h. */
+ * C code accesses actual SDK types via inline accessors in sdk_verify.h. */
 #define QUEUE_OPAQUE_SIZE  16
 #define QUEUE_OPAQUE_ALIGN 4
 typedef struct __attribute__((aligned(QUEUE_OPAQUE_ALIGN))) {
