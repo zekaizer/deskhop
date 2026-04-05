@@ -26,8 +26,6 @@ bool     verify_checksum(const uart_packet_t *);
  *  Global State
  *==============================================================================*/
 
-extern device_t global_state;
-
 extern device_hid_t    global_hid;
 extern device_config_t global_cfg;
 extern device_fw_t     global_fw;
