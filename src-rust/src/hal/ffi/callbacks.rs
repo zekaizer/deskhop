@@ -532,6 +532,18 @@ pub unsafe extern "C" fn rust_on_tud_set_report(
 }
 
 // ============================================================
+// Setup init — called from C initial_setup() with SDK-probed values
+// ============================================================
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_init_config(config_mode_active: bool, board_role: u8, timestamp: u64) {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::global_cfg);
+    cfg.config_mode_active = config_mode_active;
+    cfg.board_role = board_role;
+    cfg.core1_last_loop_pass = timestamp;
+}
+
+// ============================================================
 // Flash config — replaces C load_config/save_config/reset_config_timer
 // ============================================================
 
