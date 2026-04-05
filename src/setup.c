@@ -50,7 +50,7 @@ void pio_usb_host_config(device_t *state) {
     config.pin_dp                         = PIO_USB_DP_PIN_DEFAULT;
 
     /* Board B is always report mode, board A is default-boot if configured */
-    if (state->board_role == OUTPUT_B || ENFORCE_KEYBOARD_BOOT_PROTOCOL == 0)
+    if (global_cfg.board_role == OUTPUT_B || ENFORCE_KEYBOARD_BOOT_PROTOCOL == 0)
         tuh_hid_set_default_protocol(HID_PROTOCOL_REPORT);
 
     tuh_configure(BOARD_TUH_RHPORT, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &config);
@@ -131,10 +131,10 @@ const uint8_t* uart_buffer_pointers[1] = {uart_rxbuf};
 uint8_t uart_rxbuf[DMA_RX_BUFFER_SIZE] __attribute__((aligned(DMA_RX_BUFFER_SIZE))) ;
 uint8_t uart_txbuf[DMA_TX_BUFFER_SIZE] __attribute__((aligned(DMA_TX_BUFFER_SIZE))) ;
 
-static void configure_tx_dma(device_t *state) {
-    state->dma_tx_channel = dma_claim_unused_channel(true);
+static void configure_tx_dma(void) {
+    global_hw.dma_tx_channel = dma_claim_unused_channel(true);
 
-    dma_channel_config tx_config = dma_channel_get_default_config(state->dma_tx_channel);
+    dma_channel_config tx_config = dma_channel_get_default_config(global_hw.dma_tx_channel);
     channel_config_set_transfer_data_size(&tx_config, DMA_SIZE_8);
 
     /* Writing uart (always write the same address, but source addr changes as we read) */
@@ -147,7 +147,7 @@ static void configure_tx_dma(device_t *state) {
     /* Configure, but don't start immediately. We'll do this each time the outgoing
        packet is ready and we copy it to the buffer */
     dma_channel_configure(
-        state->dma_tx_channel,
+        global_hw.dma_tx_channel,
         &tx_config,
         &uart0_hw->dr,
         uart_txbuf,
@@ -156,13 +156,13 @@ static void configure_tx_dma(device_t *state) {
     );
 }
 
-static void configure_rx_dma(device_t *state) {
+static void configure_rx_dma(void) {
     /* Find an empty channel, store it for later reference */
-    state->dma_rx_channel = dma_claim_unused_channel(true);
-    state->dma_control_channel = dma_claim_unused_channel(true);
+    global_hw.dma_rx_channel = dma_claim_unused_channel(true);
+    global_hw.dma_control_channel = dma_claim_unused_channel(true);
 
-    dma_channel_config config = dma_channel_get_default_config(state->dma_rx_channel);
-    dma_channel_config control_config = dma_channel_get_default_config(state->dma_control_channel);
+    dma_channel_config config = dma_channel_get_default_config(global_hw.dma_rx_channel);
+    dma_channel_config control_config = dma_channel_get_default_config(global_hw.dma_control_channel);
 
     channel_config_set_transfer_data_size(&config, DMA_SIZE_8);
     channel_config_set_transfer_data_size(&control_config, DMA_SIZE_32);
@@ -180,10 +180,10 @@ static void configure_rx_dma(device_t *state) {
     // The UART signals when data is avaliable
     channel_config_set_dreq(&config, DREQ_UART0_RX);
 
-    channel_config_set_chain_to(&config, state->dma_control_channel);
+    channel_config_set_chain_to(&config, global_hw.dma_control_channel);
 
     dma_channel_configure(
-        state->dma_rx_channel,
+        global_hw.dma_rx_channel,
         &config,
         uart_rxbuf,
         &uart0_hw->dr,
@@ -191,14 +191,14 @@ static void configure_rx_dma(device_t *state) {
         false);
 
     dma_channel_configure(
-        state->dma_control_channel,
+        global_hw.dma_control_channel,
         &control_config,
-        &dma_hw->ch[state->dma_rx_channel].al2_write_addr_trig,
+        &dma_hw->ch[global_hw.dma_rx_channel].al2_write_addr_trig,
         uart_buffer_pointers,
         1,
         false);
 
-    dma_channel_start(state->dma_control_channel);
+    dma_channel_start(global_hw.dma_control_channel);
 }
 
 
@@ -213,33 +213,28 @@ void initial_setup(device_t *state) {
 
     /* Search the persistent storage sector in flash for valid config or use defaults */
     load_config(state);
-    global_cfg.config = state->config; /* shadow */
 
     /* Init and enable the on-board LED GPIO as output */
     gpio_init(GPIO_LED_PIN);
     gpio_set_dir(GPIO_LED_PIN, GPIO_OUT);
 
     /* Check if we should boot in configuration mode or not */
-    global_cfg.config_mode_active = state->config_mode_active = is_config_mode_active(state);
+    global_cfg.config_mode_active = is_config_mode_active(state);
 
     /* Detect which board we're running on */
-    global_cfg.board_role = state->board_role = board_autoprobe();
+    global_cfg.board_role = board_autoprobe();
 
     /* Initialize and configure UART */
     serial_init();
 
     /* Initialize keyboard and mouse queues */
-    queue_init(queue_from_opaque(&state->kbd_queue), sizeof(hid_kbd_report_t), KBD_QUEUE_LENGTH);
-    queue_init(queue_from_opaque(&state->mouse_queue), sizeof(mouse_report_t), MOUSE_QUEUE_LENGTH);
     queue_init(queue_from_opaque(&global_hw.kbd_queue), sizeof(hid_kbd_report_t), KBD_QUEUE_LENGTH);
     queue_init(queue_from_opaque(&global_hw.mouse_queue), sizeof(mouse_report_t), MOUSE_QUEUE_LENGTH);
 
     /* Initialize generic HID packet queue */
-    queue_init(queue_from_opaque(&state->hid_queue_out), sizeof(hid_generic_pkt_t), HID_QUEUE_LENGTH);
     queue_init(queue_from_opaque(&global_hw.hid_queue_out), sizeof(hid_generic_pkt_t), HID_QUEUE_LENGTH);
 
     /* Initialize UART queue */
-    queue_init(queue_from_opaque(&state->uart_tx_queue), sizeof(uart_packet_t), UART_QUEUE_LENGTH);
     queue_init(queue_from_opaque(&global_hw.uart_tx_queue), sizeof(uart_packet_t), UART_QUEUE_LENGTH);
 
     /* Setup RP2040 Core 1 */
@@ -253,19 +248,14 @@ void initial_setup(device_t *state) {
     pio_usb_host_config(state);
 
     /* Initialize and configure DMA */
-    configure_tx_dma(state);
-    configure_rx_dma(state);
-
-    /* Shadow DMA channels to new globals */
-    global_hw.dma_tx_channel = state->dma_tx_channel;
-    global_hw.dma_rx_channel = state->dma_rx_channel;
-    global_hw.dma_control_channel = state->dma_control_channel;
+    configure_tx_dma();
+    configure_rx_dma();
 
     /* Load the current firmware info */
-    global_fw._running_fw = state->_running_fw = _firmware_metadata;
+    global_fw._running_fw = _firmware_metadata;
 
     /* Update the core1 initial pass timestamp before enabling the watchdog */
-    global_cfg.core1_last_loop_pass = state->core1_last_loop_pass = time_us_64();
+    global_cfg.core1_last_loop_pass = time_us_64();
 
     /* Setup the watchdog so we reboot and recover from a crash */
     watchdog_enable(WATCHDOG_TIMEOUT, WATCHDOG_PAUSE_ON_DEBUG);

@@ -24,7 +24,6 @@ void load_config(device_t *state) {
     uint8_t cs = calc_crc32((uint8_t *)rc, sizeof(config_t) - sizeof(uint32_t));
     if (rc->magic_header != 0xB00B1E5 || rc->checksum != cs || rc->version != CURRENT_CONFIG_VERSION)
         memcpy(rc, &default_config, sizeof(config_t));
-    state->config = global_cfg.config; /* shadow back */
 }
 
 void save_config(device_t *state) {
