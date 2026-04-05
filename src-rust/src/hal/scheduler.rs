@@ -1,7 +1,8 @@
 use crate::hal::traits::Timer;
 
-/// Task function signature: takes no parameters (device_t* removed)
-pub type TaskFn = unsafe extern "C" fn();
+/// Task function signature — Rust ABI, no parameters.
+/// C-defined tasks are wrapped in thin Rust functions (see lib.rs).
+pub type TaskFn = unsafe fn();
 
 /// A scheduled task with frequency control
 pub struct Task {
@@ -65,7 +66,7 @@ mod tests {
 
     static CALL_COUNT: AtomicU32 = AtomicU32::new(0);
 
-    unsafe extern "C" fn mock_task() {
+    unsafe fn mock_task() {
         CALL_COUNT.fetch_add(1, Ordering::Relaxed);
     }
 

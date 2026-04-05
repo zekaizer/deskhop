@@ -18,11 +18,9 @@
  *  C Task Functions (remaining in tasks.c)
  *==============================================================================*/
 
-void firmware_upgrade_task(void);
-void usb_device_task(void);
-void usb_host_task(void);
+void firmware_upgrade_task_c(void);
+void usb_device_task_c(void);
+void usb_host_task_c(void);
 
-/* Rust #[export_name] tasks — declared for lib.rs scheduler, no C prototype needed:
-   heartbeat_output_task, kick_watchdog_task, led_blinking_task,
-   packet_receiver_task, process_hid_queue_task, process_kbd_queue_task,
-   process_mouse_queue_task, process_uart_tx_task, screensaver_task */
+/* All task scheduling is in Rust (lib.rs + hal/scheduler.rs).
+   C tasks above are wrapped by Rust thin functions in lib.rs. */
