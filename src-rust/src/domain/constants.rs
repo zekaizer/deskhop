@@ -56,6 +56,20 @@ pub const NUM_SCREENS: usize = 2;
 // HID interface numbers
 pub const ITF_NUM_HID: u8 = 0;
 
+// Output identifiers
+pub const OUTPUT_A: u8 = 0;
+pub const OUTPUT_B: u8 = 1;
+
+// Enable/disable
+pub const ENABLE: u8 = 1;
+
+// HID protocol constants (from TinyUSB hid.h)
+pub const HID_ITF_PROTOCOL_NONE: u8 = 0;
+pub const HID_ITF_PROTOCOL_KEYBOARD: u8 = 1;
+pub const HID_ITF_PROTOCOL_MOUSE: u8 = 2;
+pub const HID_PROTOCOL_BOOT: u8 = 0;
+pub const HID_PROTOCOL_REPORT: u8 = 1;
+
 /// UART packet types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]

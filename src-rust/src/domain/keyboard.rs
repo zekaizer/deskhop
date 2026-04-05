@@ -70,7 +70,7 @@ pub fn check_all_hotkeys(report: &HidKeyboardReport) -> Option<HotkeyMatch> {
 // WORKAROUND(c-compat): Matches C behavior where key=0x00 returns true
 // because empty slots contain 0x00. Could filter key==0 in the future.
 pub fn key_in_report(key: u8, report: &HidKeyboardReport) -> bool {
-    report.keycode.iter().any(|&k| k == key)
+    report.keycode.contains(&key)
 }
 
 /// Check if a keyboard report matches a specific hotkey combo

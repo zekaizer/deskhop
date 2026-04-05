@@ -19,38 +19,27 @@
  * Perform initial UART setup
  * ================================================== */
 
-void serial_init() {
-    /* Set up our UART with a default baudrate. */
+void serial_init(uint8_t tx_pin, uint8_t rx_pin) {
     uart_init(SERIAL_UART, SERIAL_BAUDRATE);
-
-    /* Set UART flow control CTS/RTS. We don't have these - turn them off.*/
     uart_set_hw_flow(SERIAL_UART, false, false);
-
-    /* Set our data format */
     uart_set_format(SERIAL_UART, SERIAL_DATA_BITS, SERIAL_STOP_BITS, SERIAL_PARITY);
-
-    /* Turn of CRLF translation */
     uart_set_translate_crlf(SERIAL_UART, false);
-
-    /* We do want FIFO, will help us have fewer interruptions */
     uart_set_fifo_enabled(SERIAL_UART, true);
-
-    /* Set the RX/TX pins, they differ based on the device role (A or B, check schematics) */
-    gpio_set_function(SERIAL_TX_PIN, GPIO_FUNC_UART);
-    gpio_set_function(SERIAL_RX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(tx_pin, GPIO_FUNC_UART);
+    gpio_set_function(rx_pin, GPIO_FUNC_UART);
 }
 
 /* ================================================== *
  * PIO USB configuration, D+ pin 14, D- pin 15
  * ================================================== */
 
-void pio_usb_host_config(void) {
+void pio_usb_host_config(uint8_t board_role) {
     /* tuh_configure() must be called before tuh_init() */
     static pio_usb_configuration_t config = PIO_USB_DEFAULT_CONFIG;
     config.pin_dp                         = PIO_USB_DP_PIN_DEFAULT;
 
     /* Board B is always report mode, board A is default-boot if configured */
-    if (global_cfg.board_role == OUTPUT_B || ENFORCE_KEYBOARD_BOOT_PROTOCOL == 0)
+    if (board_role == OUTPUT_B || ENFORCE_KEYBOARD_BOOT_PROTOCOL == 0)
         tuh_hid_set_default_protocol(HID_PROTOCOL_REPORT);
 
     tuh_configure(BOARD_TUH_RHPORT, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &config);
@@ -218,14 +207,14 @@ void initial_setup(void) {
     gpio_init(GPIO_LED_PIN);
     gpio_set_dir(GPIO_LED_PIN, GPIO_OUT);
 
-    /* Check if we should boot in configuration mode or not */
-    global_cfg.config_mode_active = is_config_mode_active();
+    /* Detect which board we're running on and check config mode */
+    bool config_mode = is_config_mode_active();
+    uint8_t role = board_autoprobe();
 
-    /* Detect which board we're running on */
-    global_cfg.board_role = board_autoprobe();
-
-    /* Initialize and configure UART */
-    serial_init();
+    /* Initialize and configure UART (pins depend on board role) */
+    uint8_t tx_pin = (role == OUTPUT_A) ? BOARD_A_TX : BOARD_B_TX;
+    uint8_t rx_pin = (role == OUTPUT_A) ? BOARD_A_RX : BOARD_B_RX;
+    serial_init(tx_pin, rx_pin);
 
     /* Initialize keyboard and mouse queues */
     queue_init(queue_from_opaque(&global_hw.kbd_queue), sizeof(hid_kbd_report_t), KBD_QUEUE_LENGTH);
@@ -237,6 +226,11 @@ void initial_setup(void) {
     /* Initialize UART queue */
     queue_init(queue_from_opaque(&global_hw.uart_tx_queue), sizeof(uart_packet_t), UART_QUEUE_LENGTH);
 
+    /* Store probed values into Rust-owned global_cfg BEFORE launching core1,
+       so core1's Rust loop sees correct board_role and config_mode_active. */
+    extern void rust_init_config(bool config_mode_active, uint8_t board_role, uint64_t timestamp);
+    rust_init_config(config_mode, role, time_us_64());
+
     /* Setup RP2040 Core 1 */
     multicore_reset_core1();
     multicore_launch_core1(core1_main);
@@ -245,7 +239,7 @@ void initial_setup(void) {
     tud_init(BOARD_TUD_RHPORT);
 
     /* Initialize and configure TinyUSB Host */
-    pio_usb_host_config();
+    pio_usb_host_config(role);
 
     /* Initialize and configure DMA */
     configure_tx_dma();
@@ -253,9 +247,6 @@ void initial_setup(void) {
 
     /* Load the current firmware info */
     global_fw._running_fw = _firmware_metadata;
-
-    /* Update the core1 initial pass timestamp before enabling the watchdog */
-    global_cfg.core1_last_loop_pass = time_us_64();
 
     /* Setup the watchdog so we reboot and recover from a crash */
     watchdog_enable(WATCHDOG_TIMEOUT, WATCHDOG_PAUSE_ON_DEBUG);

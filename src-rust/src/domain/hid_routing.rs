@@ -78,9 +78,7 @@ pub fn parse_consumer_report(
         }
     } else {
         let data_len = core::cmp::min(raw.len().saturating_sub(1), CONSUMER_CONTROL_LENGTH);
-        for i in 0..data_len {
-            out[i] = raw[i + 1];
-        }
+        out[..data_len].copy_from_slice(&raw[1..1 + data_len]);
     }
 
     out

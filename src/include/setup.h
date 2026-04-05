@@ -17,5 +17,5 @@
  *==============================================================================*/
 
 void initial_setup(void);
-void serial_init(void);
+void serial_init(uint8_t tx_pin, uint8_t rx_pin);
 void core1_main(void);

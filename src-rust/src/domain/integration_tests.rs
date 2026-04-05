@@ -153,7 +153,7 @@ mod tests {
     fn test_fw_upgrade_chain() {
         let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
         let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
-        state.fw.running_fw.version = 100;
+        state.fw._running_fw.version = 100;
 
         // Heartbeat with newer version triggers upgrade
         let data = [200u8, 0, 0, 0, 0, 0, 0, 0];

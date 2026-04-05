@@ -41,10 +41,8 @@ pub fn classify_report_val(val: &ReportVal) -> ExtractedType {
     }
 
     // Mouse Pan: Consumer page + Mouse global usage
-    if up == HID_USAGE_PAGE_CONSUMER && gu == HID_USAGE_DESKTOP_MOUSE {
-        if u == HID_USAGE_CONSUMER_AC_PAN {
-            return ExtractedType::MousePan;
-        }
+    if up == HID_USAGE_PAGE_CONSUMER && gu == HID_USAGE_DESKTOP_MOUSE && u == HID_USAGE_CONSUMER_AC_PAN {
+        return ExtractedType::MousePan;
     }
 
     // Keyboard: Keyboard page + Keyboard global usage

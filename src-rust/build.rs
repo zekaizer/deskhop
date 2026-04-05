@@ -4,7 +4,8 @@
 // 1. bindgen_types.rs — struct definitions with layout tests
 // 2. device_offsets.rs — additional const assertions for Rust type aliases
 //
-// Verified types: device_hid_t, device_config_t, device_fw_t, device_led_t
+// Verified types: device_hid_t, device_fw_t, device_led_t
+// Rust-only: device_config_t (hand-crafted in structs.rs, removed from C)
 // Excluded: device_hw_t (contains SDK-dependent opaque types, not bindgen-able)
 
 use std::env;
@@ -25,8 +26,8 @@ fn main() {
         .derive_default(true)
         .derive_partialeq(true)
         .derive_eq(true)
+        .allowlist_type("config_t")
         .allowlist_type("device_hid_t")
-        .allowlist_type("device_config_t")
         .allowlist_type("device_fw_t")
         .allowlist_type("device_led_t")
         .generate()

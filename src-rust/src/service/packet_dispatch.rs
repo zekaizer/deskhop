@@ -13,8 +13,8 @@ use crate::service::router::ReportRouter;
 /// This is the Rust equivalent of C's process_packet() in uart.c.
 pub fn dispatch_packet(
     state: &mut DeviceState<'_>,
-    hal: &(impl ReportRouter + OutputControl + ConfigStore + PeerLink
-           + Watchdog + Indicator + PacketQueue + Timer),
+    hal: &(impl ReportRouter + OutputControl + ConfigStore
+           + Watchdog + Indicator),
     packet: &UartPacket,
 ) {
     let action = match dispatch::process_packet(packet) {

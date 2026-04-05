@@ -25,3 +25,12 @@ void      parse_report_descriptor(hid_interface_t *, uint8_t const *, int);
  *==============================================================================*/
 void process_mouse_report(uint8_t *, int, uint8_t, hid_interface_t *);
 bool tud_mouse_report(uint8_t mode, uint8_t buttons, int16_t x, int16_t y, int8_t wheel, int8_t pan);
+
+/*==============================================================================
+ *  USB Host Callbacks (Rust implementations)
+ *==============================================================================*/
+void rust_on_hid_mount(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_report, uint16_t desc_len, hid_interface_t *iface);
+void rust_on_hid_umount(uint8_t dev_addr, uint8_t instance, hid_interface_t *iface);
+void rust_on_hid_report_received(uint8_t dev_addr, uint8_t instance, uint8_t const *report, uint16_t len, hid_interface_t *iface);
+void rust_on_hid_set_protocol_complete(hid_interface_t *iface, uint8_t protocol);
+void rust_on_tud_set_report(uint8_t instance, uint8_t report_id, uint8_t report_type, uint8_t const *buffer, uint16_t bufsize);

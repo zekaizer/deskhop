@@ -44,6 +44,21 @@ extern "C" {
     pub fn hal_tud_hid_keyboard_report(report_id: u8, modifier: u8, keycode: *const u8) -> bool;
     pub fn hal_tud_mouse_report(mode: u8, buttons: u8, x: i16, y: i16, wheel: i8, pan: i8) -> bool;
 
+    // ---- TinyUSB host (via hal_shim.c — TinyUSB host functions are inline/macro) ----
+    pub fn hal_tuh_hid_interface_protocol(dev_addr: u8, instance: u8) -> u8;
+    pub fn hal_tuh_hid_get_protocol(dev_addr: u8, instance: u8) -> u8;
+    pub fn hal_tuh_hid_set_protocol(dev_addr: u8, instance: u8, protocol: u8);
+    pub fn hal_tuh_hid_receive_report(dev_addr: u8, instance: u8) -> bool;
+
+    // ---- Flash config (via hal_shim.c) ----
+    pub fn hal_flash_read_config(buf: *mut u8, len: u32);
+    pub fn hal_flash_write_config(buf: *const u8);
+
+    // ---- LED / HID host (via hal_shim.c) ----
+    pub fn hal_gpio_put_led(state: bool);
+    pub fn hal_gpio_get_led() -> bool;
+    pub fn hal_tuh_hid_set_report(dev_addr: u8, instance: u8, data: *const u8, len: u8);
+
     // ---- hid_interface_t (remaining C-dependent function) ----
     /// Assigns C function pointers (process_*_report) to report_handler array
     pub fn hal_set_report_handler(iface: *mut core::ffi::c_void, report_id: u8, handler_type: u8);

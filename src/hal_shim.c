@@ -48,10 +48,7 @@ bool hal_queue_try_add_uart(const uint8_t *data) {
    hal_blink_led, hal_reboot — Rust calls underlying C functions directly.
    hal_watchdog_update kept (Pico SDK function). */
 
-void blink_led(void) {
-    global_led.blinks_left = 5;
-    global_led.last_led_change = time_us_32();
-}
+/* blink_led is now Rust #[export_name] in callbacks.rs */
 
 /* UART packet + output control — moved from uart.c */
 void queue_packet(const uint8_t *d, enum packet_type_e t, int l) {
@@ -60,10 +57,7 @@ void queue_packet(const uint8_t *d, enum packet_type_e t, int l) {
 }
 void send_value(const uint8_t v, enum packet_type_e t) { queue_packet(&v, t, sizeof(uint8_t)); }
 
-void set_active_output(uint8_t o) {
-    global_cfg.active_output = o;
-    restore_leds(); send_value(o, OUTPUT_SELECT_MSG); release_all_keys();
-}
+/* set_active_output is now Rust #[export_name] in callbacks.rs */
 
 void hal_watchdog_update(void) { watchdog_update(); }
 
@@ -80,6 +74,35 @@ bool hal_tud_ready(void) { return tud_ready(); }
 bool hal_tud_suspended(void) { return tud_suspended(); }
 void hal_tud_remote_wakeup(void) { tud_remote_wakeup(); }
 bool hal_tud_hid_n_ready(uint8_t instance) { return tud_hid_n_ready(instance); }
+
+/* TinyUSB host wrappers — called from Rust USB callback logic */
+uint8_t hal_tuh_hid_interface_protocol(uint8_t dev_addr, uint8_t instance) {
+    return tuh_hid_interface_protocol(dev_addr, instance);
+}
+uint8_t hal_tuh_hid_get_protocol(uint8_t dev_addr, uint8_t instance) {
+    return tuh_hid_get_protocol(dev_addr, instance);
+}
+void hal_tuh_hid_set_protocol(uint8_t dev_addr, uint8_t instance, uint8_t protocol) {
+    tuh_hid_set_protocol(dev_addr, instance, protocol);
+}
+bool hal_tuh_hid_receive_report(uint8_t dev_addr, uint8_t instance) {
+    return tuh_hid_receive_report(dev_addr, instance);
+}
+
+/* Flash config wrappers — called from Rust config logic */
+void hal_flash_read_config(uint8_t *buf, uint32_t len) {
+    memcpy(buf, ADDR_CONFIG, len);
+}
+void hal_flash_write_config(const uint8_t *buf) {
+    write_flash_page((uint32_t)ADDR_CONFIG - XIP_BASE, (uint8_t *)buf);
+}
+
+/* LED / HID host wrappers — called from Rust LED logic */
+void hal_gpio_put_led(bool state) { gpio_put(GPIO_LED_PIN, state); }
+bool hal_gpio_get_led(void) { return gpio_get(GPIO_LED_PIN); }
+void hal_tuh_hid_set_report(uint8_t dev_addr, uint8_t instance, const uint8_t *data, uint8_t len) {
+    tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT, (void *)data, len);
+}
 
 bool hal_tud_hid_keyboard_report(uint8_t report_id, uint8_t modifier, const uint8_t *keycode) {
     return tud_hid_keyboard_report(report_id, modifier, (uint8_t *)keycode);
@@ -161,7 +184,7 @@ void hal_queue_system_packet(const uint8_t *payload) {
  * Keyboard hotkey check (wraps keyboard.c)
  * ==================================================== */
 
-uint8_t hal_toggle_led(void) { return toggle_led(); }
+/* hal_toggle_led is now Rust #[no_mangle] in callbacks.rs */
 
 bool hal_is_bootsel_pressed(void) {
 #ifdef DH_DEBUG
@@ -171,11 +194,7 @@ bool hal_is_bootsel_pressed(void) {
 #endif
 }
 
-void hal_debug_dump_state(void) {
-    dh_debug_printf("tud=%d kbd=%d mse=%d role=%d out=%d c1=%llu\n",
-        global_cfg.tud_connected, global_cfg.keyboard_connected, global_cfg.mouse_connected,
-        global_cfg.board_role, global_cfg.active_output, global_cfg.core1_last_loop_pass);
-}
+/* hal_debug_dump_state is now Rust #[no_mangle] in callbacks.rs */
 
 void hal_debug_blink(int count, int delay_ms) {
     for (int i = 0; i < count; i++) {

@@ -2,7 +2,6 @@
 // All functions are generic over HAL traits, enabling MockHal in tests.
 
 use crate::domain::constants::PacketType;
-use crate::domain::constants::RAW_PACKET_LENGTH;
 use crate::domain::packet;
 use crate::domain::screensaver::{self, ScreensaverConfig};
 use crate::domain::structs::DeviceState;
@@ -74,7 +73,6 @@ pub fn process_hid_queue(
     }
 }
 
-const DMA_RX_BUFFER_SIZE: u32 = 1024;
 
 /// Poll the DMA ring buffer for incoming UART packets.
 /// Scans for START1+START2 preamble, fetches packet, dispatches via Rust.
@@ -86,8 +84,8 @@ const DMA_RX_BUFFER_SIZE: u32 = 1024;
 /// dispatch comes through rust_process_uart_packet in callbacks.rs.
 pub fn packet_receive_tick(
     state: &mut DeviceState<'_>,
-    hal: &(impl DmaRx + ReportRouter + OutputControl + ConfigStore + PeerLink
-           + Watchdog + Indicator + PacketQueue + Timer),
+    hal: &(impl DmaRx + ReportRouter + OutputControl + ConfigStore
+           + Watchdog + Indicator),
 ) {
     // dma_ptr and in_packet are now in C-only device_hw_t.
     // Packet fetching and parsing is done by C code, which calls
@@ -200,6 +198,7 @@ pub fn heartbeat_tick(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::constants::RAW_PACKET_LENGTH;
     use crate::hal::mock::MockHal;
 
     // ---- check_system_health ----

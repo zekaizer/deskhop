@@ -26,7 +26,7 @@ fn add_keys(dest: &mut HidKeyboardReport, src: &HidKeyboardReport) {
         if key == 0 {
             continue;
         }
-        if dest.keycode.iter().any(|&k| k == key) {
+        if dest.keycode.contains(&key) {
             continue;
         }
         if let Some(slot) = dest.keycode.iter_mut().find(|k| **k == 0) {

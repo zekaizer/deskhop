@@ -142,31 +142,7 @@ typedef struct {
     int16_t mouse_buttons;                           // Mouse button state
 } device_hid_t;
 
-/* Configuration, output control, and feature flags */
-typedef struct {
-    config_t config;                      // Board configuration (flash-backed)
-    uint8_t active_output;                // Currently selected output (0 = A, 1 = B)
-    uint8_t board_role;                   // Which board are we running on?
-    uint8_t keyboard_leds[NUM_SCREENS];   // Keyboard LED state per output
-    uint64_t last_activity[NUM_SCREENS];  // Last input activity timestamp per output
-    uint64_t core1_last_loop_pass;        // Last core1 loop timestamp (health check)
-
-    /* Connection status */
-    bool tud_connected;       // TinyUSB device connected
-    bool keyboard_connected;  // Local keyboard connected
-    bool mouse_connected;     // Local mouse connected
-
-    /* Feature flags */
-    bool mouse_zoom;
-    bool switch_lock;
-    bool onboard_led_state;
-    bool relative_mouse;
-    bool gaming_mode;
-    bool config_mode_active;
-    bool digitizer_active;
-
-    uint64_t config_mode_timer;  // Config mode timeout timestamp
-} device_config_t;
+/* device_config_t is Rust-only — defined in src-rust/src/domain/structs.rs */
 
 /* Firmware upgrade state */
 typedef struct {

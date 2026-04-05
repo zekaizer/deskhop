@@ -7,6 +7,12 @@ use super::traits::*;
 /// Real HAL backed by platform SDK via C FFI.
 pub struct PicoHal;
 
+impl Default for PicoHal {
+    fn default() -> Self {
+        Self
+    }
+}
+
 impl PicoHal {
     #[inline(always)]
     pub fn new() -> Self {
@@ -294,6 +300,20 @@ impl DmaRx for PicoHal {
     #[inline]
     fn fetch_packet(&self) {
         unsafe { device::hal_fetch_packet() }
+    }
+}
+
+// ---- ConfigFlash ----
+
+impl crate::domain::config::ConfigFlash for PicoHal {
+    #[inline]
+    fn flash_read_config(&self, buf: &mut [u8]) {
+        unsafe { device::hal_flash_read_config(buf.as_mut_ptr(), buf.len() as u32) }
+    }
+
+    #[inline]
+    fn flash_write_config(&self, buf: &[u8]) {
+        unsafe { device::hal_flash_write_config(buf.as_ptr()) }
     }
 }
 

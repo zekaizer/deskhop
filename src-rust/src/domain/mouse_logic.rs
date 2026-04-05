@@ -31,6 +31,7 @@ pub struct SwitchContext {
 }
 
 /// Calculate updated mouse position and determine if screen switch is needed.
+#[allow(clippy::too_many_arguments)]
 pub fn update_mouse_position(
     pointer_x: i16,
     pointer_y: i16,

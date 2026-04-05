@@ -1,11 +1,13 @@
 // USB/UART callback FFI — all functions called from usb.c/uart.c callbacks.
+// Thin wrappers: pointer conversion + delegation to domain/service layer.
 
 use core::ffi::c_void;
 use crate::domain::hid_routing;
 use crate::domain::keyboard::HotkeyAction;
 use crate::domain::mouse_logic;
 use crate::domain::hid_parser::{self, ReportVal};
-use crate::domain::structs::{iface_from_ptr, get_keyboard, KBD_REPORT_LENGTH};
+use crate::domain::config::ConfigFlash;
+use crate::domain::structs::{self, iface_from_ptr, get_keyboard, KBD_REPORT_LENGTH, HidInterface};
 use crate::hal::device;
 use crate::hal::traits::*;
 use crate::service::router::ReportRouter;
@@ -295,4 +297,383 @@ pub unsafe extern "C" fn rust_extract_data(iface_ptr: *mut c_void, val_ptr: *con
     if let Some(handler_type) = populate_interface_field(iface, &val) {
         device::hal_set_report_handler(iface_ptr, rid, handler_type);
     }
+}
+
+// ============================================================
+// TinyUSB host callbacks — thin FFI wrappers delegating to service::usb
+// ============================================================
+
+/// HID device mounted — configure protocol and start receiving reports.
+#[export_name = "rust_on_hid_mount"]
+pub unsafe extern "C" fn rust_on_hid_mount(
+    dev_addr: u8,
+    instance: u8,
+    desc_report: *const u8,
+    desc_len: u16,
+    iface_ptr: *mut c_void,
+) {
+    let itf_protocol = device::hal_tuh_hid_interface_protocol(dev_addr, instance);
+    let iface = iface_from_ptr(iface_ptr);
+    iface.protocol = device::hal_tuh_hid_get_protocol(dev_addr, instance);
+
+    // Parse HID report descriptor
+    rust_parse_report_descriptor(iface_ptr, desc_report, desc_len as i32);
+
+    let mut state = structs::DeviceState::from_globals();
+    let hal = crate::hal::pico::PicoHal::new();
+    let params = crate::service::usb::MountParams { dev_addr, instance, itf_protocol };
+
+    if let Some(proto) = crate::service::usb::on_hid_mount(&mut state, &hal, iface, &params) {
+        device::hal_tuh_hid_set_protocol(dev_addr, instance, proto);
+    }
+
+    device::hal_tuh_hid_receive_report(dev_addr, instance);
+}
+
+/// HID device unmounted — clear connection state and zero interface.
+#[export_name = "rust_on_hid_umount"]
+pub unsafe extern "C" fn rust_on_hid_umount(
+    dev_addr: u8,
+    instance: u8,
+    iface_ptr: *mut c_void,
+) {
+    let itf_protocol = device::hal_tuh_hid_interface_protocol(dev_addr, instance);
+    let state = structs::DeviceState::from_globals();
+
+    crate::service::usb::on_hid_umount(state.cfg, itf_protocol);
+
+    // Zero the interface structure
+    let iface = iface_ptr as *mut HidInterface;
+    core::ptr::write_bytes(iface, 0, 1);
+}
+
+/// HID report received — dispatch to appropriate handler.
+/// Raw pointer dispatch stays in FFI layer; only device_idx calc is delegated.
+#[export_name = "rust_on_hid_report_received"]
+pub unsafe extern "C" fn rust_on_hid_report_received(
+    dev_addr: u8,
+    instance: u8,
+    report: *const u8,
+    len: u16,
+    iface_ptr: *mut c_void,
+) {
+    let itf_protocol = device::hal_tuh_hid_interface_protocol(dev_addr, instance);
+    let iface = iface_from_ptr(iface_ptr);
+    let state = structs::DeviceState::from_globals();
+
+    let device_idx = hid_routing::calculate_device_idx(
+        itf_protocol, dev_addr, instance,
+        state.hid.kbd_dev_addr, state.hid.kbd_instance,
+    );
+
+    if iface.uses_report_id || itf_protocol == crate::domain::constants::HID_ITF_PROTOCOL_NONE {
+        let report_id = if iface.uses_report_id { *report } else { 0 };
+
+        if (report_id as usize) < structs::MAX_REPORTS {
+            if let Some(handler) = iface.report_handler[report_id as usize] {
+                handler(report as *mut u8, len as i32, device_idx, iface as *mut HidInterface);
+            }
+        }
+    } else if itf_protocol == crate::domain::constants::HID_ITF_PROTOCOL_KEYBOARD {
+        if let Some(handler) = get_process_keyboard_report() {
+            handler(report as *mut u8, len as i32, device_idx, iface as *mut HidInterface);
+        }
+    } else if itf_protocol == crate::domain::constants::HID_ITF_PROTOCOL_MOUSE {
+        if let Some(handler) = get_process_mouse_report() {
+            handler(report as *mut u8, len as i32, device_idx, iface as *mut HidInterface);
+        }
+    }
+
+    device::hal_tuh_hid_receive_report(dev_addr, instance);
+}
+
+// Direct references to the Rust-exported report processors for fallback dispatch.
+extern "C" {
+    #[link_name = "process_keyboard_report"]
+    fn process_keyboard_report_c(report: *mut u8, len: i32, itf: u8, iface: *mut HidInterface);
+    #[link_name = "process_mouse_report"]
+    fn process_mouse_report_c(report: *mut u8, len: i32, itf: u8, iface: *mut HidInterface);
+}
+
+fn get_process_keyboard_report() -> Option<unsafe extern "C" fn(*mut u8, i32, u8, *mut HidInterface)> {
+    Some(process_keyboard_report_c)
+}
+
+fn get_process_mouse_report() -> Option<unsafe extern "C" fn(*mut u8, i32, u8, *mut HidInterface)> {
+    Some(process_mouse_report_c)
+}
+
+/// HID set_protocol completed — update interface protocol field.
+#[export_name = "rust_on_hid_set_protocol_complete"]
+pub unsafe extern "C" fn rust_on_hid_set_protocol_complete(
+    iface_ptr: *mut c_void,
+    protocol: u8,
+) {
+    let iface = iface_from_ptr(iface_ptr);
+    iface.protocol = protocol;
+}
+
+/// TinyUSB device set_report callback — config packets and keyboard LED handling.
+#[export_name = "rust_on_tud_set_report"]
+pub unsafe extern "C" fn rust_on_tud_set_report(
+    instance: u8,
+    report_id: u8,
+    report_type: u8,
+    buffer: *const u8,
+    bufsize: u16,
+) {
+    use crate::domain::constants::{RAW_PACKET_LENGTH, START_LENGTH};
+
+    const ITF_NUM_HID_VENDOR: u8 = 2;
+    const REPORT_ID_VENDOR: u8 = 6;
+    const REPORT_ID_KEYBOARD: u8 = 1;
+    const HID_REPORT_TYPE_OUTPUT: u8 = 2;
+
+    if buffer.is_null() { return; }
+
+    // Config vendor report (pointer dispatch stays in FFI)
+    if instance == ITF_NUM_HID_VENDOR && report_id == REPORT_ID_VENDOR {
+        let state = structs::DeviceState::from_globals();
+        if !state.cfg.config_mode_active { return; }
+        if bufsize as usize != RAW_PACKET_LENGTH { return; }
+
+        extern "C" {
+            fn validate_packet(packet: *const u8) -> bool;
+            fn process_packet(packet: *const u8);
+        }
+        let packet_ptr = buffer.add(START_LENGTH);
+        if !validate_packet(packet_ptr) { return; }
+        process_packet(packet_ptr);
+    }
+
+    // Keyboard LED state change — delegate to service
+    if report_id != REPORT_ID_KEYBOARD || bufsize != 1 || report_type != HID_REPORT_TYPE_OUTPUT {
+        return;
+    }
+
+    let mut state = structs::DeviceState::from_globals();
+    let hal = crate::hal::pico::PicoHal::new();
+    crate::service::usb::process_led_report(&mut state, &hal, *buffer);
+}
+
+// ============================================================
+// Setup init — thin FFI wrapper delegating to domain::config
+// ============================================================
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_init_config(config_mode_active: bool, board_role: u8, timestamp: u64) {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
+    crate::domain::config::init_config(cfg, config_mode_active, board_role, timestamp);
+}
+
+// ============================================================
+// Flash config — thin FFI wrappers delegating to domain::config
+// ============================================================
+
+extern "C" {
+    #[link_name = "default_config"]
+    static DEFAULT_CONFIG: structs::Config;
+}
+
+#[export_name = "load_config"]
+pub unsafe extern "C" fn rust_load_config() {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
+    let hal = crate::hal::pico::PicoHal::new();
+    let size = core::mem::size_of::<structs::Config>();
+    let config_bytes = core::slice::from_raw_parts_mut(
+        &mut cfg.config as *mut structs::Config as *mut u8, size,
+    );
+    if let Some(default) = crate::domain::config::load_config_from_bytes(
+        config_bytes, &cfg.config, &hal, &DEFAULT_CONFIG,
+    ) {
+        cfg.config = default;
+    }
+}
+
+#[export_name = "save_config"]
+pub unsafe extern "C" fn rust_save_config() {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
+    let hal = crate::hal::pico::PicoHal::new();
+    let size = core::mem::size_of::<structs::Config>();
+    let config_bytes = core::slice::from_raw_parts_mut(
+        &mut cfg.config as *mut structs::Config as *mut u8, size,
+    );
+    cfg.config.checksum = crate::domain::config::compute_config_checksum(config_bytes);
+    // Re-read bytes after checksum update
+    let config_bytes = core::slice::from_raw_parts(
+        &cfg.config as *const structs::Config as *const u8, size,
+    );
+    let page = crate::domain::config::prepare_save_page(config_bytes);
+    hal.flash_write_config(&page);
+}
+
+#[export_name = "reset_config_timer"]
+pub unsafe extern "C" fn rust_reset_config_timer() {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
+    let now = device::hal_time_us_64();
+    crate::domain::config::reset_config_timer(cfg, now);
+}
+
+// ============================================================
+// Output switching — thin FFI wrapper delegating to service::output
+// ============================================================
+
+extern "C" {
+    fn release_all_keys();
+}
+
+#[export_name = "set_active_output"]
+pub unsafe extern "C" fn rust_set_active_output(output: u8) {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
+    let hid = &*core::ptr::addr_of!(structs::GLOBAL_HID);
+    crate::service::output::switch_output(
+        cfg,
+        hid,
+        output,
+        |on| device::hal_gpio_put_led(on),
+        |da, inst, leds, len| device::hal_tuh_hid_set_report(da, inst, leds, len),
+        |val, ptype| device::send_value(val, ptype),
+        || release_all_keys(),
+    );
+}
+
+// ============================================================
+// Debug state dump
+// ============================================================
+
+extern "C" {
+    fn dh_debug_printf(fmt: *const u8, ...);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hal_debug_dump_state() {
+    let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
+    dh_debug_printf(
+        c"tud=%d kbd=%d mse=%d role=%d out=%d c1=%llu\n".as_ptr(),
+        cfg.tud_connected as u32,
+        cfg.keyboard_connected as u32,
+        cfg.mouse_connected as u32,
+        cfg.board_role as u32,
+        cfg.active_output as u32,
+        cfg.core1_last_loop_pass,
+    );
+}
+
+// ============================================================
+// LED blink + toggle
+// ============================================================
+
+#[export_name = "blink_led"]
+pub unsafe extern "C" fn rust_blink_led() {
+    let led = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_LED);
+    led.blinks_left = 5;
+    led.last_led_change = device::hal_time_us_32() as i32;
+}
+
+#[export_name = "toggle_led"]
+pub unsafe extern "C" fn rust_toggle_led() -> u8 {
+    let state = !device::hal_gpio_get_led();
+    device::hal_gpio_put_led(state);
+    state as u8
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hal_toggle_led() -> u8 {
+    rust_toggle_led()
+}
+
+// ============================================================
+// LED control — thin FFI wrappers delegating to service::led
+// ============================================================
+
+#[export_name = "restore_leds"]
+pub unsafe extern "C" fn rust_restore_leds() {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
+    let hid = &*core::ptr::addr_of!(structs::GLOBAL_HID);
+    crate::service::led::sync_indicators(
+        cfg,
+        hid,
+        |on| device::hal_gpio_put_led(on),
+        |da, inst, leds, len| device::hal_tuh_hid_set_report(da, inst, leds, len),
+    );
+}
+
+#[export_name = "set_keyboard_leds"]
+pub unsafe extern "C" fn rust_set_keyboard_leds(leds: u8) {
+    let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
+    let hid = &*core::ptr::addr_of!(structs::GLOBAL_HID);
+    crate::service::led::send_kbd_led_report(
+        cfg,
+        hid,
+        leds,
+        |da, inst, led_val, len| device::hal_tuh_hid_set_report(da, inst, led_val, len),
+    );
+}
+
+// ============================================================
+// TinyUSB descriptor selection — C callbacks delegate here
+// ============================================================
+
+// C descriptor arrays (defined in usb_descriptors.c, static const)
+extern "C" {
+    static desc_device_config: u8;
+    static desc_device: u8;
+    static desc_hid_report: u8;
+    static desc_hid_report_relmouse: u8;
+    static desc_hid_report_vendor: u8;
+    static desc_configuration_config: u8;
+    static desc_configuration: u8;
+}
+
+const ITF_NUM_HID_VENDOR: u8 = 2;
+const ITF_NUM_HID_C: u8 = 0;
+const ITF_NUM_HID_REL_M: u8 = 1;
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_get_device_descriptor() -> *const u8 {
+    let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
+    if crate::service::usb::is_config_mode(cfg) {
+        core::ptr::addr_of!(desc_device_config)
+    } else {
+        core::ptr::addr_of!(desc_device)
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_get_hid_report_descriptor(instance: u8) -> *const u8 {
+    let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
+    if crate::service::usb::is_config_mode(cfg) && instance == ITF_NUM_HID_VENDOR {
+        return core::ptr::addr_of!(desc_hid_report_vendor);
+    }
+    match instance {
+        ITF_NUM_HID_C => core::ptr::addr_of!(desc_hid_report),
+        ITF_NUM_HID_REL_M => core::ptr::addr_of!(desc_hid_report_relmouse),
+        _ => core::ptr::addr_of!(desc_hid_report),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_get_configuration_descriptor() -> *const u8 {
+    let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
+    if crate::service::usb::is_config_mode(cfg) {
+        core::ptr::addr_of!(desc_configuration_config)
+    } else {
+        core::ptr::addr_of!(desc_configuration)
+    }
+}
+
+// ============================================================
+// TinyUSB device mount/unmount — set tud_connected flag
+// ============================================================
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_on_tud_mount() {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
+    cfg.tud_connected = true;
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_on_tud_umount() {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
+    cfg.tud_connected = false;
 }
