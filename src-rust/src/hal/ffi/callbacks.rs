@@ -682,7 +682,6 @@ pub unsafe extern "C" fn rust_on_tud_umount() {
 // LED diagnostics — blocking pattern playback (boot/halt)
 // ============================================================
 
-#[cfg(feature = "dh_debug")]
 unsafe fn busy_wait_ms(ms: u16) {
     let start = device::hal_time_us_32();
     let duration = (ms as u32) * 1000;
@@ -691,25 +690,32 @@ unsafe fn busy_wait_ms(ms: u16) {
     }
 }
 
-/// Play a diagnostic LED pattern (blocking). No-op in release builds.
-/// Called from C setup.c (boot stages) and Rust panic handler (halt).
+/// Play a diagnostic LED pattern (blocking).
+/// Always-level patterns play in all builds; DebugOnly patterns require dh_debug.
 #[no_mangle]
 pub unsafe extern "C" fn diag_led(event: u8) {
-    #[cfg(feature = "dh_debug")]
-    if let Some(ev) = crate::domain::led_pattern::DiagEvent::from_u8(event) {
-        let pat = ev.pattern();
-        loop {
-            for _ in 0..pat.blinks {
-                device::hal_gpio_put_led(true);
-                busy_wait_ms(pat.on_ms);
-                device::hal_gpio_put_led(false);
-                busy_wait_ms(pat.off_ms);
-            }
-            busy_wait_ms(pat.pause_ms);
-            if !pat.repeat { break; }
-        }
-    }
+    use crate::domain::led_pattern::{DiagEvent, DiagLevel};
 
-    #[cfg(not(feature = "dh_debug"))]
-    { let _ = event; }
+    if let Some(ev) = DiagEvent::from_u8(event) {
+        let pat = ev.pattern();
+
+        // Skip DebugOnly patterns in release builds
+        #[cfg(not(feature = "dh_debug"))]
+        if matches!(pat.level, DiagLevel::DebugOnly) { return; }
+
+        play_pattern(&pat);
+    }
+}
+
+unsafe fn play_pattern(pat: &crate::domain::led_pattern::LedPattern) {
+    loop {
+        for _ in 0..pat.blinks {
+            device::hal_gpio_put_led(true);
+            busy_wait_ms(pat.on_ms);
+            device::hal_gpio_put_led(false);
+            busy_wait_ms(pat.off_ms);
+        }
+        busy_wait_ms(pat.pause_ms);
+        if !pat.repeat { break; }
+    }
 }

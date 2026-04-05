@@ -1,12 +1,19 @@
 // LED diagnostics pattern definitions — pure data, no HAL dependency.
 // Playback lives in hal/ffi/callbacks.rs (diag_led).
 
+/// Whether a pattern plays in all builds or debug only.
+pub enum DiagLevel {
+    Always,    // Plays in both release and debug
+    DebugOnly, // Plays only when dh_debug feature is active
+}
+
 pub struct LedPattern {
     pub blinks: u8,
     pub on_ms: u16,
     pub off_ms: u16,
     pub pause_ms: u16,
     pub repeat: bool,
+    pub level: DiagLevel,
 }
 
 #[repr(u8)]
@@ -47,18 +54,23 @@ impl DiagEvent {
 
     pub const fn pattern(&self) -> LedPattern {
         match self {
-            Self::BootClock     => LedPattern { blinks: 1, on_ms: 50, off_ms: 50, pause_ms: 300, repeat: false },
-            Self::BootConfig    => LedPattern { blinks: 2, on_ms: 50, off_ms: 50, pause_ms: 300, repeat: false },
-            Self::BootProbe     => LedPattern { blinks: 3, on_ms: 50, off_ms: 50, pause_ms: 300, repeat: false },
-            Self::BootSerial    => LedPattern { blinks: 4, on_ms: 50, off_ms: 50, pause_ms: 300, repeat: false },
-            Self::BootRustInit  => LedPattern { blinks: 5, on_ms: 50, off_ms: 50, pause_ms: 300, repeat: false },
-            Self::BootUsb       => LedPattern { blinks: 6, on_ms: 50, off_ms: 50, pause_ms: 300, repeat: false },
-            Self::BootComplete  => LedPattern { blinks: 7, on_ms: 50, off_ms: 50, pause_ms: 300, repeat: false },
+            // Boot detail — debug only
+            Self::BootClock     => LedPattern { blinks: 1, on_ms: 50, off_ms: 50, pause_ms: 300, repeat: false, level: DiagLevel::DebugOnly },
+            Self::BootConfig    => LedPattern { blinks: 2, on_ms: 50, off_ms: 50, pause_ms: 300, repeat: false, level: DiagLevel::DebugOnly },
+            Self::BootProbe     => LedPattern { blinks: 3, on_ms: 50, off_ms: 50, pause_ms: 300, repeat: false, level: DiagLevel::DebugOnly },
+            Self::BootSerial    => LedPattern { blinks: 4, on_ms: 50, off_ms: 50, pause_ms: 300, repeat: false, level: DiagLevel::DebugOnly },
+            Self::BootRustInit  => LedPattern { blinks: 5, on_ms: 50, off_ms: 50, pause_ms: 300, repeat: false, level: DiagLevel::DebugOnly },
+            Self::BootUsb       => LedPattern { blinks: 6, on_ms: 50, off_ms: 50, pause_ms: 300, repeat: false, level: DiagLevel::DebugOnly },
 
-            Self::DeviceConnected => LedPattern { blinks: 5, on_ms: 80, off_ms: 80, pause_ms: 0, repeat: false },
+            // Boot complete — always visible
+            Self::BootComplete  => LedPattern { blinks: 3, on_ms: 100, off_ms: 100, pause_ms: 0, repeat: false, level: DiagLevel::Always },
 
-            Self::Panic     => LedPattern { blinks: 1, on_ms: 50,  off_ms: 50,  pause_ms: 0, repeat: true },
-            Self::HardFault => LedPattern { blinks: 1, on_ms: 500, off_ms: 500, pause_ms: 0, repeat: true },
+            // Runtime
+            Self::DeviceConnected => LedPattern { blinks: 5, on_ms: 80, off_ms: 80, pause_ms: 0, repeat: false, level: DiagLevel::Always },
+
+            // Halt — always visible
+            Self::Panic     => LedPattern { blinks: 1, on_ms: 50,  off_ms: 50,  pause_ms: 0, repeat: true, level: DiagLevel::Always },
+            Self::HardFault => LedPattern { blinks: 1, on_ms: 500, off_ms: 500, pause_ms: 0, repeat: true, level: DiagLevel::Always },
         }
     }
 }
