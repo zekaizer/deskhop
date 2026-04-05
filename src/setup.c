@@ -213,16 +213,17 @@ void initial_setup(device_t *state) {
 
     /* Search the persistent storage sector in flash for valid config or use defaults */
     load_config(state);
+    global_cfg.config = state->config; /* shadow */
 
     /* Init and enable the on-board LED GPIO as output */
     gpio_init(GPIO_LED_PIN);
     gpio_set_dir(GPIO_LED_PIN, GPIO_OUT);
 
     /* Check if we should boot in configuration mode or not */
-    state->config_mode_active = is_config_mode_active(state);
+    global_cfg.config_mode_active = state->config_mode_active = is_config_mode_active(state);
 
     /* Detect which board we're running on */
-    state->board_role = board_autoprobe();
+    global_cfg.board_role = state->board_role = board_autoprobe();
 
     /* Initialize and configure UART */
     serial_init();
@@ -230,12 +231,16 @@ void initial_setup(device_t *state) {
     /* Initialize keyboard and mouse queues */
     queue_init(queue_from_opaque(&state->kbd_queue), sizeof(hid_kbd_report_t), KBD_QUEUE_LENGTH);
     queue_init(queue_from_opaque(&state->mouse_queue), sizeof(mouse_report_t), MOUSE_QUEUE_LENGTH);
+    queue_init(queue_from_opaque(&global_hw.kbd_queue), sizeof(hid_kbd_report_t), KBD_QUEUE_LENGTH);
+    queue_init(queue_from_opaque(&global_hw.mouse_queue), sizeof(mouse_report_t), MOUSE_QUEUE_LENGTH);
 
     /* Initialize generic HID packet queue */
     queue_init(queue_from_opaque(&state->hid_queue_out), sizeof(hid_generic_pkt_t), HID_QUEUE_LENGTH);
+    queue_init(queue_from_opaque(&global_hw.hid_queue_out), sizeof(hid_generic_pkt_t), HID_QUEUE_LENGTH);
 
     /* Initialize UART queue */
     queue_init(queue_from_opaque(&state->uart_tx_queue), sizeof(uart_packet_t), UART_QUEUE_LENGTH);
+    queue_init(queue_from_opaque(&global_hw.uart_tx_queue), sizeof(uart_packet_t), UART_QUEUE_LENGTH);
 
     /* Setup RP2040 Core 1 */
     multicore_reset_core1();
@@ -251,11 +256,16 @@ void initial_setup(device_t *state) {
     configure_tx_dma(state);
     configure_rx_dma(state);
 
+    /* Shadow DMA channels to new globals */
+    global_hw.dma_tx_channel = state->dma_tx_channel;
+    global_hw.dma_rx_channel = state->dma_rx_channel;
+    global_hw.dma_control_channel = state->dma_control_channel;
+
     /* Load the current firmware info */
-    state->_running_fw = _firmware_metadata;
+    global_fw._running_fw = state->_running_fw = _firmware_metadata;
 
     /* Update the core1 initial pass timestamp before enabling the watchdog */
-    state->core1_last_loop_pass = time_us_64();
+    global_cfg.core1_last_loop_pass = state->core1_last_loop_pass = time_us_64();
 
     /* Setup the watchdog so we reboot and recover from a crash */
     watchdog_enable(WATCHDOG_TIMEOUT, WATCHDOG_PAUSE_ON_DEBUG);

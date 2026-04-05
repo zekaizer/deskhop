@@ -6,6 +6,12 @@ extern void rust_core1_loop(device_t *) __attribute__((noreturn));
 
 device_t global_state = {0};
 device_t *device = &global_state;
+
+device_hid_t    global_hid = {0};
+device_config_t global_cfg = {0};
+device_fw_t     global_fw  = {0};
+device_led_t    global_led = {0};
+device_hw_t     global_hw  = {0};
 firmware_metadata_t _firmware_metadata __attribute__((section(".section_metadata"))) = { .version = 0x0001 };
 
 int main(void) {

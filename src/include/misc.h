@@ -28,6 +28,12 @@ bool     verify_checksum(const uart_packet_t *);
 
 extern device_t global_state;
 
+extern device_hid_t    global_hid;
+extern device_config_t global_cfg;
+extern device_fw_t     global_fw;
+extern device_led_t    global_led;
+extern device_hw_t     global_hw;
+
 /*==============================================================================
  *  LED Control (blink_led in hal_shim.c, others in led.c)
  *==============================================================================*/
