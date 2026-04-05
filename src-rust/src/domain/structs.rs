@@ -40,9 +40,40 @@ pub use bindgen::hid_kbd_report_t as HidKeyboardReport;
 pub use bindgen::fw_upgrade_state_t as FwUpgradeState;
 pub use bindgen::config_t as Config;
 pub use bindgen::device_hid_t as DeviceHid;
-pub use bindgen::device_config_t as DeviceConfig;
 pub use bindgen::device_fw_t as DeviceFw;
 pub use bindgen::device_led_t as DeviceLed;
+
+/// Device configuration — Rust-owned, no longer in C headers.
+/// Layout must match the former C device_config_t (size=192, align=8).
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct DeviceConfig {
+    pub config: Config,
+    pub active_output: u8,
+    pub board_role: u8,
+    pub keyboard_leds: [u8; 2],
+    pub last_activity: [u64; 2],
+    pub core1_last_loop_pass: u64,
+
+    pub tud_connected: bool,
+    pub keyboard_connected: bool,
+    pub mouse_connected: bool,
+
+    pub mouse_zoom: bool,
+    pub switch_lock: bool,
+    pub onboard_led_state: bool,
+    pub relative_mouse: bool,
+    pub gaming_mode: bool,
+    pub config_mode_active: bool,
+    pub digitizer_active: bool,
+
+    pub config_mode_timer: u64,
+}
+
+const _: () = {
+    assert!(core::mem::size_of::<DeviceConfig>() == 192);
+    assert!(core::mem::align_of::<DeviceConfig>() == 8);
+};
 
 /* ================================================================== *
  * Packet / HID report types (not in bindgen — depend on Rust constants
