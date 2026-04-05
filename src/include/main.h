@@ -58,3 +58,5 @@ void set_active_output(device_t *, uint8_t);
 #include <pico/multicore.h>
 #include <pico/stdlib.h>
 #include <pico/unique_id.h>
+
+#include "sdk_verify.h"

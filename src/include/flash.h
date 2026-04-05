@@ -11,7 +11,15 @@
 
 #pragma once
 #include <stdint.h>
+
+/* When included from SDK-free context (bindgen), provide fallback constants.
+ * When SDK is available, sdk_verify.h verifies they match. */
+#if __has_include(<hardware/flash.h>)
 #include <hardware/flash.h>
+#else
+#define FLASH_PAGE_SIZE   256
+#define FLASH_SECTOR_SIZE 4096
+#endif
 
 /*==============================================================================
  *  Firmware Metadata

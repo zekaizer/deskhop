@@ -11,9 +11,34 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "flash.h"
 #include "packet.h"
 #include "screen.h"
+
+/* TU_ATTR_PACKED: use __attribute__((packed)) when TinyUSB is not included */
+#ifndef TU_ATTR_PACKED
+#define TU_ATTR_PACKED __attribute__((packed))
+#endif
+
+/* Opaque SDK types — size/alignment verified by _Static_assert in sdk_verify.h.
+ * C code accesses actual SDK types via inline accessors in sdk_accessor.h. */
+#define QUEUE_OPAQUE_SIZE  16
+#define QUEUE_OPAQUE_ALIGN 4
+typedef struct __attribute__((aligned(QUEUE_OPAQUE_ALIGN))) {
+    uint8_t _data[QUEUE_OPAQUE_SIZE];
+} queue_opaque_t;
+
+#define HID_KBD_REPORT_SIZE 8
+typedef struct TU_ATTR_PACKED {
+    uint8_t modifier;
+    uint8_t reserved;
+    uint8_t keycode[6];
+} hid_kbd_report_t;
+
+/* hid_interface_t and firmware_metadata_t are project types defined
+ * in their own headers (hid_parser.h, flash.h). No SDK dependency
+ * for their definitions — only for queue_t. */
 
 typedef void (*action_handler_t)();
 
@@ -100,8 +125,8 @@ typedef struct {
     uint8_t active_output;               // Currently selected output (0 = A, 1 = B)
     uint8_t board_role;                  // Which board are we running on? (0 = A, 1 = B, etc.)
 
-    hid_keyboard_report_t local_kbd_states[MAX_DEVICES]; // Store keyboard states
-    hid_keyboard_report_t remote_kbd_state;              // Store combined remote keyboard state
+    hid_kbd_report_t local_kbd_states[MAX_DEVICES]; // Store keyboard states
+    hid_kbd_report_t remote_kbd_state;              // Store combined remote keyboard state
     uint8_t max_kbd_idx;                                 // Store largest kbd_idx seen
 
     int16_t pointer_x; // Store and update the location of our mouse pointer
@@ -109,10 +134,10 @@ typedef struct {
     int16_t mouse_buttons; // Store and update the state of mouse buttons
 
     config_t config;       // Device configuration, loaded from flash or defaults used
-    queue_t hid_queue_out; // Queue that stores outgoing hid messages
-    queue_t kbd_queue;     // Queue that stores keyboard reports
-    queue_t mouse_queue;   // Queue that stores mouse reports
-    queue_t uart_tx_queue; // Queue that stores outgoing packets
+    queue_opaque_t hid_queue_out; // Queue that stores outgoing hid messages
+    queue_opaque_t kbd_queue;     // Queue that stores keyboard reports
+    queue_opaque_t mouse_queue;   // Queue that stores mouse reports
+    queue_opaque_t uart_tx_queue; // Queue that stores outgoing packets
 
     hid_interface_t iface[MAX_DEVICES][MAX_INTERFACES]; // Store info about HID interfaces
     uart_packet_t in_packet;

@@ -5,8 +5,7 @@
 
 #include "main.h"
 
-_Static_assert(sizeof(queue_t) == 16,
-    "queue_t size changed — update QUEUE_T_SIZE in src-rust/src/app/structs.rs");
+/* queue_t size/align verification moved to sdk_verify.h */
 
 /* Verify Rust Device struct matches C device_t — called from initial_setup */
 extern const uint32_t RUST_SIZEOF_DEVICE;
@@ -73,20 +72,20 @@ uint32_t hal_time_us_32(void) { return time_us_32(); }
 void hal_queue_mouse_report(device_t *dev, const uint8_t *report) {
     // Call queue_try_add directly — do NOT call queue_mouse_report
     // which routes to rust_queue_mouse_report, causing infinite recursion.
-    queue_try_add(&dev->mouse_queue, report);
+    queue_try_add(queue_from_opaque(&dev->mouse_queue), report);
 }
 
 void hal_queue_kbd_report(device_t *dev, const uint8_t *report) {
     // Same: avoid queue_kbd_report → rust_queue_kbd_report → here recursion.
-    queue_try_add(&dev->kbd_queue, report);
+    queue_try_add(queue_from_opaque(&dev->kbd_queue), report);
 }
 
 void hal_queue_uart_packet(device_t *dev, const uint8_t *packet) {
-    queue_try_add(&dev->uart_tx_queue, packet);
+    queue_try_add(queue_from_opaque(&dev->uart_tx_queue), packet);
 }
 
 bool hal_queue_try_add_uart(device_t *dev, const uint8_t *data) {
-    return queue_try_add(&dev->uart_tx_queue, data);
+    return queue_try_add(queue_from_opaque(&dev->uart_tx_queue), data);
 }
 
 /* ==================================================== *
@@ -106,7 +105,7 @@ void blink_led(device_t *state) {
 /* UART packet + output control — moved from uart.c */
 void queue_packet(const uint8_t *d, enum packet_type_e t, int l) {
     uart_packet_t p = {.type = t}; memcpy(p.data, d, l);
-    queue_try_add(&global_state.uart_tx_queue, &p);
+    queue_try_add(queue_from_opaque(&global_state.uart_tx_queue), &p);
 }
 void send_value(const uint8_t v, enum packet_type_e t) { queue_packet(&v, t, sizeof(uint8_t)); }
 
@@ -190,7 +189,7 @@ void hal_set_report_handler(void *iface, uint8_t report_id, uint8_t handler_type
 static void _queue_packet(const uint8_t *p, device_t *s, uint8_t t, uint8_t l, uint8_t id, uint8_t inst) {
     hid_generic_pkt_t g = { .instance=inst, .report_id=id, .type=t, .len=l };
     memcpy(g.data, p, l);
-    queue_try_add(&s->hid_queue_out, &g);
+    queue_try_add(queue_from_opaque(&s->hid_queue_out), &g);
 }
 void hal_queue_cc_packet(device_t *dev, const uint8_t *payload) {
     _queue_packet(payload, dev, 1, CONSUMER_CONTROL_LENGTH, REPORT_ID_CONSUMER, ITF_NUM_HID);
@@ -250,10 +249,10 @@ void hal_queue_cfg_packet(device_t *dev, const uint8_t *packet) {
 
 /* HID output queue — generic HID reports waiting to be sent via TinyUSB */
 bool hal_hid_queue_peek(device_t *dev, uint8_t *out) {
-    return queue_try_peek(&dev->hid_queue_out, out);
+    return queue_try_peek(queue_from_opaque(&dev->hid_queue_out), out);
 }
 bool hal_hid_queue_remove(device_t *dev, uint8_t *out) {
-    return queue_try_remove(&dev->hid_queue_out, out);
+    return queue_try_remove(queue_from_opaque(&dev->hid_queue_out), out);
 }
 bool hal_tud_hid_n_report(uint8_t instance, uint8_t report_id, const uint8_t *data, uint8_t len) {
     return tud_hid_n_report(instance, report_id, data, len);
@@ -261,20 +260,20 @@ bool hal_tud_hid_n_report(uint8_t instance, uint8_t report_id, const uint8_t *da
 
 /* Queue peek/remove for kbd and mouse */
 bool hal_kbd_queue_peek(device_t *dev, uint8_t *out) {
-    return queue_try_peek(&dev->kbd_queue, out);
+    return queue_try_peek(queue_from_opaque(&dev->kbd_queue), out);
 }
 bool hal_kbd_queue_remove(device_t *dev, uint8_t *out) {
-    return queue_try_remove(&dev->kbd_queue, out);
+    return queue_try_remove(queue_from_opaque(&dev->kbd_queue), out);
 }
 bool hal_mouse_queue_peek(device_t *dev, uint8_t *out) {
-    return queue_try_peek(&dev->mouse_queue, out);
+    return queue_try_peek(queue_from_opaque(&dev->mouse_queue), out);
 }
 bool hal_mouse_queue_remove(device_t *dev, uint8_t *out) {
-    return queue_try_remove(&dev->mouse_queue, out);
+    return queue_try_remove(queue_from_opaque(&dev->mouse_queue), out);
 }
 
 bool hal_uart_tx_queue_remove(device_t *dev, uint8_t *out) {
-    return queue_try_remove(&dev->uart_tx_queue, out);
+    return queue_try_remove(queue_from_opaque(&dev->uart_tx_queue), out);
 }
 
 void hal_set_config_mode_scratch(void) {

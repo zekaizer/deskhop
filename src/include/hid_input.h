@@ -18,7 +18,7 @@
  *  Data Extraction
  *==============================================================================*/
 
-int32_t    extract_kbd_data(uint8_t *, int, uint8_t, hid_interface_t *, hid_keyboard_report_t *);
+int32_t    extract_kbd_data(uint8_t *, int, uint8_t, hid_interface_t *, hid_kbd_report_t *);
 
 /*==============================================================================
  *  Hotkey Handling

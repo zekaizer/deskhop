@@ -228,14 +228,14 @@ void initial_setup(device_t *state) {
     serial_init();
 
     /* Initialize keyboard and mouse queues */
-    queue_init(&state->kbd_queue, sizeof(hid_keyboard_report_t), KBD_QUEUE_LENGTH);
-    queue_init(&state->mouse_queue, sizeof(mouse_report_t), MOUSE_QUEUE_LENGTH);
+    queue_init(queue_from_opaque(&state->kbd_queue), sizeof(hid_kbd_report_t), KBD_QUEUE_LENGTH);
+    queue_init(queue_from_opaque(&state->mouse_queue), sizeof(mouse_report_t), MOUSE_QUEUE_LENGTH);
 
     /* Initialize generic HID packet queue */
-    queue_init(&state->hid_queue_out, sizeof(hid_generic_pkt_t), HID_QUEUE_LENGTH);
+    queue_init(queue_from_opaque(&state->hid_queue_out), sizeof(hid_generic_pkt_t), HID_QUEUE_LENGTH);
 
     /* Initialize UART queue */
-    queue_init(&state->uart_tx_queue, sizeof(uart_packet_t), UART_QUEUE_LENGTH);
+    queue_init(queue_from_opaque(&state->uart_tx_queue), sizeof(uart_packet_t), UART_QUEUE_LENGTH);
 
     /* Setup RP2040 Core 1 */
     multicore_reset_core1();

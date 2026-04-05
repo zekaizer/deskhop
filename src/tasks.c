@@ -11,7 +11,7 @@ void usb_host_task(device_t *s) { if (tuh_inited()) tuh_task(); }
 
 /* Firmware upgrade (flash + queue) — requires direct flash/SDK access */
 void firmware_upgrade_task(device_t *s) {
-    if (!s->fw.upgrade_in_progress || !s->fw.byte_done || queue_is_full(&s->uart_tx_queue)) return;
+    if (!s->fw.upgrade_in_progress || !s->fw.byte_done || queue_is_full(queue_from_opaque(&s->uart_tx_queue))) return;
     if (s->fw.address > STAGING_IMAGE_SIZE) {
         s->fw.upgrade_in_progress = 0; s->fw.checksum = ~s->fw.checksum;
         if (calculate_firmware_crc32() != s->fw.checksum) {
@@ -27,7 +27,7 @@ void firmware_upgrade_task(device_t *s) {
 void request_byte(device_t *state, uint32_t address) {
     uart_packet_t p = { .data32[0] = address, .type = REQUEST_BYTE_MSG };
     state->fw.byte_done = false;
-    queue_try_add(&global_state.uart_tx_queue, &p);
+    queue_try_add(queue_from_opaque(&global_state.uart_tx_queue), &p);
 }
 
 void reboot(void) { *((volatile uint32_t*)(PPB_BASE + 0x0ED0C)) = 0x5FA0004; }
