@@ -43,7 +43,7 @@ typedef struct TU_ATTR_PACKED {
 #define MAX_DEVICES    4
 #endif
 #ifndef MAX_INTERFACES
-#define MAX_INTERFACES 12
+#define MAX_INTERFACES 4
 #endif
 
 /* hid_interface_t — opaque placeholder. Actual type in hid_parser.h (SDK-dependent).

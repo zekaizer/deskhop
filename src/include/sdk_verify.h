@@ -29,7 +29,7 @@ _Static_assert(_Alignof(hid_interface_t) == HID_INTERFACE_OPAQUE_ALIGN,
 #include "hid_parser.h"
 _Static_assert(MAX_DEVICES == 4,
     "MAX_DEVICES changed — update structs.h fallback");
-_Static_assert(MAX_INTERFACES == 12,
+_Static_assert(MAX_INTERFACES == 4,
     "MAX_INTERFACES changed — update structs.h fallback");
 
 _Static_assert(FLASH_SECTOR_SIZE == 4096,

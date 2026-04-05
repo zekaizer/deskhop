@@ -35,7 +35,7 @@ void save_config(device_t *state) {
     write_flash_page((uint32_t)ADDR_CONFIG - XIP_BASE, global_fw.page_buffer);
 }
 
-void reset_config_timer(device_t *s) { global_cfg.config_mode_timer = hal_time_us_64() + CONFIG_MODE_TIMEOUT; }
+void reset_config_timer(device_t *s) { global_cfg.config_mode_timer = time_us_64() + CONFIG_MODE_TIMEOUT; }
 
 /* GPIO: BOOTSEL button */
 void _configure_flash_cs(enum gpio_override gpo, uint pin) {
