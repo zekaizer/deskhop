@@ -38,6 +38,6 @@ extern device_hw_t     global_hw;
  *  LED Control (blink_led in hal_shim.c, others in led.c)
  *==============================================================================*/
 
-void    blink_led(device_t *);
-void    restore_leds(device_t *);
+void    blink_led(void);
+void    restore_leds(void);
 uint8_t toggle_led(void);

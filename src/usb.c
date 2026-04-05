@@ -59,7 +59,7 @@ void tud_hid_set_report_cb(uint8_t instance,
         if (!validate_packet(packet))
             return;
 
-        process_packet(packet, &global_state);
+        process_packet(packet);
     }
 
     /* Only other set report we care about is LED state change, and that's exactly 1 byte long */
@@ -80,7 +80,7 @@ void tud_hid_set_report_cb(uint8_t instance,
 
     /* If the board has a keyboard connected directly, restore those leds. */
     if (global_cfg.keyboard_connected && CURRENT_BOARD_IS_ACTIVE_OUTPUT)
-        restore_leds(&global_state);
+        restore_leds();
 
     /* Always send to the other one, so it is aware of the change */
     send_value(leds, KBD_SET_REPORT_MSG);
@@ -199,7 +199,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
     }
 
     /* Flash local led to indicate a device was connected */
-    blink_led(&global_state);
+    blink_led();
 
     /* Also signal the other board to flash LED, to enable easy verification if serial works */
     send_value(ENABLE, FLASH_LED_MSG);

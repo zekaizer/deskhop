@@ -1,40 +1,38 @@
 // HAL device interface — all hardware-dependent operations.
 // Rust calls these thin C wrappers for Pico SDK / TinyUSB / GPIO access.
 
-use core::ffi::c_void;
-
 extern "C" {
     // ---- Timestamp ----
     pub fn hal_time_us_64() -> u64;
     pub fn hal_time_us_32() -> u32;
 
     // ---- Queue operations ----
-    pub fn hal_queue_mouse_report(dev: *mut c_void, report: *const u8);
-    pub fn hal_queue_kbd_report(dev: *mut c_void, report: *const u8);
-    pub fn hal_queue_uart_packet(dev: *mut c_void, packet: *const u8);
-    pub fn hal_queue_try_add_uart(dev: *mut c_void, data: *const u8) -> bool;
+    pub fn hal_queue_mouse_report(report: *const u8);
+    pub fn hal_queue_kbd_report(report: *const u8);
+    pub fn hal_queue_uart_packet(packet: *const u8);
+    pub fn hal_queue_try_add_uart(data: *const u8) -> bool;
 
     // ---- HID queue helpers ----
-    pub fn hal_queue_cc_packet(dev: *mut c_void, payload: *const u8);
-    pub fn hal_queue_system_packet(dev: *mut c_void, payload: *const u8);
+    pub fn hal_queue_cc_packet(payload: *const u8);
+    pub fn hal_queue_system_packet(payload: *const u8);
 
     // ---- UART send helpers (direct C functions) ----
     pub fn send_value(value: u8, packet_type: u8);
     pub fn queue_packet(data: *const u8, packet_type: u8, length: i32);
 
     // ---- Config / Flash (direct C functions) ----
-    pub fn save_config(dev: *mut c_void);
-    pub fn load_config(dev: *mut c_void);
+    pub fn save_config();
+    pub fn load_config();
     pub fn wipe_config();
 
     // ---- Output switching / LEDs (direct C functions) ----
-    pub fn set_active_output(dev: *mut c_void, output: u8);
-    pub fn restore_leds(dev: *mut c_void);
+    pub fn set_active_output(output: u8);
+    pub fn restore_leds();
     // release_all_keys is now a Rust #[export_name] in keyboard.rs
 
     // ---- Hardware ----
     pub fn hal_watchdog_update();
-    pub fn blink_led(dev: *mut c_void);
+    pub fn blink_led();
     pub fn reboot();
     pub fn hal_reset_usb_boot();
 
@@ -48,39 +46,39 @@ extern "C" {
 
     // ---- hid_interface_t (remaining C-dependent function) ----
     /// Assigns C function pointers (process_*_report) to report_handler array
-    pub fn hal_set_report_handler(iface: *mut c_void, report_id: u8, handler_type: u8);
+    pub fn hal_set_report_handler(iface: *mut core::ffi::c_void, report_id: u8, handler_type: u8);
 
     pub fn hal_toggle_led() -> u8;
     pub fn hal_is_bootsel_pressed() -> bool;
-    pub fn set_keyboard_leds(leds: u8, dev: *mut c_void);
+    pub fn set_keyboard_leds(leds: u8);
     pub fn hal_read_fw_running_u32(address: u32) -> u32;
-    pub fn hal_kbd_queue_peek(dev: *mut c_void, out: *mut u8) -> bool;
-    pub fn hal_kbd_queue_remove(dev: *mut c_void, out: *mut u8) -> bool;
-    pub fn hal_mouse_queue_peek(dev: *mut c_void, out: *mut u8) -> bool;
-    pub fn hal_mouse_queue_remove(dev: *mut c_void, out: *mut u8) -> bool;
-    pub fn hal_uart_tx_queue_remove(dev: *mut c_void, out: *mut u8) -> bool;
+    pub fn hal_kbd_queue_peek(out: *mut u8) -> bool;
+    pub fn hal_kbd_queue_remove(out: *mut u8) -> bool;
+    pub fn hal_mouse_queue_peek(out: *mut u8) -> bool;
+    pub fn hal_mouse_queue_remove(out: *mut u8) -> bool;
+    pub fn hal_uart_tx_queue_remove(out: *mut u8) -> bool;
     pub fn hal_set_config_mode_scratch();
 
     // ---- Debug ----
     pub fn hal_debug_blink(count: i32, delay_ms: i32);
-    pub fn hal_debug_dump_state(dev: *mut c_void);
+    pub fn hal_debug_dump_state();
 
     // ---- Pico SDK direct ----
     // Unused from Rust (PicoHal::kick() calls hal_watchdog_update instead),
     // but kept for potential C linkage.
     #[allow(dead_code)]
     pub fn watchdog_update();
-    pub fn hal_queue_cfg_packet(dev: *mut c_void, packet: *const u8);
+    pub fn hal_queue_cfg_packet(packet: *const u8);
 
     // ---- HID output queue ----
-    pub fn hal_hid_queue_peek(dev: *mut c_void, out: *mut u8) -> bool;
-    pub fn hal_hid_queue_remove(dev: *mut c_void, out: *mut u8) -> bool;
+    pub fn hal_hid_queue_peek(out: *mut u8) -> bool;
+    pub fn hal_hid_queue_remove(out: *mut u8) -> bool;
     pub fn hal_tud_hid_n_report(instance: u8, report_id: u8, data: *const u8, len: u8) -> bool;
 
     // ---- DMA ----
-    pub fn hal_dma_channel_is_busy(dev: *mut c_void) -> bool;
-    pub fn hal_dma_tx_send(dev: *mut c_void, buf: *const u8, len: u32);
-    pub fn hal_dma_rx_remaining(dev: *mut c_void) -> u32;
-    pub fn hal_is_start_of_packet(dev: *mut c_void) -> bool;
-    pub fn hal_fetch_packet(dev: *mut c_void);
+    pub fn hal_dma_channel_is_busy() -> bool;
+    pub fn hal_dma_tx_send(buf: *const u8, len: u32);
+    pub fn hal_dma_rx_remaining() -> u32;
+    pub fn hal_is_start_of_packet() -> bool;
+    pub fn hal_fetch_packet();
 }

@@ -17,7 +17,7 @@ void write_flash_page(uint32_t addr, uint8_t *buf) {
     restore_interrupts(ints);
 }
 
-void load_config(device_t *state) {
+void load_config(void) {
     const config_t *config = ADDR_CONFIG;
     config_t *rc = &global_cfg.config;
     memcpy(rc, config, sizeof(config_t));
@@ -26,7 +26,7 @@ void load_config(device_t *state) {
         memcpy(rc, &default_config, sizeof(config_t));
 }
 
-void save_config(device_t *state) {
+void save_config(void) {
     uint8_t *raw = (uint8_t *)&global_cfg.config;
     uint8_t checksum = calc_crc32(raw, sizeof(config_t) - sizeof(uint32_t));
     global_cfg.config.checksum = checksum;
@@ -35,7 +35,7 @@ void save_config(device_t *state) {
     write_flash_page((uint32_t)ADDR_CONFIG - XIP_BASE, global_fw.page_buffer);
 }
 
-void reset_config_timer(device_t *s) { global_cfg.config_mode_timer = time_us_64() + CONFIG_MODE_TIMEOUT; }
+void reset_config_timer(void) { global_cfg.config_mode_timer = time_us_64() + CONFIG_MODE_TIMEOUT; }
 
 /* GPIO: BOOTSEL button */
 void _configure_flash_cs(enum gpio_override gpo, uint pin) {

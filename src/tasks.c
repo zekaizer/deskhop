@@ -4,13 +4,13 @@
 #include "main.h"
 
 /* USB tasks — TinyUSB inline macros require C */
-void usb_device_task(device_t *s) { tud_task(); }
-void usb_host_task(device_t *s) { if (tuh_inited()) tuh_task(); }
+void usb_device_task(void) { tud_task(); }
+void usb_host_task(void) { if (tuh_inited()) tuh_task(); }
 
 /* heartbeat_output_task — now fully in Rust (#[export_name]) */
 
 /* Firmware upgrade (flash + queue) — requires direct flash/SDK access */
-void firmware_upgrade_task(device_t *s) {
+void firmware_upgrade_task(void) {
     if (!global_fw.fw.upgrade_in_progress || !global_fw.fw.byte_done || queue_is_full(queue_from_opaque(&global_hw.uart_tx_queue))) return;
     if (global_fw.fw.address > STAGING_IMAGE_SIZE) {
         global_fw.fw.upgrade_in_progress = 0; global_fw.fw.checksum = ~global_fw.fw.checksum;
@@ -21,10 +21,10 @@ void firmware_upgrade_task(device_t *s) {
     }
     if (TU_U32_BYTE0(global_fw.fw.address) == 0x00)
         write_flash_page((uint32_t)ADDR_FW_RUNNING + ((global_fw.fw.address-1) & 0xFFFFFF00) - XIP_BASE, global_fw.page_buffer);
-    request_byte(s, global_fw.fw.address);
+    request_byte(global_fw.fw.address);
 }
 
-void request_byte(device_t *state, uint32_t address) {
+void request_byte(uint32_t address) {
     uart_packet_t p = { .data32[0] = address, .type = REQUEST_BYTE_MSG };
     global_fw.fw.byte_done = false;
     queue_try_add(queue_from_opaque(&global_hw.uart_tx_queue), &p);

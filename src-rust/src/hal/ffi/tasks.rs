@@ -1,7 +1,5 @@
 // Task FFI wrappers — scheduler entry points called from tasks.c.
 
-use core::ffi::c_void;
-
 // --- Static state ---
 // These are only accessed from a single core's task scheduler, so
 // raw static mut access via addr_of_mut! is safe in practice.
@@ -12,8 +10,8 @@ static mut LAST_POINTER_MOVE: u32 = 0;
 // --- Watchdog / heartbeat ---
 
 #[export_name = "kick_watchdog_task"]
-pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
+pub unsafe extern "C" fn rust_kick_watchdog_task() {
+    let hal = crate::hal::pico::PicoHal::new();
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
     crate::service::tasks::check_system_health(state, &hal);
@@ -29,8 +27,8 @@ pub unsafe extern "C" fn rust_kick_watchdog_task(dev: *mut c_void) {
 }
 
 #[export_name = "heartbeat_output_task"]
-pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
+pub unsafe extern "C" fn rust_heartbeat_output_task() {
+    let hal = crate::hal::pico::PicoHal::new();
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
     crate::service::tasks::heartbeat_tick(state, &hal);
@@ -39,8 +37,8 @@ pub unsafe extern "C" fn rust_heartbeat_output_task(dev: *mut c_void) {
 // --- Packet receiver task ---
 
 #[export_name = "packet_receiver_task"]
-pub unsafe extern "C" fn rust_packet_receiver_task(dev: *mut c_void) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
+pub unsafe extern "C" fn rust_packet_receiver_task() {
+    let hal = crate::hal::pico::PicoHal::new();
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
     crate::service::tasks::packet_receive_tick(state, &hal);
@@ -49,16 +47,16 @@ pub unsafe extern "C" fn rust_packet_receiver_task(dev: *mut c_void) {
 // --- HID output queue task ---
 
 #[export_name = "process_hid_queue_task"]
-pub unsafe extern "C" fn rust_process_hid_queue_task(dev: *mut c_void) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
+pub unsafe extern "C" fn rust_process_hid_queue_task() {
+    let hal = crate::hal::pico::PicoHal::new();
     crate::service::tasks::process_hid_queue(&hal);
 }
 
 // --- LED blinking task ---
 
 #[export_name = "led_blinking_task"]
-pub unsafe extern "C" fn rust_led_blinking_task(dev: *mut c_void) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
+pub unsafe extern "C" fn rust_led_blinking_task() {
+    let hal = crate::hal::pico::PicoHal::new();
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
     crate::service::tasks::led_blink_tick(state, &hal);
@@ -67,8 +65,8 @@ pub unsafe extern "C" fn rust_led_blinking_task(dev: *mut c_void) {
 // --- Screensaver task ---
 
 #[export_name = "screensaver_task"]
-pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
+pub unsafe extern "C" fn rust_screensaver_task() {
+    let hal = crate::hal::pico::PicoHal::new();
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
 
@@ -92,24 +90,24 @@ pub unsafe extern "C" fn rust_screensaver_task(dev: *mut c_void) {
 // --- Keyboard queue tasks ---
 
 #[export_name = "release_all_keys"]
-pub unsafe extern "C" fn rust_release_all_keys_state(dev: *mut c_void) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
+pub unsafe extern "C" fn rust_release_all_keys_state() {
+    let hal = crate::hal::pico::PicoHal::new();
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
     crate::service::backend::host_link::release_all_keys(state, &hal);
 }
 
 #[export_name = "process_kbd_queue_task"]
-pub unsafe extern "C" fn rust_process_kbd_queue_task(dev: *mut c_void) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
+pub unsafe extern "C" fn rust_process_kbd_queue_task() {
+    let hal = crate::hal::pico::PicoHal::new();
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
     crate::service::backend::host_link::send_pending_kbd(state, &hal);
 }
 
 #[export_name = "process_mouse_queue_task"]
-pub unsafe extern "C" fn rust_process_mouse_queue_task(dev: *mut c_void) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
+pub unsafe extern "C" fn rust_process_mouse_queue_task() {
+    let hal = crate::hal::pico::PicoHal::new();
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
     crate::service::backend::host_link::send_pending_mouse(state, &hal);
@@ -118,7 +116,7 @@ pub unsafe extern "C" fn rust_process_mouse_queue_task(dev: *mut c_void) {
 // --- UART TX task ---
 
 #[export_name = "process_uart_tx_task"]
-pub unsafe extern "C" fn rust_process_uart_tx_task(dev: *mut c_void) {
-    let hal = crate::hal::pico::PicoHal::new(dev);
+pub unsafe extern "C" fn rust_process_uart_tx_task() {
+    let hal = crate::hal::pico::PicoHal::new();
     crate::service::tasks::flush_outbox(&hal);
 }

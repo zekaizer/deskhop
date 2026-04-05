@@ -21,38 +21,33 @@ fn panic(_info: &PanicInfo) -> ! {
 }
 
 #[cfg(not(test))]
-use ::core::ffi::c_void;
-#[cfg(not(test))]
 use hal::scheduler;
 #[cfg(not(test))]
 use hal::traits::{Timer, Watchdog};
 
-// C task functions — still take device_t* (c_void from Rust's perspective)
+// C task functions — now take no parameters (device_t* removed)
 #[cfg(not(test))]
 extern "C" {
-    fn usb_device_task(dev: *mut c_void);
-    fn kick_watchdog_task(dev: *mut c_void);
-    fn process_kbd_queue_task(dev: *mut c_void);
-    fn process_mouse_queue_task(dev: *mut c_void);
-    fn process_hid_queue_task(dev: *mut c_void);
-    fn process_uart_tx_task(dev: *mut c_void);
+    fn usb_device_task();
+    fn kick_watchdog_task();
+    fn process_kbd_queue_task();
+    fn process_mouse_queue_task();
+    fn process_hid_queue_task();
+    fn process_uart_tx_task();
 
-    fn usb_host_task(dev: *mut c_void);
-    fn packet_receiver_task(dev: *mut c_void);
-    fn led_blinking_task(dev: *mut c_void);
-    fn screensaver_task(dev: *mut c_void);
-    fn firmware_upgrade_task(dev: *mut c_void);
-    fn heartbeat_output_task(dev: *mut c_void);
+    fn usb_host_task();
+    fn packet_receiver_task();
+    fn led_blinking_task();
+    fn screensaver_task();
+    fn firmware_upgrade_task();
+    fn heartbeat_output_task();
 }
 
 /// Core0 main loop
 #[cfg(not(test))]
 #[no_mangle]
-pub extern "C" fn rust_main_loop(dev: *mut c_void) -> ! {
-    let hal = unsafe { hal::pico::PicoHal::new(dev) };
-
-    // Store device pointer for FFI functions without dev parameter
-    domain::structs::set_global_device(dev);
+pub extern "C" fn rust_main_loop() -> ! {
+    let hal = hal::pico::PicoHal::new();
 
     // Kick watchdog before scheduler starts (initial_setup enables it)
     hal.kick();
@@ -67,16 +62,15 @@ pub extern "C" fn rust_main_loop(dev: *mut c_void) -> ! {
     ];
 
     loop {
-        scheduler::run_all_tasks(&mut tasks, dev, &hal);
+        scheduler::run_all_tasks(&mut tasks, &hal);
     }
 }
 
-/// Core1 main loop — receives C device_t* for C task functions.
-/// Updates core1_last_loop_pass in Device directly.
+/// Core1 main loop — updates core1_last_loop_pass in Device directly.
 #[cfg(not(test))]
 #[no_mangle]
-pub extern "C" fn rust_core1_loop(dev: *mut c_void) -> ! {
-    let hal = unsafe { hal::pico::PicoHal::new(dev) };
+pub extern "C" fn rust_core1_loop() -> ! {
+    let hal = hal::pico::PicoHal::new();
 
     let mut tasks = [
         scheduler::Task::new(usb_host_task, scheduler::top()),
@@ -96,7 +90,7 @@ pub extern "C" fn rust_core1_loop(dev: *mut c_void) -> ! {
             let mut ds = domain::structs::DeviceState::from_globals();
             ds.cfg.core1_last_loop_pass = hal.now_us_64();
         }
-        scheduler::run_all_tasks(&mut tasks, dev, &hal);
+        scheduler::run_all_tasks(&mut tasks, &hal);
     }
 }
 

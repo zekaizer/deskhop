@@ -18,9 +18,9 @@
  *  C Task Functions (remaining in tasks.c)
  *==============================================================================*/
 
-void firmware_upgrade_task(device_t *);
-void usb_device_task(device_t *);
-void usb_host_task(device_t *);
+void firmware_upgrade_task(void);
+void usb_device_task(void);
+void usb_host_task(void);
 
 /* Rust #[export_name] tasks — declared for lib.rs scheduler, no C prototype needed:
    heartbeat_output_task, kick_watchdog_task, led_blinking_task,

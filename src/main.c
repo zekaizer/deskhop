@@ -1,11 +1,10 @@
 /* DeskHop entry — both core loops in Rust. */
 #include "main.h"
 
-extern void rust_main_loop(device_t *) __attribute__((noreturn));
-extern void rust_core1_loop(device_t *) __attribute__((noreturn));
+extern void rust_main_loop(void) __attribute__((noreturn));
+extern void rust_core1_loop(void) __attribute__((noreturn));
 
 device_t global_state = {0};
-device_t *device = &global_state;
 
 device_hid_t    global_hid = {0};
 device_config_t global_cfg = {0};
@@ -16,12 +15,12 @@ firmware_metadata_t _firmware_metadata __attribute__((section(".section_metadata
 
 int main(void) {
     sleep_ms(10);
-    initial_setup(device);
+    initial_setup();
 
     /* Layout verification is now compile-time (build.rs + bindgen) */
 
-    set_active_output(device, OUTPUT_A);
-    rust_main_loop(device);
+    set_active_output(OUTPUT_A);
+    rust_main_loop();
 }
 
-void core1_main() { rust_core1_loop(device); }
+void core1_main() { rust_core1_loop(); }

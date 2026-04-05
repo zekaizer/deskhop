@@ -44,7 +44,7 @@ void serial_init() {
  * PIO USB configuration, D+ pin 14, D- pin 15
  * ================================================== */
 
-void pio_usb_host_config(device_t *state) {
+void pio_usb_host_config(void) {
     /* tuh_configure() must be called before tuh_init() */
     static pio_usb_configuration_t config = PIO_USB_DEFAULT_CONFIG;
     config.pin_dp                         = PIO_USB_DP_PIN_DEFAULT;
@@ -109,7 +109,7 @@ int board_autoprobe(void) {
  * Check if we should boot in configuration mode or not
  * ================================================== */
 
-bool is_config_mode_active(device_t *state) {
+bool is_config_mode_active(void) {
     /* Watchdog registers survive reboot (RP2040 datasheet section 2.8.1.1) */
     bool is_active = (watchdog_hw->scratch[5] == MAGIC_WORD_1 &&
                       watchdog_hw->scratch[6] == MAGIC_WORD_2);
@@ -118,7 +118,7 @@ bool is_config_mode_active(device_t *state) {
     if (is_active)
         watchdog_hw->scratch[5] = 0;
 
-    reset_config_timer(state);
+    reset_config_timer();
 
     return is_active;
 }
@@ -207,19 +207,19 @@ static void configure_rx_dma(void) {
  * ================================================== */
 int board;
 
-void initial_setup(device_t *state) {
+void initial_setup(void) {
     /* PIO USB requires a clock multiple of 12 MHz, setting to 120 MHz */
     set_sys_clock_khz(120000, true);
 
     /* Search the persistent storage sector in flash for valid config or use defaults */
-    load_config(state);
+    load_config();
 
     /* Init and enable the on-board LED GPIO as output */
     gpio_init(GPIO_LED_PIN);
     gpio_set_dir(GPIO_LED_PIN, GPIO_OUT);
 
     /* Check if we should boot in configuration mode or not */
-    global_cfg.config_mode_active = is_config_mode_active(state);
+    global_cfg.config_mode_active = is_config_mode_active();
 
     /* Detect which board we're running on */
     global_cfg.board_role = board_autoprobe();
@@ -245,7 +245,7 @@ void initial_setup(device_t *state) {
     tud_init(BOARD_TUD_RHPORT);
 
     /* Initialize and configure TinyUSB Host */
-    pio_usb_host_config(state);
+    pio_usb_host_config();
 
     /* Initialize and configure DMA */
     configure_tx_dma();

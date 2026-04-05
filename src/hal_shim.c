@@ -20,22 +20,22 @@ uint32_t hal_time_us_32(void) { return time_us_32(); }
  * Queue operations (Pico SDK queue_t)
  * ==================================================== */
 
-void hal_queue_mouse_report(device_t *dev, const uint8_t *report) {
+void hal_queue_mouse_report(const uint8_t *report) {
     // Call queue_try_add directly — do NOT call queue_mouse_report
     // which routes to rust_queue_mouse_report, causing infinite recursion.
     queue_try_add(queue_from_opaque(&global_hw.mouse_queue), report);
 }
 
-void hal_queue_kbd_report(device_t *dev, const uint8_t *report) {
+void hal_queue_kbd_report(const uint8_t *report) {
     // Same: avoid queue_kbd_report → rust_queue_kbd_report → here recursion.
     queue_try_add(queue_from_opaque(&global_hw.kbd_queue), report);
 }
 
-void hal_queue_uart_packet(device_t *dev, const uint8_t *packet) {
+void hal_queue_uart_packet(const uint8_t *packet) {
     queue_try_add(queue_from_opaque(&global_hw.uart_tx_queue), packet);
 }
 
-bool hal_queue_try_add_uart(device_t *dev, const uint8_t *data) {
+bool hal_queue_try_add_uart(const uint8_t *data) {
     return queue_try_add(queue_from_opaque(&global_hw.uart_tx_queue), data);
 }
 
@@ -48,7 +48,7 @@ bool hal_queue_try_add_uart(device_t *dev, const uint8_t *data) {
    hal_blink_led, hal_reboot — Rust calls underlying C functions directly.
    hal_watchdog_update kept (Pico SDK function). */
 
-void blink_led(device_t *state) {
+void blink_led(void) {
     global_led.blinks_left = 5;
     global_led.last_led_change = time_us_32();
 }
@@ -60,9 +60,9 @@ void queue_packet(const uint8_t *d, enum packet_type_e t, int l) {
 }
 void send_value(const uint8_t v, enum packet_type_e t) { queue_packet(&v, t, sizeof(uint8_t)); }
 
-void set_active_output(device_t *s, uint8_t o) {
-    global_cfg.active_output = s->active_output = o;
-    restore_leds(s); send_value(o, OUTPUT_SELECT_MSG); release_all_keys(s);
+void set_active_output(uint8_t o) {
+    global_cfg.active_output = o;
+    restore_leds(); send_value(o, OUTPUT_SELECT_MSG); release_all_keys();
 }
 
 void hal_watchdog_update(void) { watchdog_update(); }
@@ -93,25 +93,25 @@ bool hal_tud_mouse_report(uint8_t mode, uint8_t buttons, int16_t x, int16_t y, i
  * DMA state
  * ==================================================== */
 
-bool hal_dma_channel_is_busy(device_t *dev) {
+bool hal_dma_channel_is_busy(void) {
     return dma_channel_is_busy(global_hw.dma_tx_channel);
 }
 
-void hal_dma_tx_send(device_t *dev, const uint8_t *buf, uint32_t len) {
+void hal_dma_tx_send(const uint8_t *buf, uint32_t len) {
     memcpy(uart_txbuf, buf, len);
     dma_channel_transfer_from_buffer_now(global_hw.dma_tx_channel, uart_txbuf, len);
 }
 
-uint32_t hal_dma_rx_remaining(device_t *dev) {
+uint32_t hal_dma_rx_remaining(void) {
     return (uint32_t)DMA_RX_BUFFER_SIZE - dma_channel_hw_addr(global_hw.dma_rx_channel)->transfer_count;
 }
 
-bool hal_is_start_of_packet(device_t *dev) {
+bool hal_is_start_of_packet(void) {
     return uart_rxbuf[global_hw.dma_ptr] == START1
         && uart_rxbuf[NEXT_RING_IDX(global_hw.dma_ptr)] == START2;
 }
 
-void hal_fetch_packet(device_t *dev) {
+void hal_fetch_packet(void) {
     uint8_t *dst = (uint8_t *)&global_hw.in_packet;
     for (int i = 0; i < RAW_PACKET_LENGTH; i++) {
         if (i >= START_LENGTH) dst[i - START_LENGTH] = uart_rxbuf[global_hw.dma_ptr];
@@ -138,16 +138,16 @@ void hal_set_report_handler(void *iface, uint8_t report_id, uint8_t handler_type
     }
 }
 /* HID generic packet queuing — inlined from uart.c */
-static void _queue_packet(const uint8_t *p, device_t *s, uint8_t t, uint8_t l, uint8_t id, uint8_t inst) {
+static void _queue_packet(const uint8_t *p, uint8_t t, uint8_t l, uint8_t id, uint8_t inst) {
     hid_generic_pkt_t g = { .instance=inst, .report_id=id, .type=t, .len=l };
     memcpy(g.data, p, l);
     queue_try_add(queue_from_opaque(&global_hw.hid_queue_out), &g);
 }
-void hal_queue_cc_packet(device_t *dev, const uint8_t *payload) {
-    _queue_packet(payload, dev, 1, CONSUMER_CONTROL_LENGTH, REPORT_ID_CONSUMER, ITF_NUM_HID);
+void hal_queue_cc_packet(const uint8_t *payload) {
+    _queue_packet(payload, 1, CONSUMER_CONTROL_LENGTH, REPORT_ID_CONSUMER, ITF_NUM_HID);
 }
-void hal_queue_system_packet(device_t *dev, const uint8_t *payload) {
-    _queue_packet(payload, dev, 2, SYSTEM_CONTROL_LENGTH, REPORT_ID_SYSTEM, ITF_NUM_HID);
+void hal_queue_system_packet(const uint8_t *payload) {
+    _queue_packet(payload, 2, SYSTEM_CONTROL_LENGTH, REPORT_ID_SYSTEM, ITF_NUM_HID);
 }
 
 
@@ -161,8 +161,6 @@ void hal_queue_system_packet(device_t *dev, const uint8_t *payload) {
  * Keyboard hotkey check (wraps keyboard.c)
  * ==================================================== */
 
-extern device_t *device;
-
 uint8_t hal_toggle_led(void) { return toggle_led(); }
 
 bool hal_is_bootsel_pressed(void) {
@@ -173,7 +171,7 @@ bool hal_is_bootsel_pressed(void) {
 #endif
 }
 
-void hal_debug_dump_state(device_t *dev) {
+void hal_debug_dump_state(void) {
     dh_debug_printf("tud=%d kbd=%d mse=%d role=%d out=%d c1=%llu\n",
         global_cfg.tud_connected, global_cfg.keyboard_connected, global_cfg.mouse_connected,
         global_cfg.board_role, global_cfg.active_output, global_cfg.core1_last_loop_pass);
@@ -191,19 +189,19 @@ uint32_t hal_read_fw_running_u32(uint32_t address) {
     return *(uint32_t *)&ADDR_FW_RUNNING[address];
 }
 
-void hal_queue_cfg_packet(device_t *dev, const uint8_t *packet) {
+void hal_queue_cfg_packet(const uint8_t *packet) {
     uint8_t r[RAW_PACKET_LENGTH];
     write_raw_packet(r, (uart_packet_t *)packet);
-    _queue_packet(r, dev, 0, RAW_PACKET_LENGTH, REPORT_ID_VENDOR, ITF_NUM_HID_VENDOR);
+    _queue_packet(r, 0, RAW_PACKET_LENGTH, REPORT_ID_VENDOR, ITF_NUM_HID_VENDOR);
 }
 
 /* API field map + access moved to Rust (hal/ffi/api_config.rs) */
 
 /* HID output queue — generic HID reports waiting to be sent via TinyUSB */
-bool hal_hid_queue_peek(device_t *dev, uint8_t *out) {
+bool hal_hid_queue_peek(uint8_t *out) {
     return queue_try_peek(queue_from_opaque(&global_hw.hid_queue_out), out);
 }
-bool hal_hid_queue_remove(device_t *dev, uint8_t *out) {
+bool hal_hid_queue_remove(uint8_t *out) {
     return queue_try_remove(queue_from_opaque(&global_hw.hid_queue_out), out);
 }
 bool hal_tud_hid_n_report(uint8_t instance, uint8_t report_id, const uint8_t *data, uint8_t len) {
@@ -211,20 +209,20 @@ bool hal_tud_hid_n_report(uint8_t instance, uint8_t report_id, const uint8_t *da
 }
 
 /* Queue peek/remove for kbd and mouse */
-bool hal_kbd_queue_peek(device_t *dev, uint8_t *out) {
+bool hal_kbd_queue_peek(uint8_t *out) {
     return queue_try_peek(queue_from_opaque(&global_hw.kbd_queue), out);
 }
-bool hal_kbd_queue_remove(device_t *dev, uint8_t *out) {
+bool hal_kbd_queue_remove(uint8_t *out) {
     return queue_try_remove(queue_from_opaque(&global_hw.kbd_queue), out);
 }
-bool hal_mouse_queue_peek(device_t *dev, uint8_t *out) {
+bool hal_mouse_queue_peek(uint8_t *out) {
     return queue_try_peek(queue_from_opaque(&global_hw.mouse_queue), out);
 }
-bool hal_mouse_queue_remove(device_t *dev, uint8_t *out) {
+bool hal_mouse_queue_remove(uint8_t *out) {
     return queue_try_remove(queue_from_opaque(&global_hw.mouse_queue), out);
 }
 
-bool hal_uart_tx_queue_remove(device_t *dev, uint8_t *out) {
+bool hal_uart_tx_queue_remove(uint8_t *out) {
     return queue_try_remove(queue_from_opaque(&global_hw.uart_tx_queue), out);
 }
 

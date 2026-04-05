@@ -363,22 +363,6 @@ pub fn get_keyboard(iface: &HidInterface, rid: u8) -> &KeyboardDescriptor {
     &iface.keyboards[0]
 }
 
-// Global device pointer — stored for PicoHal C FFI calls that still
-// accept a device_t* parameter. Holds a raw C pointer, never dereferenced
-// as a Rust type. Will be removed once C function signatures drop device_t*.
-use core::sync::atomic::{AtomicPtr, Ordering};
-static GLOBAL_DEVICE_PTR: AtomicPtr<core::ffi::c_void> = AtomicPtr::new(core::ptr::null_mut());
-
-/// Store the device pointer for C FFI functions that need it.
-pub fn set_global_device(dev: *mut core::ffi::c_void) {
-    GLOBAL_DEVICE_PTR.store(dev, Ordering::Release);
-}
-
-/// Get the raw device pointer for PicoHal construction in callbacks.
-pub unsafe fn get_global_device_ptr() -> *mut core::ffi::c_void {
-    GLOBAL_DEVICE_PTR.load(Ordering::Acquire)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

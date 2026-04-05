@@ -1,35 +1,16 @@
 // PicoHal — real hardware implementation of HAL traits.
 // Wraps extern "C" functions from device.rs with trait-based interface.
 
-use core::ffi::c_void;
-
 use super::device;
 use super::traits::*;
 
 /// Real HAL backed by platform SDK via C FFI.
-pub struct PicoHal {
-    dev: *mut c_void,
-}
+pub struct PicoHal;
 
 impl PicoHal {
-    /// # Safety
-    /// `dev` must be a valid pointer to a C `device_t` struct that outlives this handle.
     #[inline(always)]
-    pub unsafe fn new(dev: *mut c_void) -> Self {
-        Self { dev }
-    }
-
-    /// Raw device pointer for C interop that hasn't been ported to traits yet.
-    #[inline(always)]
-    pub fn dev_ptr(&self) -> *mut c_void {
-        self.dev
-    }
-
-    /// Retrieve the stored global device pointer for callbacks that don't
-    /// receive `dev` as a parameter. Must be called after `set_global_device`.
-    #[inline(always)]
-    pub unsafe fn global_dev_ptr() -> *mut c_void {
-        crate::domain::structs::get_global_device_ptr()
+    pub fn new() -> Self {
+        Self
     }
 }
 
@@ -129,32 +110,32 @@ impl UsbDevice for PicoHal {
 impl ReportQueue for PicoHal {
     #[inline]
     fn push_mouse_report(&self, report: &[u8]) {
-        unsafe { device::hal_queue_mouse_report(self.dev, report.as_ptr()) }
+        unsafe { device::hal_queue_mouse_report(report.as_ptr()) }
     }
 
     #[inline]
     fn push_kbd_report(&self, report: &[u8]) {
-        unsafe { device::hal_queue_kbd_report(self.dev, report.as_ptr()) }
+        unsafe { device::hal_queue_kbd_report(report.as_ptr()) }
     }
 
     #[inline]
     fn peek_kbd_report(&self, out: &mut [u8]) -> bool {
-        unsafe { device::hal_kbd_queue_peek(self.dev, out.as_mut_ptr()) }
+        unsafe { device::hal_kbd_queue_peek(out.as_mut_ptr()) }
     }
 
     #[inline]
     fn pop_kbd_report(&self, out: &mut [u8]) -> bool {
-        unsafe { device::hal_kbd_queue_remove(self.dev, out.as_mut_ptr()) }
+        unsafe { device::hal_kbd_queue_remove(out.as_mut_ptr()) }
     }
 
     #[inline]
     fn peek_mouse_report(&self, out: &mut [u8]) -> bool {
-        unsafe { device::hal_mouse_queue_peek(self.dev, out.as_mut_ptr()) }
+        unsafe { device::hal_mouse_queue_peek(out.as_mut_ptr()) }
     }
 
     #[inline]
     fn pop_mouse_report(&self, out: &mut [u8]) -> bool {
-        unsafe { device::hal_mouse_queue_remove(self.dev, out.as_mut_ptr()) }
+        unsafe { device::hal_mouse_queue_remove(out.as_mut_ptr()) }
     }
 }
 
@@ -163,12 +144,12 @@ impl ReportQueue for PicoHal {
 impl HidQueue for PicoHal {
     #[inline]
     fn peek_hid_report(&self, out: &mut [u8]) -> bool {
-        unsafe { device::hal_hid_queue_peek(self.dev, out.as_mut_ptr()) }
+        unsafe { device::hal_hid_queue_peek(out.as_mut_ptr()) }
     }
 
     #[inline]
     fn pop_hid_report(&self, out: &mut [u8]) -> bool {
-        unsafe { device::hal_hid_queue_remove(self.dev, out.as_mut_ptr()) }
+        unsafe { device::hal_hid_queue_remove(out.as_mut_ptr()) }
     }
 
     #[inline]
@@ -182,17 +163,17 @@ impl HidQueue for PicoHal {
 impl PacketQueue for PicoHal {
     #[inline]
     fn push_consumer_control(&self, payload: &[u8]) {
-        unsafe { device::hal_queue_cc_packet(self.dev, payload.as_ptr()) }
+        unsafe { device::hal_queue_cc_packet(payload.as_ptr()) }
     }
 
     #[inline]
     fn push_system_control(&self, payload: &[u8]) {
-        unsafe { device::hal_queue_system_packet(self.dev, payload.as_ptr()) }
+        unsafe { device::hal_queue_system_packet(payload.as_ptr()) }
     }
 
     #[inline]
     fn push_config_packet(&self, packet: &[u8]) {
-        unsafe { device::hal_queue_cfg_packet(self.dev, packet.as_ptr()) }
+        unsafe { device::hal_queue_cfg_packet(packet.as_ptr()) }
     }
 }
 
@@ -211,17 +192,17 @@ impl PeerLink for PicoHal {
 
     #[inline]
     fn enqueue(&self, packet: &[u8]) {
-        unsafe { device::hal_queue_uart_packet(self.dev, packet.as_ptr()) }
+        unsafe { device::hal_queue_uart_packet(packet.as_ptr()) }
     }
 
     #[inline]
     fn try_enqueue(&self, data: &[u8]) -> bool {
-        unsafe { device::hal_queue_try_add_uart(self.dev, data.as_ptr()) }
+        unsafe { device::hal_queue_try_add_uart(data.as_ptr()) }
     }
 
     #[inline]
     fn dequeue(&self, out: &mut [u8]) -> bool {
-        unsafe { device::hal_uart_tx_queue_remove(self.dev, out.as_mut_ptr()) }
+        unsafe { device::hal_uart_tx_queue_remove(out.as_mut_ptr()) }
     }
 }
 
@@ -230,12 +211,12 @@ impl PeerLink for PicoHal {
 impl Transfer for PicoHal {
     #[inline]
     fn is_busy(&self) -> bool {
-        unsafe { device::hal_dma_channel_is_busy(self.dev) }
+        unsafe { device::hal_dma_channel_is_busy() }
     }
 
     #[inline]
     fn transmit(&self, buf: &[u8]) {
-        unsafe { device::hal_dma_tx_send(self.dev, buf.as_ptr(), buf.len() as u32) }
+        unsafe { device::hal_dma_tx_send(buf.as_ptr(), buf.len() as u32) }
     }
 }
 
@@ -244,13 +225,13 @@ impl Transfer for PicoHal {
 impl ConfigStore for PicoHal {
     #[inline]
     fn save(&self) -> bool {
-        unsafe { device::save_config(self.dev) }
+        unsafe { device::save_config() }
         true // C save_config is void; assume success
     }
 
     #[inline]
     fn load(&self) {
-        unsafe { device::load_config(self.dev) }
+        unsafe { device::load_config() }
     }
 
     #[inline]
@@ -269,12 +250,12 @@ impl ConfigStore for PicoHal {
 impl OutputControl for PicoHal {
     #[inline]
     fn switch_output(&self, output: u8) {
-        unsafe { device::set_active_output(self.dev, output) }
+        unsafe { device::set_active_output(output) }
     }
 
     #[inline]
     fn sync_leds(&self) {
-        unsafe { device::restore_leds(self.dev) }
+        unsafe { device::restore_leds() }
     }
 }
 
@@ -283,7 +264,7 @@ impl OutputControl for PicoHal {
 impl Indicator for PicoHal {
     #[inline]
     fn blink(&self) {
-        unsafe { device::blink_led(self.dev) }
+        unsafe { device::blink_led() }
     }
 
     #[inline]
@@ -293,7 +274,7 @@ impl Indicator for PicoHal {
 
     #[inline]
     fn set_keyboard_leds(&self, leds: u8) {
-        unsafe { device::set_keyboard_leds(leds, self.dev) }
+        unsafe { device::set_keyboard_leds(leds) }
     }
 }
 
@@ -302,17 +283,17 @@ impl Indicator for PicoHal {
 impl DmaRx for PicoHal {
     #[inline]
     fn dma_rx_current_pos(&self) -> u32 {
-        unsafe { device::hal_dma_rx_remaining(self.dev) }
+        unsafe { device::hal_dma_rx_remaining() }
     }
 
     #[inline]
     fn is_start_of_packet(&self) -> bool {
-        unsafe { device::hal_is_start_of_packet(self.dev) }
+        unsafe { device::hal_is_start_of_packet() }
     }
 
     #[inline]
     fn fetch_packet(&self) {
-        unsafe { device::hal_fetch_packet(self.dev) }
+        unsafe { device::hal_fetch_packet() }
     }
 }
 
@@ -326,6 +307,6 @@ impl Trace for PicoHal {
 
     #[inline]
     fn dump_state(&self) {
-        unsafe { device::hal_debug_dump_state(self.dev) }
+        unsafe { device::hal_debug_dump_state() }
     }
 }

@@ -36,7 +36,7 @@
 #include "firmware.h"
 #include "flash.h"
 /* UART packet handlers + output control (from uart.c) */
-void set_active_output(device_t *, uint8_t);
+void set_active_output(uint8_t);
 #include "hid_input.h"
 #include "hid.h"
 #include "packet.h"

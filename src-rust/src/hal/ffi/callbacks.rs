@@ -11,14 +11,6 @@ use crate::hal::traits::*;
 use crate::service::router::ReportRouter;
 
 // ============================================================
-// Shared helpers
-// ============================================================
-
-unsafe fn hal_from(dev: *mut c_void) -> crate::hal::pico::PicoHal {
-    crate::hal::pico::PicoHal::new(dev)
-}
-
-// ============================================================
 // Keyboard report processing (from kbd_process.rs)
 // ============================================================
 
@@ -35,7 +27,7 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
 
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
-    let hal = crate::hal::pico::PicoHal::new(crate::hal::pico::PicoHal::global_dev_ptr());
+    let hal = crate::hal::pico::PicoHal::new();
 
     // Extract keyboard data (unsafe pointer work stays in ffi)
     let mut new_report = [0u8; 8];
@@ -81,7 +73,7 @@ pub unsafe extern "C" fn rust_process_consumer_report(
 
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
-    let hal = crate::hal::pico::PicoHal::new(crate::hal::pico::PicoHal::global_dev_ptr());
+    let hal = crate::hal::pico::PicoHal::new();
     hal.route_consumer(state, &new_report);
 }
 
@@ -98,7 +90,7 @@ pub unsafe extern "C" fn rust_process_system_report(
 
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
-    let hal = crate::hal::pico::PicoHal::new(crate::hal::pico::PicoHal::global_dev_ptr());
+    let hal = crate::hal::pico::PicoHal::new();
     hal.route_system(state, &report);
 }
 
@@ -118,7 +110,7 @@ pub unsafe extern "C" fn rust_process_mouse_report(
 
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
-    let hal = crate::hal::pico::PicoHal::new(crate::hal::pico::PicoHal::global_dev_ptr());
+    let hal = crate::hal::pico::PicoHal::new();
     let iface = iface_from_ptr(iface_ptr);
 
     // Extract raw HID values (unsafe pointer work stays in ffi)
@@ -176,9 +168,9 @@ unsafe fn extract_mouse_values(
 /// Process a UART packet. Called from C's packet_receiver_task after fetch_packet.
 /// Replaces the entire process_packet() switch in uart.c.
 #[export_name = "process_packet"]
-pub unsafe extern "C" fn rust_process_uart_packet(packet_ptr: *const u8, dev: *mut c_void) {
+pub unsafe extern "C" fn rust_process_uart_packet(packet_ptr: *const u8) {
     if packet_ptr.is_null() { crate::traceln!("uart: null pkt"); return; }
-    let hal = hal_from(dev);
+    let hal = crate::hal::pico::PicoHal::new();
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
 
