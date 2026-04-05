@@ -17,6 +17,7 @@ pub const RELATIVE: u8 = 1;
 pub const OS_LINUX: u8 = 1;
 pub const OS_MACOS: u8 = 2;
 pub const OS_WINDOWS: u8 = 3;
+pub const OS_ANDROID: u8 = 4;
 
 
 // HID keyboard modifiers (from TinyUSB hid.h)
@@ -41,6 +42,7 @@ pub const HID_KEY_X: u8 = 0x1B;
 pub const HID_KEY_Y: u8 = 0x1C;
 pub const HID_KEY_F12: u8 = 0x45;
 pub const HID_KEY_CAPS_LOCK: u8 = 0x39;
+pub const HID_KEY_SPACE: u8 = 0x2C;
 
 // Hotkey configuration (from user_config.h)
 pub const HOTKEY_MODIFIER: u8 = KEYBOARD_MODIFIER_LEFTCTRL;

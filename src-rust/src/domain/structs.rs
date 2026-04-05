@@ -64,6 +64,7 @@ pub struct DeviceConfig {
     pub gaming_mode: bool,
     pub config_mode_active: bool,
     pub digitizer_active: bool,
+    pub switch_requested: bool,
 
     pub config_mode_timer: u64,
 }
@@ -158,6 +159,10 @@ pub struct HidInterface {
     pub protocol: u8,
     pub uses_report_id: bool,
 }
+
+// LED blink mode constants (match C #define in structs.h)
+pub const LED_BLINK_NONE: u8 = 0;
+pub const LED_BLINK_PT_WAIT: u8 = 1;
 
 /* ================================================================== *
  * Pico SDK queue_t — opaque, size varies by SDK version.
