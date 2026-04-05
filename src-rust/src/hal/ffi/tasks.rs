@@ -7,6 +7,17 @@
 static mut DBG_COUNT: u32 = 0;
 static mut LAST_POINTER_MOVE: u32 = 0;
 
+// --- Passthrough state (Core0 only) ---
+
+use crate::domain::passthrough::PassthroughState;
+
+static mut PT_STATE: PassthroughState = unsafe { core::mem::zeroed() };
+
+/// Get mutable reference to passthrough state (Core0 only).
+pub(crate) unsafe fn get_pt_state() -> &'static mut PassthroughState {
+    &mut *core::ptr::addr_of_mut!(PT_STATE)
+}
+
 // --- Watchdog / heartbeat ---
 
 #[export_name = "kick_watchdog_task"]

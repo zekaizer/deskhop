@@ -50,6 +50,10 @@ pub trait UsbDevice {
         let _ = (instance, report_id, data);
         false
     }
+    /// Disconnect device side (triggers host re-enumeration).
+    fn device_disconnect(&self);
+    /// Connect device side (enroll with current descriptors).
+    fn device_connect(&self);
 }
 
 /// HID report queues (mouse/keyboard) between cores.
@@ -143,6 +147,24 @@ pub trait DmaRx {
     fn fetch_packet(&self);
     /// Pointer to the most recently fetched packet (10 bytes: ptype + data[8] + checksum).
     fn in_packet_ptr(&self) -> *const u8;
+}
+
+/// USB host-side operations (SET_REPORT, VID/PID query, report re-arm).
+pub trait UsbHost {
+    fn send_set_report(
+        &self, dev_addr: u8, itf_num: u8, report_id: u8,
+        report_type: u8, data: &[u8],
+    ) -> bool;
+    fn get_upstream_vid_pid(&self, dev_addr: u8) -> (u16, u16);
+    fn receive_report(&self, dev_addr: u8, instance: u8);
+}
+
+/// Passthrough descriptor management.
+pub trait PassthroughHal {
+    /// Build config descriptor from captured interfaces. Returns true on success.
+    fn build_config_desc(&self) -> bool;
+    /// Clear the config descriptor buffer.
+    fn clear_config_desc(&self);
 }
 
 /// Debug/diagnostic output.

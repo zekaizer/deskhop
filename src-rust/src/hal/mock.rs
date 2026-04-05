@@ -40,6 +40,12 @@ pub struct MockHal {
     pub kbd_queue_in: RefCell<Vec<[u8; 8]>>,
     pub mouse_queue_in: RefCell<Vec<[u8; 8]>>,
     pub outbound_queue_in: RefCell<Vec<[u8; 10]>>,
+    // Passthrough tracking
+    pub device_disconnect_count: Cell<u32>,
+    pub device_connect_count: Cell<u32>,
+    pub host_set_report_count: Cell<u32>,
+    pub host_upstream_vid_pid: Cell<(u16, u16)>,
+    pub pt_config_desc_ready: Cell<bool>,
 }
 
 impl MockHal {
@@ -74,6 +80,11 @@ impl MockHal {
             kbd_queue_in: RefCell::new(Vec::new()),
             mouse_queue_in: RefCell::new(Vec::new()),
             outbound_queue_in: RefCell::new(Vec::new()),
+            device_disconnect_count: Cell::new(0),
+            device_connect_count: Cell::new(0),
+            host_set_report_count: Cell::new(0),
+            host_upstream_vid_pid: Cell::new((0, 0)),
+            pt_config_desc_ready: Cell::new(false),
         }
     }
 
@@ -136,6 +147,8 @@ impl UsbDevice for MockHal {
     fn hid_ready(&self, instance: u8) -> bool { self.hid_ready_map.get() & (1 << instance) != 0 }
     fn send_keyboard_report(&self, _report_id: u8, _modifier: u8, _keycode: &[u8]) -> bool { true }
     fn send_mouse_report(&self, _mode: u8, _buttons: u8, _x: i16, _y: i16, _wheel: i8, _pan: i8) -> bool { true }
+    fn device_disconnect(&self) { self.device_disconnect_count.set(self.device_disconnect_count.get() + 1); }
+    fn device_connect(&self) { self.device_connect_count.set(self.device_connect_count.get() + 1); }
 }
 
 // ---- ReportQueue ----
@@ -229,6 +242,34 @@ impl Indicator for MockHal {
     }
     fn set_keyboard_leds(&self, _leds: u8) {
         // Tracked via toggle_count for now
+    }
+}
+
+// ---- UsbHost ----
+
+impl UsbHost for MockHal {
+    fn send_set_report(
+        &self, _dev_addr: u8, _itf_num: u8, _report_id: u8,
+        _report_type: u8, _data: &[u8],
+    ) -> bool {
+        self.host_set_report_count.set(self.host_set_report_count.get() + 1);
+        true
+    }
+    fn get_upstream_vid_pid(&self, _dev_addr: u8) -> (u16, u16) {
+        self.host_upstream_vid_pid.get()
+    }
+    fn receive_report(&self, _dev_addr: u8, _instance: u8) {}
+}
+
+// ---- PassthroughHal ----
+
+impl PassthroughHal for MockHal {
+    fn build_config_desc(&self) -> bool {
+        self.pt_config_desc_ready.set(true);
+        true
+    }
+    fn clear_config_desc(&self) {
+        self.pt_config_desc_ready.set(false);
     }
 }
 
