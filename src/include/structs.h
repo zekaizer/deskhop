@@ -127,7 +127,80 @@ typedef struct {
 
 
 /*==============================================================================
- *  Device State
+ *  Device Sub-structs — independent global state groups
+ *==============================================================================*/
+
+/* HID input state (keyboard/mouse) */
+typedef struct {
+    uint8_t kbd_dev_addr;                            // Address of the keyboard device
+    uint8_t kbd_instance;                            // Keyboard instance
+    hid_kbd_report_t local_kbd_states[MAX_DEVICES];  // Per-device keyboard states
+    hid_kbd_report_t remote_kbd_state;               // Combined remote keyboard state
+    uint8_t max_kbd_idx;                             // Largest kbd_idx seen
+    int16_t pointer_x;                               // Mouse pointer X
+    int16_t pointer_y;                               // Mouse pointer Y
+    int16_t mouse_buttons;                           // Mouse button state
+} device_hid_t;
+
+/* Configuration, output control, and feature flags */
+typedef struct {
+    config_t config;                      // Board configuration (flash-backed)
+    uint8_t active_output;                // Currently selected output (0 = A, 1 = B)
+    uint8_t board_role;                   // Which board are we running on?
+    uint8_t keyboard_leds[NUM_SCREENS];   // Keyboard LED state per output
+    uint64_t last_activity[NUM_SCREENS];  // Last input activity timestamp per output
+    uint64_t core1_last_loop_pass;        // Last core1 loop timestamp (health check)
+
+    /* Connection status */
+    bool tud_connected;       // TinyUSB device connected
+    bool keyboard_connected;  // Local keyboard connected
+    bool mouse_connected;     // Local mouse connected
+
+    /* Feature flags */
+    bool mouse_zoom;
+    bool switch_lock;
+    bool onboard_led_state;
+    bool relative_mouse;
+    bool gaming_mode;
+    bool config_mode_active;
+    bool digitizer_active;
+
+    uint64_t config_mode_timer;  // Config mode timeout timestamp
+} device_config_t;
+
+/* Firmware upgrade state */
+typedef struct {
+    fw_upgrade_state_t fw;                // Upgrade state machine
+    firmware_metadata_t _running_fw;      // RAM copy of running fw metadata
+    bool reboot_requested;                // If set, stop updating watchdog
+    uint8_t page_buffer[FLASH_PAGE_SIZE]; // Shared buffer for flash writes
+} device_fw_t;
+
+/* Onboard LED blinky */
+typedef struct {
+    int32_t blinks_left;     // Remaining blink transitions
+    int32_t last_led_change; // Timestamp of last LED state change
+} device_led_t;
+
+/* Hardware / SDK-dependent state (C-only, not bindgen-able) */
+typedef struct {
+    queue_opaque_t hid_queue_out; // Outgoing HID messages
+    queue_opaque_t kbd_queue;     // Keyboard reports
+    queue_opaque_t mouse_queue;   // Mouse reports
+    queue_opaque_t uart_tx_queue; // Outgoing UART packets
+
+    hid_iface_opaque_t iface[MAX_DEVICES][MAX_INTERFACES]; // HID interfaces (opaque)
+    uart_packet_t in_packet;                                // Incoming UART packet
+
+    /* DMA */
+    uint32_t dma_ptr;             // DMA ring buffer position
+    uint32_t dma_rx_channel;
+    uint32_t dma_control_channel;
+    uint32_t dma_tx_channel;
+} device_hw_t;
+
+/*==============================================================================
+ *  Device State (legacy — will be removed after migration)
  *==============================================================================*/
 typedef struct {
     uint8_t kbd_dev_addr; // Address of the Keyboard device
