@@ -4,6 +4,7 @@ cmake_minimum_required(VERSION 3.6)
 ## Define e.g. 0.72 as major 0 and minor 72
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 77)
+set(DDM_VERSION 1)
 
 ## Release Type Selection
 option(DH_DEBUG "Build a debug version" OFF)
@@ -77,10 +78,15 @@ set(RUST_SRC_DIR ${CMAKE_CURRENT_LIST_DIR}/src-rust)
 set(RUST_TARGET "thumbv6m-none-eabi")
 set(RUST_LIB ${RUST_SRC_DIR}/target/${RUST_TARGET}/release/libdeskhop_rust.a)
 
+set(RUST_FEATURES "")
+if (DH_DEBUG)
+    set(RUST_FEATURES "--features=dh_debug")
+endif()
+
 file(GLOB_RECURSE RUST_SOURCES ${RUST_SRC_DIR}/src/*.rs ${RUST_SRC_DIR}/Cargo.toml)
 add_custom_command(
     OUTPUT ${RUST_LIB}
-    COMMAND cargo build --release --target ${RUST_TARGET}
+    COMMAND cargo build --release --target ${RUST_TARGET} ${RUST_FEATURES}
     WORKING_DIRECTORY ${RUST_SRC_DIR}
     DEPENDS ${RUST_SOURCES}
     COMMENT "Building Rust static library"
@@ -146,8 +152,8 @@ pico_set_linker_script(${binary} ${CMAKE_SOURCE_DIR}/misc/memory_map.ld)
 ## Build other file formats as well
 pico_add_extra_outputs(${binary})
 
-# For internal firmware use, to simplify comparison: 0.72 -> 172
-math(EXPR FIRMWARE_VERSION "${VERSION_MAJOR} * 1000 + ${VERSION_MINOR} + 100")
+# For internal firmware use: 0.77-ddm1 -> 17701
+math(EXPR FIRMWARE_VERSION "(${VERSION_MAJOR} * 1000 + ${VERSION_MINOR} + 100) * 100 + ${DDM_VERSION}")
 
 ## Post-Build Commands
 add_custom_command(

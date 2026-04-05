@@ -45,16 +45,36 @@ impl FwUpgradeRequest {
 
 /// Determine if a firmware upgrade should be initiated based on heartbeat.
 /// Returns Some(initial_state) if upgrade should start, None otherwise.
+///
+/// Upgrade triggers:
+/// 1. Other board runs a newer version → always upgrade.
+/// 2. (Debug only) Same version but different CRC, and we are Board B →
+///    auto-propagate so only Board A needs to be flashed during development.
 pub fn should_start_fw_upgrade(
     other_version: u16,
     our_version: u16,
+    other_crc16: u16,
+    our_crc16: u16,
+    board_role: u8,
     already_upgrading: bool,
 ) -> Option<FwUpgradeRequest> {
     if already_upgrading {
         return None;
     }
 
-    if other_version <= our_version {
+    let start = if other_version > our_version {
+        true
+    } else if cfg!(feature = "dh_debug")
+        && other_version == our_version
+        && other_crc16 != our_crc16
+        && board_role == 1 // OUTPUT_B
+    {
+        true
+    } else {
+        false
+    };
+
+    if !start {
         return None;
     }
 
@@ -115,7 +135,7 @@ mod tests {
 
     #[test]
     fn test_fw_upgrade_newer_version() {
-        let result = should_start_fw_upgrade(200, 100, false);
+        let result = should_start_fw_upgrade(200, 100, 0, 0, 0, false);
         assert!(result.is_some());
         let state = result.unwrap();
         assert!(state.upgrade_in_progress);
@@ -126,17 +146,34 @@ mod tests {
 
     #[test]
     fn test_fw_upgrade_same_version() {
-        assert!(should_start_fw_upgrade(100, 100, false).is_none());
+        assert!(should_start_fw_upgrade(100, 100, 0, 0, 0, false).is_none());
     }
 
     #[test]
     fn test_fw_upgrade_older_version() {
-        assert!(should_start_fw_upgrade(50, 100, false).is_none());
+        assert!(should_start_fw_upgrade(50, 100, 0, 0, 0, false).is_none());
     }
 
     #[test]
     fn test_fw_upgrade_already_upgrading() {
-        assert!(should_start_fw_upgrade(200, 100, true).is_none());
+        assert!(should_start_fw_upgrade(200, 100, 0, 0, 0, true).is_none());
+    }
+
+    #[test]
+    fn test_fw_upgrade_crc_mismatch_board_b_debug() {
+        // Same version, different CRC, Board B → upgrade only in debug
+        let result = should_start_fw_upgrade(100, 100, 0xAA, 0xBB, 1, false);
+        if cfg!(feature = "dh_debug") {
+            assert!(result.is_some());
+        } else {
+            assert!(result.is_none());
+        }
+    }
+
+    #[test]
+    fn test_fw_upgrade_crc_mismatch_board_a_no_upgrade() {
+        // Same version, different CRC, Board A → never upgrade (A is source)
+        assert!(should_start_fw_upgrade(100, 100, 0xAA, 0xBB, 0, false).is_none());
     }
 
     #[test]

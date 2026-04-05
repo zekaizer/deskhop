@@ -191,10 +191,13 @@ pub fn heartbeat_tick(
     }
 
     let version = state.running_fw.version;
+    let crc16 = state.running_fw.checksum as u16;
     let mut pkt = [0u8; 10];
     pkt[0] = PacketType::Heartbeat as u8;
     pkt[1] = (version & 0xFF) as u8;
     pkt[2] = ((version >> 8) & 0xFF) as u8;
+    pkt[3] = (crc16 & 0xFF) as u8;
+    pkt[4] = ((crc16 >> 8) & 0xFF) as u8;
     pkt[5] = state.active_output;
 
     hal.enqueue(&pkt);

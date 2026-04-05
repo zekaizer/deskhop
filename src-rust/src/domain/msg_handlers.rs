@@ -47,7 +47,14 @@ pub fn handle_simple_msg(ptype: u8, data: &[u8; 8], state: &Device) -> HandlerAc
         }
         Some(PacketType::Heartbeat) => {
             let other_version = u16::from_le_bytes([data[0], data[1]]);
-            match should_start_fw_upgrade(other_version, state.running_fw.version, state.fw.upgrade_in_progress) {
+            let other_crc16 = u16::from_le_bytes([data[2], data[3]]);
+            let my_crc16 = state.running_fw.checksum as u16;
+            match should_start_fw_upgrade(
+                other_version, state.running_fw.version,
+                other_crc16, my_crc16,
+                state.board_role,
+                state.fw.upgrade_in_progress,
+            ) {
                 Some(fw_state) => HandlerAction::StartFwUpgrade(fw_state),
                 None => HandlerAction::None,
             }
