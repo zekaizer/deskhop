@@ -24,6 +24,13 @@ impl PicoHal {
     pub fn dev_ptr(&self) -> *mut c_void {
         self.dev
     }
+
+    /// Retrieve the stored global device pointer for callbacks that don't
+    /// receive `dev` as a parameter. Must be called after `set_global_device`.
+    #[inline(always)]
+    pub unsafe fn global_dev_ptr() -> *mut c_void {
+        crate::domain::structs::get_global_device_ptr()
+    }
 }
 
 // ---- Timer ----

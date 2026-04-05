@@ -93,8 +93,8 @@ pub extern "C" fn rust_core1_loop(dev: *mut c_void) -> ! {
         // yield a stale timestamp, causing at most one missed watchdog kick or one
         // false hang detection. This is tolerable — the next iteration corrects it.
         unsafe {
-            let device = domain::structs::device_from_ptr(dev);
-            device.core1_last_loop_pass = hal.now_us_64();
+            let mut ds = domain::structs::DeviceState::from_globals();
+            ds.cfg.core1_last_loop_pass = hal.now_us_64();
         }
         scheduler::run_all_tasks(&mut tasks, dev, &hal);
     }

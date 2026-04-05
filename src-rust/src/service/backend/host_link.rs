@@ -3,15 +3,15 @@
 // Input (future): receive vendor reports (HID++, etc.) from host.
 
 use crate::domain::constants::ITF_NUM_HID;
-use crate::domain::structs::Device;
+use crate::domain::structs::DeviceState;
 use crate::hal::traits::*;
 
 /// Send one pending keyboard report to the host if the endpoint is ready.
 pub fn send_pending_kbd(
-    state: &Device,
+    state: &DeviceState<'_>,
     hal: &(impl ReportQueue + UsbDevice),
 ) {
-    if !state.usb_connected { return; }
+    if !state.cfg.tud_connected { return; }
     let mut report = [0u8; 8];
     if !hal.peek_kbd_report(&mut report) { return; }
     if hal.is_suspended() { hal.remote_wakeup(); }
@@ -23,10 +23,10 @@ pub fn send_pending_kbd(
 
 /// Send one pending mouse report to the host if the endpoint is ready.
 pub fn send_pending_mouse(
-    state: &Device,
+    state: &DeviceState<'_>,
     hal: &(impl ReportQueue + UsbDevice),
 ) {
-    if !state.usb_connected { return; }
+    if !state.cfg.tud_connected { return; }
     let mut r = [0u8; 8];
     if !hal.peek_mouse_report(&mut r) { return; }
     if hal.is_suspended() { hal.remote_wakeup(); }
@@ -42,7 +42,7 @@ pub fn send_pending_mouse(
 
 /// Clear all keyboard state and send an empty report to the host.
 pub fn release_all_keys(
-    state: &mut Device,
+    state: &mut DeviceState<'_>,
     hal: &impl ReportQueue,
 ) {
     crate::domain::kbd_state::release_all_keys(state);
@@ -60,8 +60,9 @@ mod tests {
     fn send_kbd_not_connected() {
         let hal = MockHal::new();
         hal.kbd_queue_in.borrow_mut().push([0x01, 0, 0x04, 0, 0, 0, 0, 0]);
-        let mut state = Device::zeroed();
-        state.usb_connected = false;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.tud_connected = false;
         send_pending_kbd(&state, &hal);
         assert_eq!(hal.kbd_queue_in.borrow().len(), 1);
     }
@@ -69,8 +70,9 @@ mod tests {
     #[test]
     fn send_kbd_empty_queue() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.usb_connected = true;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.tud_connected = true;
         send_pending_kbd(&state, &hal);
     }
 
@@ -78,8 +80,9 @@ mod tests {
     fn send_kbd_delivers_report() {
         let hal = MockHal::new();
         hal.kbd_queue_in.borrow_mut().push([0x01, 0, 0x04, 0, 0, 0, 0, 0]);
-        let mut state = Device::zeroed();
-        state.usb_connected = true;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.tud_connected = true;
         send_pending_kbd(&state, &hal);
         assert!(hal.kbd_queue_in.borrow().is_empty());
     }
@@ -88,8 +91,9 @@ mod tests {
     fn send_mouse_not_connected() {
         let hal = MockHal::new();
         hal.mouse_queue_in.borrow_mut().push([1, 10, 0, 20, 0, 0, 0, 0]);
-        let mut state = Device::zeroed();
-        state.usb_connected = false;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.tud_connected = false;
         send_pending_mouse(&state, &hal);
         assert_eq!(hal.mouse_queue_in.borrow().len(), 1);
     }
@@ -97,7 +101,8 @@ mod tests {
     #[test]
     fn release_sends_empty_report() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
         release_all_keys(&mut state, &hal);
         assert_eq!(hal.kbd_reports.borrow().len(), 1);
         assert_eq!(hal.kbd_reports.borrow()[0], [0u8; 8]);
@@ -108,8 +113,9 @@ mod tests {
         let hal = MockHal::new();
         hal.usb_suspended.set(true);
         hal.kbd_queue_in.borrow_mut().push([0x01, 0, 0x04, 0, 0, 0, 0, 0]);
-        let mut state = Device::zeroed();
-        state.usb_connected = true;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.tud_connected = true;
 
         send_pending_kbd(&state, &hal);
 
@@ -123,8 +129,9 @@ mod tests {
         let hal = MockHal::new();
         hal.hid_ready_map.set(0); // no endpoints ready
         hal.kbd_queue_in.borrow_mut().push([0x01, 0, 0x04, 0, 0, 0, 0, 0]);
-        let mut state = Device::zeroed();
-        state.usb_connected = true;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.tud_connected = true;
 
         send_pending_kbd(&state, &hal);
 

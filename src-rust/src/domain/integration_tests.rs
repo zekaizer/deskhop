@@ -13,7 +13,7 @@ mod tests {
     use crate::domain::msg_handlers;
     use crate::domain::packet;
     use crate::domain::screensaver;
-    use crate::domain::structs::Device;
+    use crate::domain::structs::DeviceState;
 
     /// Test full packet roundtrip: create → serialize → parse → validate
     #[test]
@@ -66,8 +66,9 @@ mod tests {
     /// Test keyboard hotkey → handler action chain
     #[test]
     fn test_hotkey_to_handler_action() {
-        let mut state = Device::zeroed();
-        state.active_output = 0;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.active_output = 0;
 
         // Simulate output select message
         let data = [1u8, 0, 0, 0, 0, 0, 0, 0];
@@ -76,7 +77,7 @@ mod tests {
         );
         let needs_hal = msg_handlers::apply_action(&action, &mut state);
         assert!(needs_hal);
-        assert_eq!(state.active_output, 1);
+        assert_eq!(state.cfg.active_output, 1);
     }
 
     /// Test HID report value extraction from parsed descriptor
@@ -127,15 +128,16 @@ mod tests {
         use crate::domain::kbd_state;
         use crate::domain::structs::HidKeyboardReport;
 
-        let mut state = Device::zeroed();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
         // Fill all 6 slots in keyboard 0
-        state.local_kbd_states[0] = HidKeyboardReport {
+        state.hid.local_kbd_states[0] = HidKeyboardReport {
             modifier: 0xFF, reserved: 0,
             keycode: [0x04, 0x05, 0x06, 0x07, 0x08, 0x09],
         };
-        state.max_kbd_idx = 0;
+        state.hid.max_kbd_idx = 0;
         // Try adding more from remote
-        state.remote_kbd_state = HidKeyboardReport {
+        state.hid.remote_kbd_state = HidKeyboardReport {
             modifier: 0, reserved: 0,
             keycode: [0x0A, 0x0B, 0, 0, 0, 0],
         };
@@ -149,8 +151,9 @@ mod tests {
     /// Test full message handler chain for firmware upgrade
     #[test]
     fn test_fw_upgrade_chain() {
-        let mut state = Device::zeroed();
-        state.running_fw.version = 100;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.fw.running_fw.version = 100;
 
         // Heartbeat with newer version triggers upgrade
         let data = [200u8, 0, 0, 0, 0, 0, 0, 0];
@@ -159,10 +162,10 @@ mod tests {
         );
         msg_handlers::apply_action(&action, &mut state);
 
-        assert!(state.fw.upgrade_in_progress);
-        assert!(state.fw.byte_done);
-        assert_eq!(state.fw.address, 0);
-        assert_eq!(state.fw.checksum, 0xFFFF_FFFF);
+        assert!(state.fw.fw.upgrade_in_progress);
+        assert!(state.fw.fw.byte_done);
+        assert_eq!(state.fw.fw.address, 0);
+        assert_eq!(state.fw.fw.checksum, 0xFFFF_FFFF);
     }
 
     /// Test packet validation rejects invalid types
@@ -184,16 +187,17 @@ mod tests {
         }
     }
 
-    /// Test Device is_active_output helper
+    /// Test DeviceState is_active_output helper
     #[test]
     fn test_app_state_active_output() {
-        let mut state = Device::zeroed();
-        state.board_role = 0;
-        state.active_output = 0;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
+        state.cfg.active_output = 0;
         assert!(state.is_active_output());
-        state.active_output = 1;
+        state.cfg.active_output = 1;
         assert!(!state.is_active_output());
-        state.board_role = 1;
+        state.cfg.board_role = 1;
         assert!(state.is_active_output());
     }
 
@@ -231,22 +235,24 @@ mod tests {
     /// Test full keyboard report → handler → state update chain
     #[test]
     fn test_kbd_report_to_state_update() {
-        let mut state = Device::zeroed();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
         let data = [0x01, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00]; // LEFT_CTRL + 'a'
         msg_handlers::handle_keyboard_uart(&data, &mut state);
-        assert_eq!(state.remote_kbd_state.modifier, 0x01);
-        assert_eq!(state.remote_kbd_state.keycode[0], 0x04);
+        assert_eq!(state.hid.remote_kbd_state.modifier, 0x01);
+        assert_eq!(state.hid.remote_kbd_state.keycode[0], 0x04);
     }
 
     /// Test mouse zoom toggle via handler
     #[test]
     fn test_zoom_toggle_roundtrip() {
-        let mut state = Device::zeroed();
-        assert!(!state.mouse_zoom);
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        assert!(!state.cfg.mouse_zoom);
         msg_handlers::apply_action(&msg_handlers::HandlerAction::SetMouseZoom(true), &mut state);
-        assert!(state.mouse_zoom);
+        assert!(state.cfg.mouse_zoom);
         msg_handlers::apply_action(&msg_handlers::HandlerAction::SetMouseZoom(false), &mut state);
-        assert!(!state.mouse_zoom);
+        assert!(!state.cfg.mouse_zoom);
     }
 
     /// Test HID parser with keyboard + mouse composite descriptor
@@ -317,21 +323,22 @@ mod tests {
         }
     }
 
-    /// Test Device feature flag toggle sequence
+    /// Test DeviceState feature flag toggle sequence
     #[test]
     fn test_feature_flag_sequence() {
-        let mut state = Device::zeroed();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
         // Toggle gaming mode multiple times
         msg_handlers::apply_action(&msg_handlers::HandlerAction::SetGamingMode(true), &mut state);
-        assert!(state.gaming_mode);
+        assert!(state.cfg.gaming_mode);
         msg_handlers::apply_action(&msg_handlers::HandlerAction::SetGamingMode(false), &mut state);
-        assert!(!state.gaming_mode);
+        assert!(!state.cfg.gaming_mode);
         // Switch lock
         msg_handlers::apply_action(&msg_handlers::HandlerAction::SetSwitchLock(true), &mut state);
-        assert!(state.switch_lock);
+        assert!(state.cfg.switch_lock);
         // Toggle output should be blocked
         msg_handlers::apply_action(&msg_handlers::HandlerAction::ToggleOutput, &mut state);
-        assert_eq!(state.active_output, 0); // unchanged due to lock
+        assert_eq!(state.cfg.active_output, 0); // unchanged due to lock
     }
 
     /// Test HID report extraction with different bit sizes
@@ -384,36 +391,37 @@ mod tests {
     fn test_screen_switch_with_border_y_scaling() {
         use crate::domain::mouse_logic;
 
-        let mut state = Device::zeroed();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
 
         // Output 0: border top=-10000, bottom=10000 → usable range = 32767 - (-10000) - 10000 = 32767
         // (borders are subtracted from MAX_SCREEN_COORD to get usable range)
         // Actually: from_range = 32767 - from_top - from_bottom
         // So top=0 bottom=0 gives range=32767, top=5000 bottom=5000 gives range=22767
-        state.config.output[0].border.top = 0;
-        state.config.output[0].border.bottom = 0;
-        state.config.output[1].border.top = 5000;
-        state.config.output[1].border.bottom = 5000;
+        state.cfg.config.output[0].border.top = 0;
+        state.cfg.config.output[0].border.bottom = 0;
+        state.cfg.config.output[1].border.top = 5000;
+        state.cfg.config.output[1].border.bottom = 5000;
 
         // Pointer at Y=16000 on output 0
-        state.pointer_y = 16000;
-        state.active_output = 0;
+        state.hid.pointer_y = 16000;
+        state.cfg.active_output = 0;
 
         // Step 1: Detect screen switch — pointer hits left edge
         let values = mouse_logic::MouseValues {
             move_x: -200, move_y: 0, wheel: 0, pan: 0, buttons: 0,
         };
         let (x, _y, dir) = mouse_logic::update_mouse_position(
-            50, state.pointer_y, &values, 16, 28, false, false, 0,
+            50, state.hid.pointer_y, &values, 16, 28, false, false, 0,
         );
         assert_eq!(x, 0); // clamped to edge
         assert_eq!(dir, mouse_logic::SwitchDirection::Left);
 
         // Step 2: Scale Y for the target output's borders
         let scaled_y = mouse::scale_y_coordinate(
-            state.pointer_y,
-            (state.config.output[0].border.top, state.config.output[0].border.bottom),
-            (state.config.output[1].border.top, state.config.output[1].border.bottom),
+            state.hid.pointer_y,
+            (state.cfg.config.output[0].border.top, state.cfg.config.output[0].border.bottom),
+            (state.cfg.config.output[1].border.top, state.cfg.config.output[1].border.bottom),
         );
 
         // Output 0 range = 32767-0-0 = 32767, output 1 range = 32767-5000-5000 = 22767
@@ -436,7 +444,8 @@ mod tests {
         use crate::domain::kbd_state;
         use crate::domain::structs::HidKeyboardReport;
 
-        let mut state = Device::zeroed();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
 
         // Keyboard 0: hotkey modifier + hotkey key (LEFT_CTRL + CAPS_LOCK)
         let hotkey_report = HidKeyboardReport {
@@ -447,7 +456,7 @@ mod tests {
         kbd_state::update_kbd_state(&mut state, &hotkey_report, 0);
 
         // Check hotkey detection on the report we just stored
-        let hotkey_match = keyboard::check_all_hotkeys(&state.local_kbd_states[0]);
+        let hotkey_match = keyboard::check_all_hotkeys(&state.hid.local_kbd_states[0]);
         assert!(hotkey_match.is_some(), "Hotkey should be detected");
         assert_eq!(hotkey_match.unwrap().action, keyboard::HotkeyAction::OutputToggle);
 
@@ -460,11 +469,11 @@ mod tests {
         kbd_state::update_kbd_state(&mut state, &normal_report, 1);
 
         // No hotkey in the normal report
-        let no_hotkey = keyboard::check_all_hotkeys(&state.local_kbd_states[1]);
+        let no_hotkey = keyboard::check_all_hotkeys(&state.hid.local_kbd_states[1]);
         assert!(no_hotkey.is_none(), "Normal report should not trigger hotkey");
 
         // Remote keyboard state
-        state.remote_kbd_state = HidKeyboardReport {
+        state.hid.remote_kbd_state = HidKeyboardReport {
             modifier: KEYBOARD_MODIFIER_RIGHTSHIFT,
             reserved: 0,
             keycode: [HID_KEY_C, 0, 0, 0, 0, 0],

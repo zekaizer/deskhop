@@ -33,9 +33,9 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
     if raw_report.is_null() || iface.is_null() { crate::traceln!("kbd: null ptr"); return; }
     if length < KBD_REPORT_LENGTH as i32 { crate::traceln!("kbd: short report"); return; }
 
-    let state = crate::domain::structs::get_global_device();
-    let dev = state as *mut _ as *mut c_void;
-    let hal = crate::hal::pico::PicoHal::new(dev);
+    let mut state = crate::domain::structs::DeviceState::from_globals();
+    let state = &mut state;
+    let hal = crate::hal::pico::PicoHal::new(crate::hal::pico::PicoHal::global_dev_ptr());
 
     // Extract keyboard data (unsafe pointer work stays in ffi)
     let mut new_report = [0u8; 8];
@@ -45,12 +45,12 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
     use crate::service::frontend::kbd_pipeline::{self, KbdAction};
     match kbd_pipeline::process_report(state, &new_report, itf) {
         KbdAction::HotkeyConsumed { action, acknowledge } => {
-            execute_hotkey_action(dev, action);
+            execute_hotkey_action(state, &hal, action);
             if acknowledge { hal.blink(); }
             return;
         }
         KbdAction::HotkeyPassthrough { action, acknowledge } => {
-            execute_hotkey_action(dev, action);
+            execute_hotkey_action(state, &hal, action);
             if acknowledge { hal.blink(); }
             // Fall through to route
         }
@@ -79,9 +79,9 @@ pub unsafe extern "C" fn rust_process_consumer_report(
         raw, ifc.consumer.is_variable, &kbd.cc_array,
     );
 
-    let state = crate::domain::structs::get_global_device();
-    let dev = state as *mut _ as *mut c_void;
-    let hal = crate::hal::pico::PicoHal::new(dev);
+    let mut state = crate::domain::structs::DeviceState::from_globals();
+    let state = &mut state;
+    let hal = crate::hal::pico::PicoHal::new(crate::hal::pico::PicoHal::global_dev_ptr());
     hal.route_consumer(state, &new_report);
 }
 
@@ -96,9 +96,9 @@ pub unsafe extern "C" fn rust_process_system_report(
 
     let report = [*raw_report.add(1), 0];
 
-    let state = crate::domain::structs::get_global_device();
-    let dev = state as *mut _ as *mut c_void;
-    let hal = crate::hal::pico::PicoHal::new(dev);
+    let mut state = crate::domain::structs::DeviceState::from_globals();
+    let state = &mut state;
+    let hal = crate::hal::pico::PicoHal::new(crate::hal::pico::PicoHal::global_dev_ptr());
     hal.route_system(state, &report);
 }
 
@@ -116,13 +116,13 @@ pub unsafe extern "C" fn rust_process_mouse_report(
 ) {
     if raw_report.is_null() || iface_ptr.is_null() { crate::traceln!("mouse: null ptr"); return; }
 
-    let state = crate::domain::structs::get_global_device();
-    let dev = state as *mut _ as *mut c_void;
-    let hal = crate::hal::pico::PicoHal::new(dev);
+    let mut state = crate::domain::structs::DeviceState::from_globals();
+    let state = &mut state;
+    let hal = crate::hal::pico::PicoHal::new(crate::hal::pico::PicoHal::global_dev_ptr());
     let iface = iface_from_ptr(iface_ptr);
 
     // Extract raw HID values (unsafe pointer work stays in ffi)
-    let values = extract_mouse_values(raw_report, len, iface, state.mouse_buttons);
+    let values = extract_mouse_values(raw_report, len, iface, state.hid.mouse_buttons);
 
     // Delegate to service
     crate::service::frontend::mouse_pipeline::process_report(state, &hal, &values);
@@ -179,7 +179,8 @@ unsafe fn extract_mouse_values(
 pub unsafe extern "C" fn rust_process_uart_packet(packet_ptr: *const u8, dev: *mut c_void) {
     if packet_ptr.is_null() { crate::traceln!("uart: null pkt"); return; }
     let hal = hal_from(dev);
-    let state = crate::domain::structs::device_from_ptr(dev);
+    let mut state = crate::domain::structs::DeviceState::from_globals();
+    let state = &mut state;
 
     let pkt = crate::domain::packet::UartPacket {
         ptype: *packet_ptr,
@@ -199,10 +200,12 @@ pub unsafe extern "C" fn rust_process_uart_packet(packet_ptr: *const u8, dev: *m
 // ============================================================
 
 /// Execute a hotkey action by its enum variant. Called from kbd_process.
-pub unsafe fn execute_hotkey_action(dev: *mut c_void, action: HotkeyAction) {
-    let hal = hal_from(dev);
-    let state = crate::domain::structs::device_from_ptr(dev);
-    crate::service::hotkey_dispatch::execute_action(state, &hal, action);
+pub unsafe fn execute_hotkey_action(
+    state: &mut crate::domain::structs::DeviceState<'_>,
+    hal: &crate::hal::pico::PicoHal,
+    action: HotkeyAction,
+) {
+    crate::service::hotkey_dispatch::execute_action(state, hal, action);
 }
 
 // ============================================================
