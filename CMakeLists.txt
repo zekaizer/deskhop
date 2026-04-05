@@ -163,7 +163,8 @@ add_custom_command(
     COMMAND ${CMAKE_OBJCOPY} --update-section .section_metadata=${binary}.crc ${binary}.elf
     COMMAND ${CMAKE_OBJCOPY} -O binary ${binary}.elf ${binary}.bin
     COMMAND ${CMAKE_BINARY_DIR}/elf2uf2/elf2uf2 ${binary}.elf ${binary}.uf2
-    COMMENT "Update CRC32 section to match the actual binary"  
+    COMMAND python3 ${CMAKE_SOURCE_DIR}/misc/elf_usage.py ${binary}.elf
+    COMMENT "Update CRC32 section to match the actual binary"
 )
 
 ## Linker Options
