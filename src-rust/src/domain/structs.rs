@@ -344,89 +344,6 @@ impl<'a> DeviceState<'a> {
     }
 }
 
-/* ================================================================== *
- * structs.h — device_t (legacy — kept during migration)
- * ================================================================== */
-
-#[repr(C)]
-pub struct Device {
-    pub kbd_dev_addr: u8,                                       // [C0] USB host mount
-    pub kbd_instance: u8,                                       // [C0] USB host mount
-
-    pub keyboard_leds: [u8; NUM_SCREENS],                       // [C0] msg_bridge
-    pub last_activity: [u64; NUM_SCREENS],                      // [Shared] C0 writes, C1 reads (screensaver)
-    pub core1_last_loop_pass: u64,                              // [Shared] C1 writes, C0 reads (health check)
-    pub active_output: u8,                                      // [Shared] C0 writes, C1 reads (atomic u8)
-    pub board_role: u8,                                         // [Init]
-
-    pub local_kbd_states: [HidKeyboardReport; MAX_DEVICES],     // [C0] kbd_pipeline
-    pub remote_kbd_state: HidKeyboardReport,                    // [C0] msg_bridge
-    pub max_kbd_idx: u8,                                        // [C0] kbd_pipeline
-
-    pub pointer_x: i16,                                         // [Shared] C0 writes, C1 reads (atomic i16)
-    pub pointer_y: i16,                                         // [Shared] C0 writes, C1 reads (atomic i16)
-    pub mouse_buttons: i16,                                     // [C0] mouse_pipeline
-
-    pub config: Config,                                         // [C0] config_api, hotkey_dispatch
-    pub hid_queue_out: QueueOpaque,                             // [C0] queue ops (Pico SDK thread-safe)
-    pub kbd_queue: QueueOpaque,                                 // [C0] queue ops (Pico SDK thread-safe)
-    pub mouse_queue: QueueOpaque,                               // [C0] queue ops (Pico SDK thread-safe)
-    pub uart_tx_queue: QueueOpaque,                             // [C0] queue ops (Pico SDK thread-safe)
-
-    pub iface: [[HidInterface; MAX_INTERFACES]; MAX_DEVICES],   // [C0] HID parser, extract_data
-    pub in_packet: UartPacketC,                                 // [C1] packet_receiver_task
-
-    // DMA — accessed only by C code on respective cores
-    pub dma_ptr: u32,                                           // [C1] DMA ring buffer
-    pub dma_rx_channel: u32,                                    // [Init]
-    pub dma_control_channel: u32,                               // [Init]
-    pub dma_tx_channel: u32,                                    // [Init]
-
-    // Firmware
-    pub fw: FwUpgradeState,                                     // [C0] fw_upgrade service
-    pub running_fw: FirmwareMetadata,                           // [Init]
-    pub reboot_requested: bool,                                 // [C0] hotkey_dispatch
-    pub config_mode_timer: u64,                                 // [C0] heartbeat task
-
-    pub page_buffer: [u8; FLASH_PAGE_SIZE],                     // [C0] fw_upgrade
-
-    // Connection status
-    pub usb_connected: bool,                                    // [C0] USB callbacks (atomic bool)
-    pub keyboard_connected: bool,                               // [C0] USB callbacks
-    pub mouse_connected: bool,                                  // [C0] USB callbacks
-
-    // Feature flags
-    pub mouse_zoom: bool,                                       // [C0] hotkey_dispatch
-    pub switch_lock: bool,                                      // [C0] hotkey_dispatch
-    pub onboard_led_state: bool,                                // [C1] LED task
-    pub relative_mouse: bool,                                   // [C0] hotkey_dispatch
-    pub gaming_mode: bool,                                      // [C0] hotkey_dispatch
-    pub config_mode_active: bool,                               // [C0] hotkey_dispatch
-    pub digitizer_active: bool,                                 // [C0] hotkey_dispatch
-
-    // LED blinky
-    pub blinks_left: i32,                                       // [C1] LED task
-    pub last_led_change: i32,                                   // [C1] LED task
-}
-
-impl Device {
-    pub fn is_active_output(&self) -> bool {
-        self.active_output == self.board_role
-    }
-
-    /// Create a zeroed Device for testing. All fields zero/false/null.
-    #[cfg(test)]
-    pub fn zeroed() -> Self {
-        unsafe { core::mem::zeroed() }
-    }
-}
-
-/// Cast a C device_t* pointer to a Rust Device reference.
-/// SAFETY: caller must ensure ptr is valid and layout matches.
-pub unsafe fn device_from_ptr<'a>(dev: *mut core::ffi::c_void) -> &'a mut Device {
-    &mut *(dev as *mut Device)
-}
-
 /// Cast a C hid_interface_t* pointer to a Rust HidInterface reference.
 /// SAFETY: caller must ensure ptr is valid and layout matches.
 pub unsafe fn iface_from_ptr<'a>(iface: *mut core::ffi::c_void) -> &'a mut HidInterface {
@@ -446,40 +363,20 @@ pub fn get_keyboard(iface: &HidInterface, rid: u8) -> &KeyboardDescriptor {
     &iface.keyboards[0]
 }
 
-// Global device pointer — set once during rust_main_loop entry.
-// Uses AtomicPtr for Rust 2024 edition compatibility (static mut deprecated).
+// Global device pointer — stored for PicoHal C FFI calls that still
+// accept a device_t* parameter. Holds a raw C pointer, never dereferenced
+// as a Rust type. Will be removed once C function signatures drop device_t*.
 use core::sync::atomic::{AtomicPtr, Ordering};
-static GLOBAL_DEVICE_PTR: AtomicPtr<Device> = AtomicPtr::new(core::ptr::null_mut());
+static GLOBAL_DEVICE_PTR: AtomicPtr<core::ffi::c_void> = AtomicPtr::new(core::ptr::null_mut());
 
-/// Store the device pointer for functions that can't receive it as a parameter.
-/// Must be called exactly once with a valid device_t* at startup.
+/// Store the device pointer for C FFI functions that need it.
 pub fn set_global_device(dev: *mut core::ffi::c_void) {
-    GLOBAL_DEVICE_PTR.store(dev as *mut Device, Ordering::Release);
-}
-
-/// Get device reference from the stored global pointer.
-///
-/// # Safety
-/// - `set_global_device` must have been called first with a valid device_t*.
-/// - **Core0 only.** All current call sites are USB callbacks on Core0.
-///   Core1 receives its device pointer via the `dev` parameter in rust_core1_loop.
-///   Calling from Core1 would create aliased `&mut Device`, which is UB.
-pub unsafe fn get_global_device<'a>() -> &'a mut Device {
-    &mut *GLOBAL_DEVICE_PTR.load(Ordering::Acquire)
+    GLOBAL_DEVICE_PTR.store(dev, Ordering::Release);
 }
 
 /// Get the raw device pointer for PicoHal construction in callbacks.
-/// Does NOT create a Rust reference — just returns the stored C pointer.
 pub unsafe fn get_global_device_ptr() -> *mut core::ffi::c_void {
-    GLOBAL_DEVICE_PTR.load(Ordering::Acquire) as *mut core::ffi::c_void
-}
-
-// Compile-time layout verification — C offsets generated by build.rs (bindgen).
-// Source of truth: src/include/structs.h. Build fails if Rust struct doesn't match.
-#[cfg(target_arch = "arm")]
-mod layout_verify {
-    use super::*;
-    include!(concat!(env!("OUT_DIR"), "/device_offsets.rs"));
+    GLOBAL_DEVICE_PTR.load(Ordering::Acquire)
 }
 
 #[cfg(test)]
