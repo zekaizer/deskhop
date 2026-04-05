@@ -43,10 +43,8 @@ pub use bindgen::device_hid_t as DeviceHid;
 pub use bindgen::device_fw_t as DeviceFw;
 pub use bindgen::device_led_t as DeviceLed;
 
-/// Device configuration — Rust-owned, no longer in C headers.
-/// Layout must match the former C device_config_t (size=192, align=8).
-#[derive(Clone, Copy)]
-#[repr(C)]
+/// Device configuration — fully Rust-owned, not shared with C.
+#[derive(Clone, Copy, Default)]
 pub struct DeviceConfig {
     pub config: Config,
     pub active_output: u8,
@@ -69,11 +67,6 @@ pub struct DeviceConfig {
 
     pub config_mode_timer: u64,
 }
-
-const _: () = {
-    assert!(core::mem::size_of::<DeviceConfig>() == 192);
-    assert!(core::mem::align_of::<DeviceConfig>() == 8);
-};
 
 /* ================================================================== *
  * Packet / HID report types (not in bindgen — depend on Rust constants
@@ -182,8 +175,7 @@ pub struct QueueOpaque {
  * DeviceState — unified mutable view over sub-struct globals
  * ================================================================== */
 
-// global_cfg is Rust-owned; C accesses it via `extern device_config_t global_cfg`.
-#[no_mangle]
+#[allow(non_upper_case_globals)]
 pub static mut global_cfg: DeviceConfig = unsafe { core::mem::zeroed() };
 
 extern "C" {
