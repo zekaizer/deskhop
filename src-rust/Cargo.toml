@@ -10,6 +10,9 @@ crate-type = ["staticlib"]
 trace = []
 dh_debug = []
 
+[build-dependencies]
+bindgen = "0.71"
+
 [profile.release]
 opt-level = "z"
 lto = true
