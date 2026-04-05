@@ -677,3 +677,45 @@ pub unsafe extern "C" fn rust_on_tud_umount() {
     let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
     cfg.tud_connected = false;
 }
+
+// ============================================================
+// LED diagnostics — blocking pattern playback (boot/halt)
+// ============================================================
+
+unsafe fn busy_wait_ms(ms: u16) {
+    let start = device::hal_time_us_32();
+    let duration = (ms as u32) * 1000;
+    while device::hal_time_us_32().wrapping_sub(start) < duration {
+        core::hint::spin_loop();
+    }
+}
+
+/// Play a diagnostic LED pattern (blocking).
+/// Always-level patterns play in all builds; DebugOnly patterns require dh_debug.
+#[no_mangle]
+pub unsafe extern "C" fn diag_led(event: u8) {
+    use crate::domain::led_pattern::{DiagEvent, DiagLevel};
+
+    if let Some(ev) = DiagEvent::from_u8(event) {
+        let pat = ev.pattern();
+
+        // Skip DebugOnly patterns in release builds
+        #[cfg(not(feature = "dh_debug"))]
+        if matches!(pat.level, DiagLevel::DebugOnly) { return; }
+
+        play_pattern(&pat);
+    }
+}
+
+unsafe fn play_pattern(pat: &crate::domain::led_pattern::LedPattern) {
+    loop {
+        for _ in 0..pat.blinks {
+            device::hal_gpio_put_led(true);
+            busy_wait_ms(pat.on_ms);
+            device::hal_gpio_put_led(false);
+            busy_wait_ms(pat.off_ms);
+        }
+        busy_wait_ms(pat.pause_ms);
+        if !pat.repeat { break; }
+    }
+}

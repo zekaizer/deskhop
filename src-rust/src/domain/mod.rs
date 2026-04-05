@@ -17,6 +17,7 @@ mod integration_tests;
 pub mod kbd_state;
 pub mod keyboard;
 pub mod blink;
+pub mod led_pattern;
 pub mod mouse;
 pub mod mouse_logic;
 pub mod msg_handlers;

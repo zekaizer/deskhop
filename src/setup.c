@@ -197,49 +197,50 @@ static void configure_rx_dma(void) {
 int board;
 
 void initial_setup(void) {
+    extern void diag_led(uint8_t event);
+
     /* PIO USB requires a clock multiple of 12 MHz, setting to 120 MHz */
     set_sys_clock_khz(120000, true);
 
-    /* Search the persistent storage sector in flash for valid config or use defaults */
-    load_config();
-
-    /* Init and enable the on-board LED GPIO as output */
+    /* LED GPIO must be initialized first so diag_led works */
     gpio_init(GPIO_LED_PIN);
     gpio_set_dir(GPIO_LED_PIN, GPIO_OUT);
+    diag_led(1); /* BootClock */
+
+    /* Search the persistent storage sector in flash for valid config or use defaults */
+    load_config();
+    diag_led(2); /* BootConfig */
 
     /* Detect which board we're running on and check config mode */
     bool config_mode = is_config_mode_active();
     uint8_t role = board_autoprobe();
+    diag_led(3); /* BootProbe */
 
     /* Initialize and configure UART (pins depend on board role) */
     uint8_t tx_pin = (role == OUTPUT_A) ? BOARD_A_TX : BOARD_B_TX;
     uint8_t rx_pin = (role == OUTPUT_A) ? BOARD_A_RX : BOARD_B_RX;
     serial_init(tx_pin, rx_pin);
 
-    /* Initialize keyboard and mouse queues */
+    /* Initialize queues */
     queue_init(queue_from_opaque(&global_hw.kbd_queue), sizeof(hid_kbd_report_t), KBD_QUEUE_LENGTH);
     queue_init(queue_from_opaque(&global_hw.mouse_queue), sizeof(mouse_report_t), MOUSE_QUEUE_LENGTH);
-
-    /* Initialize generic HID packet queue */
     queue_init(queue_from_opaque(&global_hw.hid_queue_out), sizeof(hid_generic_pkt_t), HID_QUEUE_LENGTH);
-
-    /* Initialize UART queue */
     queue_init(queue_from_opaque(&global_hw.uart_tx_queue), sizeof(uart_packet_t), UART_QUEUE_LENGTH);
+    diag_led(4); /* BootSerial */
 
-    /* Store probed values into Rust-owned global_cfg BEFORE launching core1,
-       so core1's Rust loop sees correct board_role and config_mode_active. */
+    /* Store probed values into Rust-owned global_cfg BEFORE launching core1 */
     extern void rust_init_config(bool config_mode_active, uint8_t board_role, uint64_t timestamp);
     rust_init_config(config_mode, role, time_us_64());
 
     /* Setup RP2040 Core 1 */
     multicore_reset_core1();
     multicore_launch_core1(core1_main);
+    diag_led(5); /* BootRustInit */
 
-    /* Initialize and configure TinyUSB Device */
+    /* Initialize and configure TinyUSB Device + Host */
     tud_init(BOARD_TUD_RHPORT);
-
-    /* Initialize and configure TinyUSB Host */
     pio_usb_host_config(role);
+    diag_led(6); /* BootUsb */
 
     /* Initialize and configure DMA */
     configure_tx_dma();
@@ -248,8 +249,13 @@ void initial_setup(void) {
     /* Load the current firmware info */
     global_fw._running_fw = _firmware_metadata;
 
-    /* Setup the watchdog so we reboot and recover from a crash */
+    /* Setup the watchdog so we reboot and recover from a crash.
+       Disabled in debug builds to allow diagnostic LED blinks and CDC output
+       without triggering reboot. */
+#ifndef DH_DEBUG
     watchdog_enable(WATCHDOG_TIMEOUT, WATCHDOG_PAUSE_ON_DEBUG);
+#endif
+    diag_led(7); /* BootComplete */
 }
 
 /* ==========  End of Initial Board Setup  ========== */

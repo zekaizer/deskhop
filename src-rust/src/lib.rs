@@ -10,14 +10,10 @@ use core::panic::PanicInfo;
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    // Rapid LED blink to indicate Rust panic (distinct from watchdog reset pattern)
-    unsafe {
-        loop {
-            hal::device::hal_toggle_led();
-            // Busy-wait ~50ms at 125MHz (no sleep_ms — might not be safe in panic)
-            for _ in 0..500_000 { core::hint::black_box(()); }
-        }
-    }
+    extern "C" { fn diag_led(event: u8); }
+    // 0xF0 = DiagEvent::Panic — rapid continuous blink, never returns
+    unsafe { diag_led(0xF0); }
+    loop { core::hint::spin_loop(); }
 }
 
 #[cfg(not(test))]
