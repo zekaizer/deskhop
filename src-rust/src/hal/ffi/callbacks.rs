@@ -321,7 +321,7 @@ pub unsafe extern "C" fn rust_on_hid_mount(
     // Parse HID report descriptor (already Rust — call internal fn directly)
     rust_parse_report_descriptor(iface_ptr, desc_report, desc_len as i32);
 
-    let mut state = structs::DeviceState::from_globals();
+    let state = structs::DeviceState::from_globals();
     let hal = crate::hal::pico::PicoHal::new();
 
     match itf_protocol {
@@ -386,7 +386,7 @@ pub unsafe extern "C" fn rust_on_hid_umount(
     iface_ptr: *mut c_void,
 ) {
     let itf_protocol = device::hal_tuh_hid_interface_protocol(dev_addr, instance);
-    let mut state = structs::DeviceState::from_globals();
+    let state = structs::DeviceState::from_globals();
 
     match itf_protocol {
         constants::HID_ITF_PROTOCOL_KEYBOARD => {
@@ -494,7 +494,7 @@ pub unsafe extern "C" fn rust_on_tud_set_report(
 
     // Config vendor report
     if instance == ITF_NUM_HID_VENDOR && report_id == REPORT_ID_VENDOR {
-        let mut state = structs::DeviceState::from_globals();
+        let state = structs::DeviceState::from_globals();
         if !state.cfg.config_mode_active { return; }
         if bufsize as usize != RAW_PACKET_LENGTH { return; }
 
@@ -513,7 +513,7 @@ pub unsafe extern "C" fn rust_on_tud_set_report(
         return;
     }
 
-    let mut state = structs::DeviceState::from_globals();
+    let state = structs::DeviceState::from_globals();
     let hal = crate::hal::pico::PicoHal::new();
 
     let leds = hid_routing::process_led_state(

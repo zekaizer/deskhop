@@ -53,6 +53,12 @@ pub struct PongState {
     pub dy: i16,
 }
 
+impl Default for PongState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PongState {
     pub const fn new() -> Self {
         Self {
@@ -91,6 +97,12 @@ impl PongState {
 /// State for the jitter screensaver
 pub struct JitterState {
     pub y: i16,
+}
+
+impl Default for JitterState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl JitterState {

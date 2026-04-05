@@ -146,8 +146,8 @@ pub struct ParserState {
     pub locals: [Item; 16],
 }
 
-impl ParserState {
-    pub fn new() -> Self {
+impl Default for ParserState {
+    fn default() -> Self {
         Self {
             report_id: 0,
             global_usage: 0,
@@ -160,6 +160,12 @@ impl ParserState {
             globals: [Item::default(); 16],
             locals: [Item::default(); 16],
         }
+    }
+}
+
+impl ParserState {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     fn is_block_end(&self) -> bool {
@@ -382,12 +388,18 @@ pub mod alloc_free {
         pub uses_report_id: bool,
     }
 
-    impl ParseResults {
-        pub fn new() -> Self {
+    impl Default for ParseResults {
+        fn default() -> Self {
             Self {
                 inputs: [const { None }; MAX_INPUTS],
                 count: 0,
             }
+        }
+    }
+
+    impl ParseResults {
+        pub fn new() -> Self {
+            Self::default()
         }
 
         pub fn push(&mut self, input: ParsedInput) {
@@ -407,6 +419,10 @@ pub mod alloc_free {
 
         pub fn len(&self) -> usize {
             self.count
+        }
+
+        pub fn is_empty(&self) -> bool {
+            self.count == 0
         }
     }
 }

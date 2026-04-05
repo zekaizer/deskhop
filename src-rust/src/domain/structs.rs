@@ -3,7 +3,7 @@
 // Hand-crafted types (HidInterface, etc.) remain for SDK-dependent structures
 // that bindgen cannot parse.
 
-use crate::domain::constants::{NUM_SCREENS, PACKET_DATA_LENGTH, RAW_PACKET_LENGTH};
+use crate::domain::constants::{PACKET_DATA_LENGTH, RAW_PACKET_LENGTH};
 use crate::domain::hid_parser::ReportVal;
 
 // From hid_parser.h
@@ -205,7 +205,11 @@ impl<'a> DeviceState<'a> {
  * ================================================================== */
 
 /// Cast a C hid_interface_t* pointer to a Rust HidInterface reference.
-/// SAFETY: caller must ensure ptr is valid and layout matches.
+///
+/// # Safety
+/// Caller must ensure `iface` is a valid, aligned pointer to a `HidInterface`
+/// whose layout matches the C `hid_interface_t`, and that no aliasing `&mut`
+/// reference exists for its lifetime `'a`.
 pub unsafe fn iface_from_ptr<'a>(iface: *mut core::ffi::c_void) -> &'a mut HidInterface {
     &mut *(iface as *mut HidInterface)
 }

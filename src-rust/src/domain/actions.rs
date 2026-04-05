@@ -62,17 +62,11 @@ pub fn should_start_fw_upgrade(
         return None;
     }
 
-    let start = if other_version > our_version {
-        true
-    } else if cfg!(feature = "dh_debug")
-        && other_version == our_version
-        && other_crc16 != our_crc16
-        && board_role == 1 // OUTPUT_B
-    {
-        true
-    } else {
-        false
-    };
+    let start = other_version > our_version
+        || (cfg!(feature = "dh_debug")
+            && other_version == our_version
+            && other_crc16 != our_crc16
+            && board_role == 1); // OUTPUT_B
 
     if !start {
         return None;

@@ -7,6 +7,12 @@ use super::traits::*;
 /// Real HAL backed by platform SDK via C FFI.
 pub struct PicoHal;
 
+impl Default for PicoHal {
+    fn default() -> Self {
+        Self
+    }
+}
+
 impl PicoHal {
     #[inline(always)]
     pub fn new() -> Self {
