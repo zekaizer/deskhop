@@ -226,7 +226,11 @@ pub struct QueueOpaque {
 }
 
 /* ================================================================== *
- * structs.h — device_t (the main state struct)
+ * Device sub-structs — independent globals matching C sub-structs.
+ *
+ * Each sub-struct is an independent C global variable. Rust accesses
+ * them via extern "C" declarations. DeviceState provides a unified
+ * mutable view for service functions.
  *
  * # Core Ownership Model (RP2040 dual-core)
  *
@@ -235,16 +239,113 @@ pub struct QueueOpaque {
  * Core1 runs USB host tasks + peripheral loop (packet RX, LED, screensaver,
  * firmware upgrade, heartbeat).
  *
- * Field annotations:
- *   [C0]     = Core0-exclusive write (USB callbacks, kbd/mouse pipeline)
- *   [C1]     = Core1-exclusive write (host tasks, LED task)
- *   [Shared] = Cross-core read; writer listed first
- *   [Init]   = Written once at startup, then read-only
- *
  * Cross-core u8/bool/i16 fields are naturally atomic on Cortex-M0+
  * (aligned single-byte or halfword access). u64 fields are NOT atomic
- * — torn reads are possible but tolerable (see SAFETY comments in
- * lib.rs and service/tasks.rs).
+ * — torn reads are possible but tolerable.
+ * ================================================================== */
+
+/// HID input state (keyboard/mouse)
+#[repr(C)]
+pub struct DeviceHid {
+    pub kbd_dev_addr: u8,
+    pub kbd_instance: u8,
+    pub local_kbd_states: [HidKeyboardReport; MAX_DEVICES],
+    pub remote_kbd_state: HidKeyboardReport,
+    pub max_kbd_idx: u8,
+    pub pointer_x: i16,
+    pub pointer_y: i16,
+    pub mouse_buttons: i16,
+}
+
+/// Configuration, output control, and feature flags
+#[repr(C)]
+pub struct DeviceConfig {
+    pub config: Config,
+    pub active_output: u8,
+    pub board_role: u8,
+    pub keyboard_leds: [u8; NUM_SCREENS],
+    pub last_activity: [u64; NUM_SCREENS],
+    pub core1_last_loop_pass: u64,
+    pub tud_connected: bool,
+    pub keyboard_connected: bool,
+    pub mouse_connected: bool,
+    pub mouse_zoom: bool,
+    pub switch_lock: bool,
+    pub onboard_led_state: bool,
+    pub relative_mouse: bool,
+    pub gaming_mode: bool,
+    pub config_mode_active: bool,
+    pub digitizer_active: bool,
+    pub config_mode_timer: u64,
+}
+
+/// Firmware upgrade state
+#[repr(C)]
+pub struct DeviceFw {
+    pub fw: FwUpgradeState,
+    pub running_fw: FirmwareMetadata,
+    pub reboot_requested: bool,
+    pub page_buffer: [u8; FLASH_PAGE_SIZE],
+}
+
+/// Onboard LED blinky
+#[repr(C)]
+pub struct DeviceLed {
+    pub blinks_left: i32,
+    pub last_led_change: i32,
+}
+
+extern "C" {
+    pub static mut global_hid: DeviceHid;
+    pub static mut global_cfg: DeviceConfig;
+    pub static mut global_fw: DeviceFw;
+    pub static mut global_led: DeviceLed;
+}
+
+/// Unified mutable view into all device sub-structs.
+/// Created from extern globals at FFI entry points.
+pub struct DeviceState<'a> {
+    pub hid: &'a mut DeviceHid,
+    pub cfg: &'a mut DeviceConfig,
+    pub fw: &'a mut DeviceFw,
+    pub led: &'a mut DeviceLed,
+}
+
+impl<'a> DeviceState<'a> {
+    /// Create a DeviceState from the C extern globals.
+    ///
+    /// # Safety
+    /// Must not be called concurrently on the same core (creates aliased &mut).
+    /// Each core's task scheduler is single-threaded, so this is safe in practice.
+    pub unsafe fn from_globals() -> Self {
+        Self {
+            hid: &mut *core::ptr::addr_of_mut!(global_hid),
+            cfg: &mut *core::ptr::addr_of_mut!(global_cfg),
+            fw: &mut *core::ptr::addr_of_mut!(global_fw),
+            led: &mut *core::ptr::addr_of_mut!(global_led),
+        }
+    }
+
+    pub fn is_active_output(&self) -> bool {
+        self.cfg.active_output == self.cfg.board_role
+    }
+
+    /// Create a zeroed DeviceState for testing.
+    #[cfg(test)]
+    pub fn zeroed_for_test() -> (DeviceHid, DeviceConfig, DeviceFw, DeviceLed) {
+        unsafe {
+            (
+                core::mem::zeroed(),
+                core::mem::zeroed(),
+                core::mem::zeroed(),
+                core::mem::zeroed(),
+            )
+        }
+    }
+}
+
+/* ================================================================== *
+ * structs.h — device_t (legacy — kept during migration)
  * ================================================================== */
 
 #[repr(C)]
