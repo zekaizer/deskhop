@@ -6,7 +6,7 @@ use crate::domain::hid_parser::ReportVal;
 
 // From hid_parser.h
 pub const MAX_DEVICES: usize = 4;
-pub const MAX_INTERFACES: usize = 12;
+pub const MAX_INTERFACES: usize = 4;
 pub const MAX_REPORTS: usize = 24;
 pub const MAX_KEYBOARDS: usize = 5;
 pub const MAX_CC_BUTTONS: usize = 16;
