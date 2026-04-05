@@ -248,8 +248,12 @@ void initial_setup(void) {
     /* Load the current firmware info */
     global_fw._running_fw = _firmware_metadata;
 
-    /* Setup the watchdog so we reboot and recover from a crash */
+    /* Setup the watchdog so we reboot and recover from a crash.
+       Disabled in debug builds to allow diagnostic LED blinks and CDC output
+       without triggering reboot. */
+#ifndef DH_DEBUG
     watchdog_enable(WATCHDOG_TIMEOUT, WATCHDOG_PAUSE_ON_DEBUG);
+#endif
 }
 
 /* ==========  End of Initial Board Setup  ========== */
