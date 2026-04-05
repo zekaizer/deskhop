@@ -27,7 +27,7 @@ bool     verify_checksum(const uart_packet_t *);
  *==============================================================================*/
 
 extern device_hid_t    global_hid;
-extern device_config_t global_cfg;
+/* global_cfg is Rust-owned — no C extern needed */
 extern device_fw_t     global_fw;
 extern device_led_t    global_led;
 extern device_hw_t     global_hw;

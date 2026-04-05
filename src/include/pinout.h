@@ -14,8 +14,7 @@
  *  Board Roles
  *==============================================================================*/
 
- #define BOARD_ROLE (global_cfg.board_role)
-#define OTHER_ROLE (BOARD_ROLE == OUTPUT_A ? OUTPUT_B : OUTPUT_A)
+/* BOARD_ROLE, OTHER_ROLE removed — board_role is Rust-only (global_cfg) */
 
 /*==============================================================================
  *  GPIO Pins (LED, USB)
@@ -36,5 +35,4 @@
 #define BOARD_B_RX 17
 #define BOARD_B_TX 16
 
-#define SERIAL_RX_PIN (global_cfg.board_role == OUTPUT_A ? BOARD_A_RX : BOARD_B_RX)
-#define SERIAL_TX_PIN (global_cfg.board_role == OUTPUT_A ? BOARD_A_TX : BOARD_B_TX)
+/* SERIAL_*_PIN removed — pins computed locally in serial_init() */
