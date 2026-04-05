@@ -176,11 +176,11 @@ pub struct QueueOpaque {
  * ================================================================== */
 
 pub static mut GLOBAL_CFG: DeviceConfig = unsafe { core::mem::zeroed() };
+pub static mut GLOBAL_HID: DeviceHid = unsafe { core::mem::zeroed() };
+pub static mut GLOBAL_LED: DeviceLed = unsafe { core::mem::zeroed() };
 
 extern "C" {
-    pub static mut global_hid: DeviceHid;
     pub static mut global_fw: DeviceFw;
-    pub static mut global_led: DeviceLed;
 }
 
 /// Unified mutable view into all device sub-structs.
@@ -200,10 +200,10 @@ impl<'a> DeviceState<'a> {
     /// Each core's task scheduler is single-threaded, so this is safe in practice.
     pub unsafe fn from_globals() -> Self {
         Self {
-            hid: &mut *core::ptr::addr_of_mut!(global_hid),
+            hid: &mut *core::ptr::addr_of_mut!(GLOBAL_HID),
             cfg: &mut *core::ptr::addr_of_mut!(GLOBAL_CFG),
             fw: &mut *core::ptr::addr_of_mut!(global_fw),
-            led: &mut *core::ptr::addr_of_mut!(global_led),
+            led: &mut *core::ptr::addr_of_mut!(GLOBAL_LED),
         }
     }
 

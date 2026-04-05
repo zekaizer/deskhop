@@ -48,10 +48,7 @@ bool hal_queue_try_add_uart(const uint8_t *data) {
    hal_blink_led, hal_reboot — Rust calls underlying C functions directly.
    hal_watchdog_update kept (Pico SDK function). */
 
-void blink_led(void) {
-    global_led.blinks_left = 5;
-    global_led.last_led_change = time_us_32();
-}
+/* blink_led is now Rust #[export_name] in callbacks.rs */
 
 /* UART packet + output control — moved from uart.c */
 void queue_packet(const uint8_t *d, enum packet_type_e t, int l) {
@@ -102,6 +99,7 @@ void hal_flash_write_config(const uint8_t *buf) {
 
 /* LED / HID host wrappers — called from Rust LED logic */
 void hal_gpio_put_led(bool state) { gpio_put(GPIO_LED_PIN, state); }
+bool hal_gpio_get_led(void) { return gpio_get(GPIO_LED_PIN); }
 void hal_tuh_hid_set_report(uint8_t dev_addr, uint8_t instance, const uint8_t *data, uint8_t len) {
     tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT, (void *)data, len);
 }
@@ -186,7 +184,7 @@ void hal_queue_system_packet(const uint8_t *payload) {
  * Keyboard hotkey check (wraps keyboard.c)
  * ==================================================== */
 
-uint8_t hal_toggle_led(void) { return toggle_led(); }
+/* hal_toggle_led is now Rust #[no_mangle] in callbacks.rs */
 
 bool hal_is_bootsel_pressed(void) {
 #ifdef DH_DEBUG

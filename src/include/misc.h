@@ -26,10 +26,10 @@ bool     verify_checksum(const uart_packet_t *);
  *  Global State
  *==============================================================================*/
 
-extern device_hid_t    global_hid;
+/* global_hid is Rust-owned — no C extern needed */
 /* global_cfg is Rust-owned — no C extern needed */
 extern device_fw_t     global_fw;
-extern device_led_t    global_led;
+/* global_led is Rust-owned — no C extern needed */
 extern device_hw_t     global_hw;
 
 /*==============================================================================

@@ -56,6 +56,7 @@ extern "C" {
 
     // ---- LED / HID host (via hal_shim.c) ----
     pub fn hal_gpio_put_led(state: bool);
+    pub fn hal_gpio_get_led() -> bool;
     pub fn hal_tuh_hid_set_report(dev_addr: u8, instance: u8, data: *const u8, len: u8);
 
     // ---- hid_interface_t (remaining C-dependent function) ----

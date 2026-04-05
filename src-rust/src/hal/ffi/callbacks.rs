@@ -525,7 +525,7 @@ extern "C" {
 #[export_name = "set_active_output"]
 pub unsafe extern "C" fn rust_set_active_output(output: u8) {
     let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
-    let hid = &*core::ptr::addr_of!(structs::global_hid);
+    let hid = &*core::ptr::addr_of!(structs::GLOBAL_HID);
     crate::service::output::switch_output(
         cfg,
         hid,
@@ -560,13 +560,36 @@ pub unsafe extern "C" fn hal_debug_dump_state() {
 }
 
 // ============================================================
+// LED blink + toggle
+// ============================================================
+
+#[export_name = "blink_led"]
+pub unsafe extern "C" fn rust_blink_led() {
+    let led = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_LED);
+    led.blinks_left = 5;
+    led.last_led_change = device::hal_time_us_32() as i32;
+}
+
+#[export_name = "toggle_led"]
+pub unsafe extern "C" fn rust_toggle_led() -> u8 {
+    let state = !device::hal_gpio_get_led();
+    device::hal_gpio_put_led(state);
+    state as u8
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hal_toggle_led() -> u8 {
+    rust_toggle_led()
+}
+
+// ============================================================
 // LED control — thin FFI wrappers delegating to service::led
 // ============================================================
 
 #[export_name = "restore_leds"]
 pub unsafe extern "C" fn rust_restore_leds() {
     let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
-    let hid = &*core::ptr::addr_of!(structs::global_hid);
+    let hid = &*core::ptr::addr_of!(structs::GLOBAL_HID);
     crate::service::led::sync_indicators(
         cfg,
         hid,
@@ -578,7 +601,7 @@ pub unsafe extern "C" fn rust_restore_leds() {
 #[export_name = "set_keyboard_leds"]
 pub unsafe extern "C" fn rust_set_keyboard_leds(leds: u8) {
     let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
-    let hid = &*core::ptr::addr_of!(structs::global_hid);
+    let hid = &*core::ptr::addr_of!(structs::GLOBAL_HID);
     crate::service::led::send_kbd_led_report(
         cfg,
         hid,
