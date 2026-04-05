@@ -677,3 +677,39 @@ pub unsafe extern "C" fn rust_on_tud_umount() {
     let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
     cfg.tud_connected = false;
 }
+
+// ============================================================
+// LED diagnostics — blocking pattern playback (boot/halt)
+// ============================================================
+
+#[cfg(feature = "dh_debug")]
+unsafe fn busy_wait_ms(ms: u16) {
+    let start = device::hal_time_us_32();
+    let duration = (ms as u32) * 1000;
+    while device::hal_time_us_32().wrapping_sub(start) < duration {
+        core::hint::spin_loop();
+    }
+}
+
+/// Play a diagnostic LED pattern (blocking). No-op in release builds.
+/// Called from C setup.c (boot stages) and Rust panic handler (halt).
+#[no_mangle]
+pub unsafe extern "C" fn diag_led(event: u8) {
+    #[cfg(feature = "dh_debug")]
+    if let Some(ev) = crate::domain::led_pattern::DiagEvent::from_u8(event) {
+        let pat = ev.pattern();
+        loop {
+            for _ in 0..pat.blinks {
+                device::hal_gpio_put_led(true);
+                busy_wait_ms(pat.on_ms);
+                device::hal_gpio_put_led(false);
+                busy_wait_ms(pat.off_ms);
+            }
+            busy_wait_ms(pat.pause_ms);
+            if !pat.repeat { break; }
+        }
+    }
+
+    #[cfg(not(feature = "dh_debug"))]
+    { let _ = event; }
+}
