@@ -34,9 +34,8 @@ extern const config_t default_config;
  *  Functions for loading, saving, wiping, and resetting device configuration.
  *==============================================================================*/
 
-void load_config(device_t *);
-void queue_cfg_packet(uart_packet_t *, device_t *);
-void reset_config_timer(device_t *);
-void save_config(device_t *);
+void load_config(void);
+void reset_config_timer(void);
+void save_config(void);
 bool validate_packet(uart_packet_t *);
 void wipe_config(void);

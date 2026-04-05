@@ -24,7 +24,7 @@
  /*==============================================================================
   *  Firmware Upgrade Helpers (tasks.c)
   *==============================================================================*/
- void     request_byte(device_t *, uint32_t);
+ void     request_byte(uint32_t);
 
  /* fetch_packet, is_start_of_packet — now in hal_shim.c (hal_ prefixed)
     get_ptr_delta — Rust #[export_name] */

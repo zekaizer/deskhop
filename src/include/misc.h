@@ -26,12 +26,16 @@ bool     verify_checksum(const uart_packet_t *);
  *  Global State
  *==============================================================================*/
 
-extern device_t global_state;
+extern device_hid_t    global_hid;
+extern device_config_t global_cfg;
+extern device_fw_t     global_fw;
+extern device_led_t    global_led;
+extern device_hw_t     global_hw;
 
 /*==============================================================================
  *  LED Control (blink_led in hal_shim.c, others in led.c)
  *==============================================================================*/
 
-void    blink_led(device_t *);
-void    restore_leds(device_t *);
+void    blink_led(void);
+void    restore_leds(void);
 uint8_t toggle_led(void);

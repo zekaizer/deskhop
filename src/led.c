@@ -15,13 +15,13 @@
  * ========== Update pico and keyboard LEDs  ========== *
  * ==================================================== */
 
-void set_keyboard_leds(uint8_t requested_led_state, device_t *state) {
+void set_keyboard_leds(uint8_t requested_led_state) {
     static uint8_t new_led_value;
 
     new_led_value = requested_led_state;
-    if (state->keyboard_connected) {
-        tuh_hid_set_report(state->kbd_dev_addr,
-                           state->kbd_instance,
+    if (global_cfg.keyboard_connected) {
+        tuh_hid_set_report(global_hid.kbd_dev_addr,
+                           global_hid.kbd_instance,
                            0,
                            HID_REPORT_TYPE_OUTPUT,
                            &new_led_value,
@@ -29,15 +29,15 @@ void set_keyboard_leds(uint8_t requested_led_state, device_t *state) {
     }
 }
 
-void restore_leds(device_t *state) {
+void restore_leds(void) {
     /* Light up on-board LED if current board is active output */
-    state->onboard_led_state = (state->active_output == BOARD_ROLE);
-    gpio_put(GPIO_LED_PIN, state->onboard_led_state);
+    global_cfg.onboard_led_state = (global_cfg.active_output == BOARD_ROLE);
+    gpio_put(GPIO_LED_PIN, global_cfg.onboard_led_state);
 
     /* Light up appropriate keyboard leds (if it's connected locally) */
-    if (state->keyboard_connected) {
-        uint8_t leds = state->keyboard_leds[state->active_output];
-        set_keyboard_leds(leds, state);
+    if (global_cfg.keyboard_connected) {
+        uint8_t leds = global_cfg.keyboard_leds[global_cfg.active_output];
+        set_keyboard_leds(leds);
     }
 }
 

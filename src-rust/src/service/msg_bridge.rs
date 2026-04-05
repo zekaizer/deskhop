@@ -5,14 +5,14 @@ use crate::domain::actions::{get_border_position, border_to_bytes, BorderUpdate}
 use crate::domain::constants::PacketType;
 use crate::domain::kbd_state;
 use crate::domain::msg_handlers;
-use crate::domain::structs::Device;
+use crate::domain::structs::DeviceState;
 use crate::hal::traits::*;
 use crate::service::router::ReportRouter;
 
 /// Process a keyboard report received from the peer board.
 /// Routes the combined state and always updates activity timestamp.
 pub fn handle_kbd_from_peer(
-    state: &mut Device,
+    state: &mut DeviceState<'_>,
     hal: &impl ReportRouter,
     data: &[u8; 8],
 ) {
@@ -29,27 +29,27 @@ pub fn handle_kbd_from_peer(
 /// Process a mouse report received from the peer board.
 /// Queues locally and updates activity timestamp.
 pub fn handle_mouse_from_peer(
-    state: &mut Device,
+    state: &mut DeviceState<'_>,
     hal: &(impl ReportQueue + Timer),
     data: &[u8; 8],
 ) {
     hal.push_mouse_report(data);
     msg_handlers::handle_mouse_uart(data, state);
     // Update activity timestamp directly (no routing decision needed)
-    let role = state.board_role as usize;
-    if role < state.last_activity.len() {
-        state.last_activity[role] = hal.now_us_64();
+    let role = state.cfg.board_role as usize;
+    if role < state.cfg.last_activity.len() {
+        state.cfg.last_activity[role] = hal.now_us_64();
     }
 }
 
 /// Handle output selection from the peer board.
 pub fn handle_output_select(
-    state: &mut Device,
+    state: &mut DeviceState<'_>,
     hal: &(impl OutputControl + ReportQueue),
     output: u8,
 ) {
-    state.active_output = output;
-    if state.usb_connected {
+    state.cfg.active_output = output;
+    if state.cfg.tud_connected {
         crate::service::backend::host_link::release_all_keys(state, hal);
     }
     hal.sync_leds();
@@ -57,26 +57,26 @@ pub fn handle_output_select(
 
 /// Handle border synchronization with the peer board.
 pub fn handle_sync_borders(
-    state: &mut Device,
+    state: &mut DeviceState<'_>,
     hal: &(impl PeerLink + ConfigStore),
     remote_data: Option<&[u8; 8]>,
 ) {
-    let idx = state.active_output as usize;
-    if idx >= state.config.output.len() { return; }
+    let idx = state.cfg.active_output as usize;
+    if idx >= state.cfg.config.output.len() { return; }
 
     if state.is_active_output() {
         // Local: calculate border from current pointer position
-        match get_border_position(state.pointer_y) {
-            BorderUpdate::Top(v) => state.config.output[idx].border.top = v,
-            BorderUpdate::Bottom(v) => state.config.output[idx].border.bottom = v,
+        match get_border_position(state.hid.pointer_y) {
+            BorderUpdate::Top(v) => state.cfg.config.output[idx].border.top = v,
+            BorderUpdate::Bottom(v) => state.cfg.config.output[idx].border.bottom = v,
         }
         // Send to peer
-        let b = &state.config.output[idx].border;
+        let b = &state.cfg.config.output[idx].border;
         let bytes = border_to_bytes(b.top, b.bottom);
         hal.send_packet(&bytes, PacketType::SyncBorders as u8);
     } else if let Some(data) = remote_data {
         // Remote: apply border values from peer
-        let border = &mut state.config.output[idx].border;
+        let border = &mut state.cfg.config.output[idx].border;
         border.top = i32::from_le_bytes([data[0], data[1], data[2], data[3]]);
         border.bottom = i32::from_le_bytes([data[4], data[5], data[6], data[7]]);
     }
@@ -87,15 +87,15 @@ pub fn handle_sync_borders(
 /// Handle USB SET_REPORT callback (keyboard LED state update).
 /// Updates LED state for the "other" board role, and syncs if needed.
 pub fn handle_set_report(
-    state: &mut Device,
+    state: &mut DeviceState<'_>,
     hal: &impl OutputControl,
     led_value: u8,
 ) {
-    let other = 1usize.wrapping_sub(state.board_role as usize);
-    if other < state.keyboard_leds.len() {
-        state.keyboard_leds[other] = led_value;
+    let other = 1usize.wrapping_sub(state.cfg.board_role as usize);
+    if other < state.cfg.keyboard_leds.len() {
+        state.cfg.keyboard_leds[other] = led_value;
     }
-    if state.keyboard_connected && !state.is_active_output() {
+    if state.cfg.keyboard_connected && !state.is_active_output() {
         hal.sync_leds();
     }
 }
@@ -109,9 +109,10 @@ mod tests {
     #[test]
     fn kbd_from_peer_routes_to_local() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.board_role = 0;
-        state.active_output = 0; // active
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
+        state.cfg.active_output = 0; // active
 
         handle_kbd_from_peer(&mut state, &hal, &[0u8; 8]);
 
@@ -123,9 +124,10 @@ mod tests {
     fn kbd_from_peer_routes_to_peer_and_updates_activity() {
         let hal = MockHal::new();
         hal.set_time(5_000_000);
-        let mut state = Device::zeroed();
-        state.board_role = 0;
-        state.active_output = 1; // NOT active
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
+        state.cfg.active_output = 1; // NOT active
 
         handle_kbd_from_peer(&mut state, &hal, &[0u8; 8]);
 
@@ -133,31 +135,33 @@ mod tests {
         assert!(hal.kbd_reports.borrow().is_empty());
         assert_eq!(hal.sent_packets.borrow().len(), 1);
         // Activity should still be updated (UART always updates)
-        assert_eq!(state.last_activity[0], 5_000_000);
+        assert_eq!(state.cfg.last_activity[0], 5_000_000);
     }
 
     #[test]
     fn mouse_from_peer_queues_and_updates_activity() {
         let hal = MockHal::new();
         hal.set_time(1_000_000);
-        let mut state = Device::zeroed();
-        state.board_role = 0;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
 
         handle_mouse_from_peer(&mut state, &hal, &[1, 10, 0, 20, 0, 0, 0, 0]);
 
         assert_eq!(hal.mouse_reports.borrow().len(), 1);
-        assert_eq!(state.last_activity[0], 1_000_000);
+        assert_eq!(state.cfg.last_activity[0], 1_000_000);
     }
 
     #[test]
     fn output_select_switches_and_syncs_leds() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.usb_connected = true;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.tud_connected = true;
 
         handle_output_select(&mut state, &hal, 1);
 
-        assert_eq!(state.active_output, 1);
+        assert_eq!(state.cfg.active_output, 1);
         assert_eq!(hal.leds_synced.get(), 1);
         // release_all_keys should have been called
         assert_eq!(hal.kbd_reports.borrow().len(), 1);
@@ -166,10 +170,11 @@ mod tests {
     #[test]
     fn sync_borders_active_sends_to_peer() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.board_role = 0;
-        state.active_output = 0;
-        state.pointer_y = 100;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
+        state.cfg.active_output = 0;
+        state.hid.pointer_y = 100;
 
         handle_sync_borders(&mut state, &hal, None);
 
@@ -181,9 +186,10 @@ mod tests {
     #[test]
     fn sync_borders_remote_applies_data() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.board_role = 0;
-        state.active_output = 1; // NOT active
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
+        state.cfg.active_output = 1; // NOT active
 
         let data = [
             100u8, 0, 0, 0, // top = 100
@@ -191,59 +197,63 @@ mod tests {
         ];
         handle_sync_borders(&mut state, &hal, Some(&data));
 
-        assert_eq!(state.config.output[1].border.top, 100);
-        assert_eq!(state.config.output[1].border.bottom, 200);
+        assert_eq!(state.cfg.config.output[1].border.top, 100);
+        assert_eq!(state.cfg.config.output[1].border.bottom, 200);
         assert_eq!(hal.config_saved.get(), 1);
     }
 
     #[test]
     fn set_report_updates_leds_and_syncs_when_inactive() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.board_role = 0;
-        state.active_output = 1; // NOT active
-        state.keyboard_connected = true;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
+        state.cfg.active_output = 1; // NOT active
+        state.cfg.keyboard_connected = true;
 
         handle_set_report(&mut state, &hal, 0x07);
 
-        assert_eq!(state.keyboard_leds[1], 0x07); // other = 1 - 0 = 1
+        assert_eq!(state.cfg.keyboard_leds[1], 0x07); // other = 1 - 0 = 1
         assert_eq!(hal.leds_synced.get(), 1);
     }
 
     #[test]
     fn set_report_no_sync_when_active() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.board_role = 0;
-        state.active_output = 0; // active
-        state.keyboard_connected = true;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
+        state.cfg.active_output = 0; // active
+        state.cfg.keyboard_connected = true;
 
         handle_set_report(&mut state, &hal, 0x03);
 
-        assert_eq!(state.keyboard_leds[1], 0x03);
+        assert_eq!(state.cfg.keyboard_leds[1], 0x03);
         assert_eq!(hal.leds_synced.get(), 0); // no sync when active
     }
 
     #[test]
     fn test_output_select_not_connected() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.usb_connected = false;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.tud_connected = false;
 
         handle_output_select(&mut state, &hal, 1);
 
-        assert_eq!(state.active_output, 1);
+        assert_eq!(state.cfg.active_output, 1);
         // release_all_keys NOT called (no kbd report queued)
         assert!(hal.kbd_reports.borrow().is_empty());
-        // sync_leds IS called regardless of usb_connected
+        // sync_leds IS called regardless of tud_connected
         assert_eq!(hal.leds_synced.get(), 1);
     }
 
     #[test]
     fn test_sync_borders_out_of_range_output() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.active_output = 99; // out of range
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.active_output = 99; // out of range
 
         // Should not crash and should not save
         handle_sync_borders(&mut state, &hal, None);
@@ -256,56 +266,60 @@ mod tests {
     fn test_kbd_from_peer_always_updates_activity() {
         let hal = MockHal::new();
         hal.set_time(7_000_000);
-        let mut state = Device::zeroed();
-        state.board_role = 0;
-        state.active_output = 0; // active output
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
+        state.cfg.active_output = 0; // active output
 
         handle_kbd_from_peer(&mut state, &hal, &[0u8; 8]);
 
         // route_kbd calls touch_activity for active output
-        assert_eq!(state.last_activity[0], 7_000_000);
+        assert_eq!(state.cfg.last_activity[0], 7_000_000);
 
         // Now test inactive: activity should also be updated
         let hal2 = MockHal::new();
         hal2.set_time(9_000_000);
-        let mut state2 = Device::zeroed();
-        state2.board_role = 0;
-        state2.active_output = 1; // NOT active
+        let (mut hid2, mut cfg2, mut fw2, mut led2) = DeviceState::zeroed_for_test();
+        let mut state2 = DeviceState { hid: &mut hid2, cfg: &mut cfg2, fw: &mut fw2, led: &mut led2 };
+        state2.cfg.board_role = 0;
+        state2.cfg.active_output = 1; // NOT active
 
         handle_kbd_from_peer(&mut state2, &hal2, &[0u8; 8]);
 
-        assert_eq!(state2.last_activity[0], 9_000_000);
+        assert_eq!(state2.cfg.last_activity[0], 9_000_000);
     }
 
     #[test]
     fn test_mouse_from_peer_updates_state() {
         let hal = MockHal::new();
         hal.set_time(2_000_000);
-        let mut state = Device::zeroed();
-        state.board_role = 0;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
 
         // buttons=3, x=0x0100(256), y=0x0200(512)
         let data = [3, 0x00, 0x01, 0x00, 0x02, 0, 0, 0];
         handle_mouse_from_peer(&mut state, &hal, &data);
 
         // handle_mouse_uart should have updated pointer state
-        assert_eq!(state.mouse_buttons, 3);
-        assert_eq!(state.pointer_x, 256);
-        assert_eq!(state.pointer_y, 512);
+        assert_eq!(state.hid.mouse_buttons, 3);
+        assert_eq!(state.hid.pointer_x, 256);
+        assert_eq!(state.hid.pointer_y, 512);
         // Activity updated
-        assert_eq!(state.last_activity[0], 2_000_000);
+        assert_eq!(state.cfg.last_activity[0], 2_000_000);
     }
 
     #[test]
     fn test_kbd_from_peer_combined_routing() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.board_role = 0;
-        state.active_output = 0; // active — routes locally
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
+        state.cfg.active_output = 0; // active — routes locally
 
         // Pre-set local kbd state with modifier=0x01 (LeftCtrl)
-        state.local_kbd_states[0].modifier = 0x01;
-        state.max_kbd_idx = 0;
+        state.hid.local_kbd_states[0].modifier = 0x01;
+        state.hid.max_kbd_idx = 0;
 
         // Peer sends report with modifier=0x02 (LeftShift)
         let peer_report: [u8; 8] = [0x02, 0, 0, 0, 0, 0, 0, 0];
@@ -321,8 +335,9 @@ mod tests {
     fn test_handle_mouse_from_peer_role_out_of_range() {
         let hal = MockHal::new();
         hal.set_time(1_000_000);
-        let mut state = Device::zeroed();
-        state.board_role = 5; // out of range (last_activity has NUM_SCREENS=2 entries)
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 5; // out of range (last_activity has NUM_SCREENS=2 entries)
 
         let data = [1, 10, 0, 20, 0, 0, 0, 0];
         // Should not panic — the role bounds check prevents out-of-bounds write
@@ -331,8 +346,8 @@ mod tests {
         // Report should still be pushed to queue regardless of role
         assert_eq!(hal.mouse_reports.borrow().len(), 1);
         // Activity NOT updated (role out of range)
-        assert_eq!(state.last_activity[0], 0);
-        assert_eq!(state.last_activity[1], 0);
+        assert_eq!(state.cfg.last_activity[0], 0);
+        assert_eq!(state.cfg.last_activity[1], 0);
     }
 
     #[test]
@@ -340,18 +355,19 @@ mod tests {
         use crate::domain::constants::MAX_SCREEN_COORD;
 
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.board_role = 0;
-        state.active_output = 0; // active
-        state.pointer_y = MAX_SCREEN_COORD; // at bottom edge
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
+        state.cfg.active_output = 0; // active
+        state.hid.pointer_y = MAX_SCREEN_COORD; // at bottom edge
 
         handle_sync_borders(&mut state, &hal, None);
 
         // pointer_y > MAX_SCREEN_COORD/2 → Bottom border
         // get_border_position(MAX_SCREEN_COORD) = BorderUpdate::Bottom(32767)
-        assert_eq!(state.config.output[0].border.bottom, MAX_SCREEN_COORD as i32);
+        assert_eq!(state.cfg.config.output[0].border.bottom, MAX_SCREEN_COORD as i32);
         // Top border should remain at default (0)
-        assert_eq!(state.config.output[0].border.top, 0);
+        assert_eq!(state.cfg.config.output[0].border.top, 0);
         // Packet sent to peer
         assert_eq!(hal.sent_packets.borrow().len(), 1);
         assert_eq!(hal.config_saved.get(), 1);
@@ -362,15 +378,16 @@ mod tests {
     #[test]
     fn test_set_report_role_1_updates_index_0() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.board_role = 1; // other = 1 - 1 = 0
-        state.active_output = 0; // NOT active (board_role=1 != active_output=0)
-        state.keyboard_connected = true;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 1; // other = 1 - 1 = 0
+        state.cfg.active_output = 0; // NOT active (board_role=1 != active_output=0)
+        state.cfg.keyboard_connected = true;
 
         handle_set_report(&mut state, &hal, 0x05);
 
         // "other" index = 1 - 1 = 0
-        assert_eq!(state.keyboard_leds[0], 0x05);
+        assert_eq!(state.cfg.keyboard_leds[0], 0x05);
         assert_eq!(hal.leds_synced.get(), 1);
     }
 
@@ -378,36 +395,38 @@ mod tests {
     fn test_mouse_from_peer_zero_report() {
         let hal = MockHal::new();
         hal.set_time(3_000_000);
-        let mut state = Device::zeroed();
-        state.board_role = 0;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
         // Pre-set some values
-        state.pointer_x = 100;
-        state.pointer_y = 200;
-        state.mouse_buttons = 3;
+        state.hid.pointer_x = 100;
+        state.hid.pointer_y = 200;
+        state.hid.mouse_buttons = 3;
 
         handle_mouse_from_peer(&mut state, &hal, &[0u8; 8]);
 
         // Mouse report still queued
         assert_eq!(hal.mouse_reports.borrow().len(), 1);
         // State reset to zero
-        assert_eq!(state.mouse_buttons, 0);
-        assert_eq!(state.pointer_x, 0);
-        assert_eq!(state.pointer_y, 0);
+        assert_eq!(state.hid.mouse_buttons, 0);
+        assert_eq!(state.hid.pointer_x, 0);
+        assert_eq!(state.hid.pointer_y, 0);
         // Activity still updated
-        assert_eq!(state.last_activity[0], 3_000_000);
+        assert_eq!(state.cfg.last_activity[0], 3_000_000);
     }
 
     #[test]
     fn test_output_select_same_output() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.active_output = 1;
-        state.usb_connected = true;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.active_output = 1;
+        state.cfg.tud_connected = true;
 
         // Select the already-selected output
         handle_output_select(&mut state, &hal, 1);
 
-        assert_eq!(state.active_output, 1);
+        assert_eq!(state.cfg.active_output, 1);
         // LED sync should still happen
         assert_eq!(hal.leds_synced.get(), 1);
     }
@@ -417,28 +436,30 @@ mod tests {
         use crate::domain::constants::MAX_SCREEN_COORD;
 
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.board_role = 0;
-        state.active_output = 0;
-        state.pointer_y = MAX_SCREEN_COORD / 2; // exactly at midpoint
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
+        state.cfg.active_output = 0;
+        state.hid.pointer_y = MAX_SCREEN_COORD / 2; // exactly at midpoint
 
         handle_sync_borders(&mut state, &hal, None);
 
         // Exactly at half → Top border (not > half)
-        assert_eq!(state.config.output[0].border.top, (MAX_SCREEN_COORD / 2) as i32);
-        assert_eq!(state.config.output[0].border.bottom, 0);
+        assert_eq!(state.cfg.config.output[0].border.top, (MAX_SCREEN_COORD / 2) as i32);
+        assert_eq!(state.cfg.config.output[0].border.bottom, 0);
     }
 
     #[test]
     fn test_kbd_from_peer_with_keys_routes_combined() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.board_role = 0;
-        state.active_output = 0; // active
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
+        state.cfg.active_output = 0; // active
 
         // Local has key 'A' (0x04) in slot 2
-        state.local_kbd_states[0].keycode[0] = 0x04;
-        state.max_kbd_idx = 0;
+        state.hid.local_kbd_states[0].keycode[0] = 0x04;
+        state.hid.max_kbd_idx = 0;
 
         // Peer sends key 'B' (0x05) with LeftShift modifier
         let peer_data: [u8; 8] = [0x02, 0, 0x05, 0, 0, 0, 0, 0];

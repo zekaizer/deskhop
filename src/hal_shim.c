@@ -5,59 +5,9 @@
 
 #include "main.h"
 
-_Static_assert(sizeof(queue_t) == 16,
-    "queue_t size changed — update QUEUE_T_SIZE in src-rust/src/app/structs.rs");
-
-/* Verify Rust Device struct matches C device_t — called from initial_setup */
-extern const uint32_t RUST_SIZEOF_DEVICE;
-extern const uint32_t RUST_OFFSET_TUD_CONNECTED;
-extern const uint32_t RUST_OFFSET_ACTIVE_OUTPUT;
-extern const uint32_t RUST_OFFSET_CORE1_TIMESTAMP;
-extern const uint32_t RUST_OFFSET_REBOOT_REQUESTED;
-extern const uint32_t RUST_OFFSET_BLINKS_LEFT;
-extern const uint32_t RUST_SIZEOF_HID_INTERFACE;
-extern const uint32_t RUST_SIZEOF_KEYBOARD_DESC;
-extern const uint32_t RUST_SIZEOF_MOUSE_DESC;
-extern const uint32_t RUST_SIZEOF_REPORT_VAL;
-
-/* Returns 0=OK, 1=sizeof, 2=tud_connected, 3=active_output,
-   4=core1_timestamp, 5=reboot_requested, 6=blinks_left */
-int hal_verify_device_layout(void) {
-    if (RUST_SIZEOF_DEVICE != sizeof(device_t)) return 1;
-    if (RUST_OFFSET_TUD_CONNECTED != offsetof(device_t, tud_connected)) return 2;
-    if (RUST_OFFSET_ACTIVE_OUTPUT != offsetof(device_t, active_output)) return 3;
-    if (RUST_OFFSET_CORE1_TIMESTAMP != offsetof(device_t, core1_last_loop_pass)) return 4;
-    if (RUST_OFFSET_REBOOT_REQUESTED != offsetof(device_t, reboot_requested)) return 5;
-    if (RUST_OFFSET_BLINKS_LEFT != offsetof(device_t, blinks_left)) return 6;
-    return 0;
-}
-
-/* Debug: output C sizeof/offsetof values via CDC */
-void hal_dump_layout(void) {
-    dh_debug_printf("C sizeof(device_t)=%u Rust=%u\n", (unsigned)sizeof(device_t), (unsigned)RUST_SIZEOF_DEVICE);
-    dh_debug_printf("C tud_connected=%u Rust=%u\n", (unsigned)offsetof(device_t, tud_connected), (unsigned)RUST_OFFSET_TUD_CONNECTED);
-    dh_debug_printf("C active_output=%u Rust=%u\n", (unsigned)offsetof(device_t, active_output), (unsigned)RUST_OFFSET_ACTIVE_OUTPUT);
-    dh_debug_printf("C core1_ts=%u Rust=%u\n", (unsigned)offsetof(device_t, core1_last_loop_pass), (unsigned)RUST_OFFSET_CORE1_TIMESTAMP);
-    dh_debug_printf("C reboot=%u Rust=%u\n", (unsigned)offsetof(device_t, reboot_requested), (unsigned)RUST_OFFSET_REBOOT_REQUESTED);
-    dh_debug_printf("C blinks=%u Rust=%u\n", (unsigned)offsetof(device_t, blinks_left), (unsigned)RUST_OFFSET_BLINKS_LEFT);
-
-    /* Also dump intermediate offsets to find where mismatch starts */
-    dh_debug_printf("C kbd_leds=%u\n", (unsigned)offsetof(device_t, keyboard_leds));
-    dh_debug_printf("C last_activity=%u\n", (unsigned)offsetof(device_t, last_activity));
-    dh_debug_printf("C config=%u\n", (unsigned)offsetof(device_t, config));
-    dh_debug_printf("C hid_queue_out=%u\n", (unsigned)offsetof(device_t, hid_queue_out));
-    dh_debug_printf("C iface=%u\n", (unsigned)offsetof(device_t, iface));
-    dh_debug_printf("C in_packet=%u\n", (unsigned)offsetof(device_t, in_packet));
-    dh_debug_printf("C dma_ptr=%u\n", (unsigned)offsetof(device_t, dma_ptr));
-    dh_debug_printf("C fw=%u\n", (unsigned)offsetof(device_t, fw));
-    dh_debug_printf("C page_buffer=%u\n", (unsigned)offsetof(device_t, page_buffer));
-    dh_debug_printf("sizeof queue_t=%u\n", (unsigned)sizeof(queue_t));
-    dh_debug_printf("sizeof hid_interface_t=%u Rust=%u\n", (unsigned)sizeof(hid_interface_t), (unsigned)RUST_SIZEOF_HID_INTERFACE);
-    dh_debug_printf("sizeof keyboard_t=%u Rust=%u\n", (unsigned)sizeof(keyboard_t), (unsigned)RUST_SIZEOF_KEYBOARD_DESC);
-    dh_debug_printf("sizeof mouse_t=%u Rust=%u\n", (unsigned)sizeof(mouse_t), (unsigned)RUST_SIZEOF_MOUSE_DESC);
-    dh_debug_printf("sizeof report_val_t=%u Rust=%u\n", (unsigned)sizeof(report_val_t), (unsigned)RUST_SIZEOF_REPORT_VAL);
-    dh_debug_printf("sizeof config_t=%u\n", (unsigned)sizeof(config_t));
-}
+/* Layout verification is now compile-time only:
+ * - C side: sdk_verify.h (_Static_assert on opaque sizes/alignment)
+ * - Rust side: build.rs (bindgen parses structs.h, generates const assert) */
 
 /* ==================================================== *
  * Timestamp
@@ -70,23 +20,23 @@ uint32_t hal_time_us_32(void) { return time_us_32(); }
  * Queue operations (Pico SDK queue_t)
  * ==================================================== */
 
-void hal_queue_mouse_report(device_t *dev, const uint8_t *report) {
+void hal_queue_mouse_report(const uint8_t *report) {
     // Call queue_try_add directly — do NOT call queue_mouse_report
     // which routes to rust_queue_mouse_report, causing infinite recursion.
-    queue_try_add(&dev->mouse_queue, report);
+    queue_try_add(queue_from_opaque(&global_hw.mouse_queue), report);
 }
 
-void hal_queue_kbd_report(device_t *dev, const uint8_t *report) {
+void hal_queue_kbd_report(const uint8_t *report) {
     // Same: avoid queue_kbd_report → rust_queue_kbd_report → here recursion.
-    queue_try_add(&dev->kbd_queue, report);
+    queue_try_add(queue_from_opaque(&global_hw.kbd_queue), report);
 }
 
-void hal_queue_uart_packet(device_t *dev, const uint8_t *packet) {
-    queue_try_add(&dev->uart_tx_queue, packet);
+void hal_queue_uart_packet(const uint8_t *packet) {
+    queue_try_add(queue_from_opaque(&global_hw.uart_tx_queue), packet);
 }
 
-bool hal_queue_try_add_uart(device_t *dev, const uint8_t *data) {
-    return queue_try_add(&dev->uart_tx_queue, data);
+bool hal_queue_try_add_uart(const uint8_t *data) {
+    return queue_try_add(queue_from_opaque(&global_hw.uart_tx_queue), data);
 }
 
 /* ==================================================== *
@@ -98,20 +48,21 @@ bool hal_queue_try_add_uart(device_t *dev, const uint8_t *data) {
    hal_blink_led, hal_reboot — Rust calls underlying C functions directly.
    hal_watchdog_update kept (Pico SDK function). */
 
-void blink_led(device_t *state) {
-    state->blinks_left = 5;
-    state->last_led_change = time_us_32();
+void blink_led(void) {
+    global_led.blinks_left = 5;
+    global_led.last_led_change = time_us_32();
 }
 
 /* UART packet + output control — moved from uart.c */
 void queue_packet(const uint8_t *d, enum packet_type_e t, int l) {
     uart_packet_t p = {.type = t}; memcpy(p.data, d, l);
-    queue_try_add(&global_state.uart_tx_queue, &p);
+    queue_try_add(queue_from_opaque(&global_hw.uart_tx_queue), &p);
 }
 void send_value(const uint8_t v, enum packet_type_e t) { queue_packet(&v, t, sizeof(uint8_t)); }
 
-void set_active_output(device_t *s, uint8_t o) {
-    s->active_output = o; restore_leds(s); send_value(o, OUTPUT_SELECT_MSG); release_all_keys(s);
+void set_active_output(uint8_t o) {
+    global_cfg.active_output = o;
+    restore_leds(); send_value(o, OUTPUT_SELECT_MSG); release_all_keys();
 }
 
 void hal_watchdog_update(void) { watchdog_update(); }
@@ -142,29 +93,29 @@ bool hal_tud_mouse_report(uint8_t mode, uint8_t buttons, int16_t x, int16_t y, i
  * DMA state
  * ==================================================== */
 
-bool hal_dma_channel_is_busy(device_t *dev) {
-    return dma_channel_is_busy(dev->dma_tx_channel);
+bool hal_dma_channel_is_busy(void) {
+    return dma_channel_is_busy(global_hw.dma_tx_channel);
 }
 
-void hal_dma_tx_send(device_t *dev, const uint8_t *buf, uint32_t len) {
+void hal_dma_tx_send(const uint8_t *buf, uint32_t len) {
     memcpy(uart_txbuf, buf, len);
-    dma_channel_transfer_from_buffer_now(dev->dma_tx_channel, uart_txbuf, len);
+    dma_channel_transfer_from_buffer_now(global_hw.dma_tx_channel, uart_txbuf, len);
 }
 
-uint32_t hal_dma_rx_remaining(device_t *dev) {
-    return (uint32_t)DMA_RX_BUFFER_SIZE - dma_channel_hw_addr(dev->dma_rx_channel)->transfer_count;
+uint32_t hal_dma_rx_remaining(void) {
+    return (uint32_t)DMA_RX_BUFFER_SIZE - dma_channel_hw_addr(global_hw.dma_rx_channel)->transfer_count;
 }
 
-bool hal_is_start_of_packet(device_t *dev) {
-    return uart_rxbuf[dev->dma_ptr] == START1
-        && uart_rxbuf[NEXT_RING_IDX(dev->dma_ptr)] == START2;
+bool hal_is_start_of_packet(void) {
+    return uart_rxbuf[global_hw.dma_ptr] == START1
+        && uart_rxbuf[NEXT_RING_IDX(global_hw.dma_ptr)] == START2;
 }
 
-void hal_fetch_packet(device_t *dev) {
-    uint8_t *dst = (uint8_t *)&dev->in_packet;
+void hal_fetch_packet(void) {
+    uint8_t *dst = (uint8_t *)&global_hw.in_packet;
     for (int i = 0; i < RAW_PACKET_LENGTH; i++) {
-        if (i >= START_LENGTH) dst[i - START_LENGTH] = uart_rxbuf[dev->dma_ptr];
-        dev->dma_ptr = NEXT_RING_IDX(dev->dma_ptr);
+        if (i >= START_LENGTH) dst[i - START_LENGTH] = uart_rxbuf[global_hw.dma_ptr];
+        global_hw.dma_ptr = NEXT_RING_IDX(global_hw.dma_ptr);
     }
 }
 
@@ -187,16 +138,16 @@ void hal_set_report_handler(void *iface, uint8_t report_id, uint8_t handler_type
     }
 }
 /* HID generic packet queuing — inlined from uart.c */
-static void _queue_packet(const uint8_t *p, device_t *s, uint8_t t, uint8_t l, uint8_t id, uint8_t inst) {
+static void _queue_packet(const uint8_t *p, uint8_t t, uint8_t l, uint8_t id, uint8_t inst) {
     hid_generic_pkt_t g = { .instance=inst, .report_id=id, .type=t, .len=l };
     memcpy(g.data, p, l);
-    queue_try_add(&s->hid_queue_out, &g);
+    queue_try_add(queue_from_opaque(&global_hw.hid_queue_out), &g);
 }
-void hal_queue_cc_packet(device_t *dev, const uint8_t *payload) {
-    _queue_packet(payload, dev, 1, CONSUMER_CONTROL_LENGTH, REPORT_ID_CONSUMER, ITF_NUM_HID);
+void hal_queue_cc_packet(const uint8_t *payload) {
+    _queue_packet(payload, 1, CONSUMER_CONTROL_LENGTH, REPORT_ID_CONSUMER, ITF_NUM_HID);
 }
-void hal_queue_system_packet(device_t *dev, const uint8_t *payload) {
-    _queue_packet(payload, dev, 2, SYSTEM_CONTROL_LENGTH, REPORT_ID_SYSTEM, ITF_NUM_HID);
+void hal_queue_system_packet(const uint8_t *payload) {
+    _queue_packet(payload, 2, SYSTEM_CONTROL_LENGTH, REPORT_ID_SYSTEM, ITF_NUM_HID);
 }
 
 
@@ -210,8 +161,6 @@ void hal_queue_system_packet(device_t *dev, const uint8_t *payload) {
  * Keyboard hotkey check (wraps keyboard.c)
  * ==================================================== */
 
-extern device_t *device;
-
 uint8_t hal_toggle_led(void) { return toggle_led(); }
 
 bool hal_is_bootsel_pressed(void) {
@@ -222,10 +171,10 @@ bool hal_is_bootsel_pressed(void) {
 #endif
 }
 
-void hal_debug_dump_state(device_t *dev) {
+void hal_debug_dump_state(void) {
     dh_debug_printf("tud=%d kbd=%d mse=%d role=%d out=%d c1=%llu\n",
-        dev->tud_connected, dev->keyboard_connected, dev->mouse_connected,
-        dev->board_role, dev->active_output, dev->core1_last_loop_pass);
+        global_cfg.tud_connected, global_cfg.keyboard_connected, global_cfg.mouse_connected,
+        global_cfg.board_role, global_cfg.active_output, global_cfg.core1_last_loop_pass);
 }
 
 void hal_debug_blink(int count, int delay_ms) {
@@ -240,41 +189,41 @@ uint32_t hal_read_fw_running_u32(uint32_t address) {
     return *(uint32_t *)&ADDR_FW_RUNNING[address];
 }
 
-void hal_queue_cfg_packet(device_t *dev, const uint8_t *packet) {
+void hal_queue_cfg_packet(const uint8_t *packet) {
     uint8_t r[RAW_PACKET_LENGTH];
     write_raw_packet(r, (uart_packet_t *)packet);
-    _queue_packet(r, dev, 0, RAW_PACKET_LENGTH, REPORT_ID_VENDOR, ITF_NUM_HID_VENDOR);
+    _queue_packet(r, 0, RAW_PACKET_LENGTH, REPORT_ID_VENDOR, ITF_NUM_HID_VENDOR);
 }
 
 /* API field map + access moved to Rust (hal/ffi/api_config.rs) */
 
 /* HID output queue — generic HID reports waiting to be sent via TinyUSB */
-bool hal_hid_queue_peek(device_t *dev, uint8_t *out) {
-    return queue_try_peek(&dev->hid_queue_out, out);
+bool hal_hid_queue_peek(uint8_t *out) {
+    return queue_try_peek(queue_from_opaque(&global_hw.hid_queue_out), out);
 }
-bool hal_hid_queue_remove(device_t *dev, uint8_t *out) {
-    return queue_try_remove(&dev->hid_queue_out, out);
+bool hal_hid_queue_remove(uint8_t *out) {
+    return queue_try_remove(queue_from_opaque(&global_hw.hid_queue_out), out);
 }
 bool hal_tud_hid_n_report(uint8_t instance, uint8_t report_id, const uint8_t *data, uint8_t len) {
     return tud_hid_n_report(instance, report_id, data, len);
 }
 
 /* Queue peek/remove for kbd and mouse */
-bool hal_kbd_queue_peek(device_t *dev, uint8_t *out) {
-    return queue_try_peek(&dev->kbd_queue, out);
+bool hal_kbd_queue_peek(uint8_t *out) {
+    return queue_try_peek(queue_from_opaque(&global_hw.kbd_queue), out);
 }
-bool hal_kbd_queue_remove(device_t *dev, uint8_t *out) {
-    return queue_try_remove(&dev->kbd_queue, out);
+bool hal_kbd_queue_remove(uint8_t *out) {
+    return queue_try_remove(queue_from_opaque(&global_hw.kbd_queue), out);
 }
-bool hal_mouse_queue_peek(device_t *dev, uint8_t *out) {
-    return queue_try_peek(&dev->mouse_queue, out);
+bool hal_mouse_queue_peek(uint8_t *out) {
+    return queue_try_peek(queue_from_opaque(&global_hw.mouse_queue), out);
 }
-bool hal_mouse_queue_remove(device_t *dev, uint8_t *out) {
-    return queue_try_remove(&dev->mouse_queue, out);
+bool hal_mouse_queue_remove(uint8_t *out) {
+    return queue_try_remove(queue_from_opaque(&global_hw.mouse_queue), out);
 }
 
-bool hal_uart_tx_queue_remove(device_t *dev, uint8_t *out) {
-    return queue_try_remove(&dev->uart_tx_queue, out);
+bool hal_uart_tx_queue_remove(uint8_t *out) {
+    return queue_try_remove(queue_from_opaque(&global_hw.uart_tx_queue), out);
 }
 
 void hal_set_config_mode_scratch(void) {

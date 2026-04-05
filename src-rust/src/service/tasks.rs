@@ -5,7 +5,7 @@ use crate::domain::constants::PacketType;
 use crate::domain::constants::RAW_PACKET_LENGTH;
 use crate::domain::packet;
 use crate::domain::screensaver::{self, ScreensaverConfig};
-use crate::domain::structs::Device;
+use crate::domain::structs::DeviceState;
 use crate::hal::traits::*;
 use crate::service::router::ReportRouter;
 
@@ -18,14 +18,14 @@ const CORE1_HANG_TIMEOUT_US: u64 = 500_000;
 /// yield a garbage timestamp. Worst case: one false hang detection (no kick) or
 /// one spurious kick. Both are tolerable and self-correct on the next iteration.
 pub fn check_system_health(
-    state: &Device,
+    state: &DeviceState<'_>,
     hal: &(impl Timer + Watchdog),
 ) -> bool {
-    if state.reboot_requested {
+    if state.fw.reboot_requested {
         return false;
     }
     let now = hal.now_us_64();
-    if now - state.core1_last_loop_pass < CORE1_HANG_TIMEOUT_US {
+    if now - state.cfg.core1_last_loop_pass < CORE1_HANG_TIMEOUT_US {
         hal.kick();
         return true;
     }
@@ -78,44 +78,38 @@ const DMA_RX_BUFFER_SIZE: u32 = 1024;
 
 /// Poll the DMA ring buffer for incoming UART packets.
 /// Scans for START1+START2 preamble, fetches packet, dispatches via Rust.
+///
+/// NOTE: dma_ptr and in_packet are C-only (in device_hw_t). Packet receive
+/// is handled entirely by C's packet_receiver_task. This function is only
+/// called from the C-side FFI entry point that passes a parsed packet.
+/// The Rust-side packet_receive_tick is no longer used directly — packet
+/// dispatch comes through rust_process_uart_packet in callbacks.rs.
 pub fn packet_receive_tick(
-    state: &mut Device,
+    state: &mut DeviceState<'_>,
     hal: &(impl DmaRx + ReportRouter + OutputControl + ConfigStore + PeerLink
            + Watchdog + Indicator + PacketQueue + Timer),
 ) {
-    let cp = hal.dma_rx_current_pos();
-    let mut d = packet::get_ptr_delta(cp, state.dma_ptr, DMA_RX_BUFFER_SIZE);
-
-    while d >= RAW_PACKET_LENGTH as u32 {
-        if hal.is_start_of_packet() {
-            hal.fetch_packet();
-            // Packet is now in state.in_packet — build Rust UartPacket
-            let pkt = packet::UartPacket {
-                ptype: state.in_packet.ptype,
-                data: state.in_packet.data,
-                checksum: state.in_packet.checksum,
-            };
-            crate::service::packet_dispatch::dispatch_packet(state, hal, &pkt);
-            return;
-        }
-        state.dma_ptr = (state.dma_ptr + 1) & 0x3FF;
-        d -= 1;
-    }
+    // dma_ptr and in_packet are now in C-only device_hw_t.
+    // Packet fetching and parsing is done by C code, which calls
+    // rust_process_uart_packet (in callbacks.rs) with the parsed packet.
+    // This function body is intentionally left as a no-op placeholder
+    // until the C-side packet_receiver_task is fully ported.
+    let _ = (state, hal);
 }
 
 /// Check screensaver activation and generate mouse report if needed.
 /// Returns updated last_pointer_move timestamp, or None if no report generated.
 pub fn screensaver_tick(
-    state: &Device,
+    state: &DeviceState<'_>,
     hal: &(impl Timer + UsbDevice + ReportQueue),
     last_pointer_move: u32,
     report_bytes: &[u8; 8],
 ) -> Option<u32> {
-    let role = state.board_role as usize;
-    if role >= state.config.output.len() { return None; }
+    let role = state.cfg.board_role as usize;
+    if role >= state.cfg.config.output.len() { return None; }
 
-    let ss = &state.config.output[role].screensaver;
-    let inactivity = hal.now_us_64() - state.last_activity[role];
+    let ss = &state.cfg.config.output[role].screensaver;
+    let inactivity = hal.now_us_64() - state.cfg.last_activity[role];
     let current_time = hal.now_us_32();
 
     if !screensaver::should_activate(
@@ -145,26 +139,26 @@ pub fn screensaver_tick(
 /// 5 transitions at 80ms intervals: OFF→ON→OFF→ON→OFF.
 /// On the last transition, restore_leds() resets to normal active-output state.
 pub fn led_blink_tick(
-    state: &mut Device,
+    state: &mut DeviceState<'_>,
     hal: &(impl Indicator + OutputControl + Timer),
 ) {
     use crate::domain::blink::{blink_step, BlinkAction};
 
     let now = hal.now_us_32();
-    match blink_step(state.blinks_left, state.last_led_change, now) {
+    match blink_step(state.led.blinks_left, state.led.last_led_change, now) {
         BlinkAction::Idle | BlinkAction::Wait => {}
         BlinkAction::Toggle => {
             let led_on = hal.toggle();
-            if state.keyboard_connected {
+            if state.cfg.keyboard_connected {
                 hal.set_keyboard_leds(if led_on { 0x07 } else { 0x00 });
             }
-            state.blinks_left -= 1;
-            state.last_led_change = now as i32;
+            state.led.blinks_left -= 1;
+            state.led.last_led_change = now as i32;
         }
         BlinkAction::ToggleAndRestore => {
             hal.toggle();
-            state.blinks_left -= 1;
-            state.last_led_change = now as i32;
+            state.led.blinks_left -= 1;
+            state.led.last_led_change = now as i32;
             hal.sync_leds();
         }
     }
@@ -173,29 +167,32 @@ pub fn led_blink_tick(
 /// Build and send heartbeat packet. Handle config mode timeout.
 /// Also checks BOOTSEL button for debug flash recovery (DH_DEBUG only).
 pub fn heartbeat_tick(
-    state: &Device,
+    state: &DeviceState<'_>,
     hal: &(impl Timer + Watchdog + Indicator + PeerLink),
 ) {
-    if state.fw.upgrade_in_progress { return; }
+    if state.fw.fw.upgrade_in_progress { return; }
 
     // Debug: BOOTSEL button triggers USB boot for flash recovery
     if hal.is_bootsel_pressed() {
         hal.reboot_to_bootloader();
     }
 
-    if state.config_mode_active {
-        if hal.now_us_64() > state.config_mode_timer {
+    if state.cfg.config_mode_active {
+        if hal.now_us_64() > state.cfg.config_mode_timer {
             hal.reboot();
         }
         hal.blink();
     }
 
-    let version = state.running_fw.version;
+    let version = state.fw.running_fw.version;
+    let crc16 = state.fw.running_fw.checksum as u16;
     let mut pkt = [0u8; 10];
     pkt[0] = PacketType::Heartbeat as u8;
     pkt[1] = (version & 0xFF) as u8;
     pkt[2] = ((version >> 8) & 0xFF) as u8;
-    pkt[5] = state.active_output;
+    pkt[3] = (crc16 & 0xFF) as u8;
+    pkt[4] = ((crc16 >> 8) & 0xFF) as u8;
+    pkt[5] = state.cfg.active_output;
 
     hal.enqueue(&pkt);
 }
@@ -211,8 +208,9 @@ mod tests {
     fn check_system_health_core1_alive() {
         let hal = MockHal::new();
         hal.set_time(1_000_000);
-        let mut state = Device::zeroed();
-        state.core1_last_loop_pass = 900_000; // 100ms ago
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.core1_last_loop_pass = 900_000; // 100ms ago
         assert!(check_system_health(&state, &hal));
         assert!(hal.watchdog_kicked.get());
     }
@@ -221,8 +219,9 @@ mod tests {
     fn check_system_health_core1_hung() {
         let hal = MockHal::new();
         hal.set_time(2_000_000);
-        let mut state = Device::zeroed();
-        state.core1_last_loop_pass = 1_000_000; // 1s ago
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.core1_last_loop_pass = 1_000_000; // 1s ago
         assert!(!check_system_health(&state, &hal));
         assert!(!hal.watchdog_kicked.get());
     }
@@ -230,8 +229,9 @@ mod tests {
     #[test]
     fn check_system_health_reboot_requested() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.reboot_requested = true;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.fw.reboot_requested = true;
         assert!(!check_system_health(&state, &hal));
         assert!(!hal.watchdog_kicked.get());
     }
@@ -240,8 +240,9 @@ mod tests {
     fn check_system_health_boundary_exactly_500ms() {
         let hal = MockHal::new();
         hal.set_time(500_000);
-        let mut state = Device::zeroed();
-        state.core1_last_loop_pass = 0; // exactly 500ms ago
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.core1_last_loop_pass = 0; // exactly 500ms ago
         // 500_000 - 0 = 500_000, NOT < 500_000, so should NOT kick
         assert!(!check_system_health(&state, &hal));
     }
@@ -250,8 +251,9 @@ mod tests {
     fn check_system_health_boundary_499ms() {
         let hal = MockHal::new();
         hal.set_time(499_999);
-        let mut state = Device::zeroed();
-        state.core1_last_loop_pass = 0; // 499.999ms ago
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.core1_last_loop_pass = 0; // 499.999ms ago
         assert!(check_system_health(&state, &hal));
         assert!(hal.watchdog_kicked.get());
     }
@@ -289,9 +291,10 @@ mod tests {
     #[test]
     fn heartbeat_sends_packet() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.running_fw.version = 0x1234;
-        state.active_output = 1;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.fw.running_fw.version = 0x1234;
+        state.cfg.active_output = 1;
         heartbeat_tick(&state, &hal);
         let pkts = hal.outbound_packets.borrow();
         assert_eq!(pkts.len(), 1);
@@ -304,8 +307,9 @@ mod tests {
     #[test]
     fn heartbeat_skips_during_upgrade() {
         let hal = MockHal::new();
-        let mut state = Device::zeroed();
-        state.fw.upgrade_in_progress = true;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.fw.fw.upgrade_in_progress = true;
         heartbeat_tick(&state, &hal);
         assert!(hal.outbound_packets.borrow().is_empty());
     }
@@ -314,9 +318,10 @@ mod tests {
     fn heartbeat_config_mode_blinks() {
         let hal = MockHal::new();
         hal.set_time(1_000);
-        let mut state = Device::zeroed();
-        state.config_mode_active = true;
-        state.config_mode_timer = 999_999_999; // far future
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.config_mode_active = true;
+        state.cfg.config_mode_timer = 999_999_999; // far future
         heartbeat_tick(&state, &hal);
         assert_eq!(hal.blink_count.get(), 1);
         // Should still send heartbeat
@@ -328,9 +333,10 @@ mod tests {
     fn heartbeat_config_mode_timeout_reboots() {
         let hal = MockHal::new();
         hal.set_time(1_000_000);
-        let mut state = Device::zeroed();
-        state.config_mode_active = true;
-        state.config_mode_timer = 500_000; // past
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.config_mode_active = true;
+        state.cfg.config_mode_timer = 500_000; // past
         heartbeat_tick(&state, &hal);
     }
 }

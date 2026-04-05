@@ -16,6 +16,6 @@
  *  Initialization Functions
  *==============================================================================*/
 
-void initial_setup(device_t *);
+void initial_setup(void);
 void serial_init(void);
 void core1_main(void);

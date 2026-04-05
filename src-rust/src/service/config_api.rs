@@ -1,7 +1,7 @@
 // Config API service — field map + read/write logic for the configuration protocol.
 // Moved from hal/ffi/config.rs to separate business logic from FFI exports.
 
-use crate::domain::structs::Device;
+use crate::domain::structs::DeviceState;
 use crate::domain::constants;
 use crate::hal::traits::*;
 
@@ -44,66 +44,66 @@ pub fn find_field(api_idx: u8) -> Option<&'static FieldDef> {
     FIELDS.iter().find(|f| f.idx == api_idx)
 }
 
-/// Read a field from Device into output slice.
-pub fn read_field(state: &Device, idx: u8, out: &mut [u8]) {
+/// Read a field from DeviceState into output slice.
+pub fn read_field(state: &DeviceState<'_>, idx: u8, out: &mut [u8]) {
     macro_rules! w8  { ($v:expr) => { out[0] = $v }; }
     macro_rules! w16 { ($v:expr) => {{ let b = ($v).to_le_bytes(); out[..2].copy_from_slice(&b); }}; }
     macro_rules! w32 { ($v:expr) => {{ let b = ($v).to_le_bytes(); out[..4].copy_from_slice(&b); }}; }
     macro_rules! w64 { ($v:expr, $len:expr) => {{ let b = ($v).to_le_bytes(); out[..$len].copy_from_slice(&b[..$len]); }}; }
 
     match idx {
-        0  => w8!(state.active_output),
-        1  => w16!(state.pointer_x),
-        2  => w16!(state.pointer_y),
-        3  => w16!(state.mouse_buttons),
+        0  => w8!(state.cfg.active_output),
+        1  => w16!(state.hid.pointer_x),
+        2  => w16!(state.hid.pointer_y),
+        3  => w16!(state.hid.mouse_buttons),
 
-        10 => w32!(state.config.output[0].number),
-        11 => w32!(state.config.output[0].screen_count),
-        12 => w32!(state.config.output[0].speed_x as u32),
-        13 => w32!(state.config.output[0].speed_y as u32),
-        14 => w32!(state.config.output[0].border.top as u32),
-        15 => w32!(state.config.output[0].border.bottom as u32),
-        16 => w8!(state.config.output[0].os),
-        17 => w8!(state.config.output[0].pos),
-        18 => w8!(state.config.output[0].mouse_park_pos),
-        19 => w8!(state.config.output[0].screensaver.mode),
-        20 => w8!(state.config.output[0].screensaver.only_if_inactive),
-        21 => w64!(state.config.output[0].screensaver.idle_time_us, 7),
-        22 => w64!(state.config.output[0].screensaver.max_time_us, 7),
+        10 => w32!(state.cfg.config.output[0].number),
+        11 => w32!(state.cfg.config.output[0].screen_count),
+        12 => w32!(state.cfg.config.output[0].speed_x as u32),
+        13 => w32!(state.cfg.config.output[0].speed_y as u32),
+        14 => w32!(state.cfg.config.output[0].border.top as u32),
+        15 => w32!(state.cfg.config.output[0].border.bottom as u32),
+        16 => w8!(state.cfg.config.output[0].os),
+        17 => w8!(state.cfg.config.output[0].pos),
+        18 => w8!(state.cfg.config.output[0].mouse_park_pos),
+        19 => w8!(state.cfg.config.output[0].screensaver.mode),
+        20 => w8!(state.cfg.config.output[0].screensaver.only_if_inactive),
+        21 => w64!(state.cfg.config.output[0].screensaver.idle_time_us, 7),
+        22 => w64!(state.cfg.config.output[0].screensaver.max_time_us, 7),
 
-        40 => w32!(state.config.output[1].number),
-        41 => w32!(state.config.output[1].screen_count),
-        42 => w32!(state.config.output[1].speed_x as u32),
-        43 => w32!(state.config.output[1].speed_y as u32),
-        44 => w32!(state.config.output[1].border.top as u32),
-        45 => w32!(state.config.output[1].border.bottom as u32),
-        46 => w8!(state.config.output[1].os),
-        47 => w8!(state.config.output[1].pos),
-        48 => w8!(state.config.output[1].mouse_park_pos),
-        49 => w8!(state.config.output[1].screensaver.mode),
-        50 => w8!(state.config.output[1].screensaver.only_if_inactive),
-        51 => w64!(state.config.output[1].screensaver.idle_time_us, 7),
-        52 => w64!(state.config.output[1].screensaver.max_time_us, 7),
+        40 => w32!(state.cfg.config.output[1].number),
+        41 => w32!(state.cfg.config.output[1].screen_count),
+        42 => w32!(state.cfg.config.output[1].speed_x as u32),
+        43 => w32!(state.cfg.config.output[1].speed_y as u32),
+        44 => w32!(state.cfg.config.output[1].border.top as u32),
+        45 => w32!(state.cfg.config.output[1].border.bottom as u32),
+        46 => w8!(state.cfg.config.output[1].os),
+        47 => w8!(state.cfg.config.output[1].pos),
+        48 => w8!(state.cfg.config.output[1].mouse_park_pos),
+        49 => w8!(state.cfg.config.output[1].screensaver.mode),
+        50 => w8!(state.cfg.config.output[1].screensaver.only_if_inactive),
+        51 => w64!(state.cfg.config.output[1].screensaver.idle_time_us, 7),
+        52 => w64!(state.cfg.config.output[1].screensaver.max_time_us, 7),
 
-        70 => w32!(state.config.version),
-        71 => w8!(state.config.force_mouse_boot_mode),
-        72 => w8!(state.config.force_kbd_boot_protocol),
-        73 => w8!(state.config.kbd_led_as_indicator),
-        74 => w8!(state.config.hotkey_toggle),
-        75 => w8!(state.config.enable_acceleration),
-        76 => w8!(state.config.enforce_ports),
-        77 => w16!(state.config.jump_threshold),
-        78 => w16!(state.running_fw.version),
-        79 => w32!(state.running_fw.checksum),
-        80 => w8!(state.keyboard_connected as u8),
-        81 => w8!(state.switch_lock as u8),
-        82 => w8!(state.relative_mouse as u8),
+        70 => w32!(state.cfg.config.version),
+        71 => w8!(state.cfg.config.force_mouse_boot_mode),
+        72 => w8!(state.cfg.config.force_kbd_boot_protocol),
+        73 => w8!(state.cfg.config.kbd_led_as_indicator),
+        74 => w8!(state.cfg.config.hotkey_toggle),
+        75 => w8!(state.cfg.config.enable_acceleration),
+        76 => w8!(state.cfg.config.enforce_ports),
+        77 => w16!(state.cfg.config.jump_threshold),
+        78 => w16!(state.fw.running_fw.version),
+        79 => w32!(state.fw.running_fw.checksum),
+        80 => w8!(state.cfg.keyboard_connected as u8),
+        81 => w8!(state.cfg.switch_lock as u8),
+        82 => w8!(state.cfg.relative_mouse as u8),
         _ => {}
     }
 }
 
-/// Write a field from input slice into Device.
-pub fn write_field(state: &mut Device, idx: u8, data: &[u8]) {
+/// Write a field from input slice into DeviceState.
+pub fn write_field(state: &mut DeviceState<'_>, idx: u8, data: &[u8]) {
     macro_rules! r8  { () => { data[0] }; }
     macro_rules! r16 { () => {{ u16::from_le_bytes([data[0], data[1]]) }}; }
     macro_rules! r32 { () => {{ u32::from_le_bytes([data[0], data[1], data[2], data[3]]) }}; }
@@ -112,42 +112,42 @@ pub fn write_field(state: &mut Device, idx: u8, data: &[u8]) {
     }}; }
 
     match idx {
-        10 => state.config.output[0].number = r32!(),
-        11 => state.config.output[0].screen_count = r32!(),
-        12 => state.config.output[0].speed_x = r32!() as i32,
-        13 => state.config.output[0].speed_y = r32!() as i32,
-        14 => state.config.output[0].border.top = r32!() as i32,
-        15 => state.config.output[0].border.bottom = r32!() as i32,
-        16 => state.config.output[0].os = r8!(),
-        17 => state.config.output[0].pos = r8!(),
-        18 => state.config.output[0].mouse_park_pos = r8!(),
-        19 => state.config.output[0].screensaver.mode = r8!(),
-        20 => state.config.output[0].screensaver.only_if_inactive = r8!(),
-        21 => state.config.output[0].screensaver.idle_time_us = r64!(),
-        22 => state.config.output[0].screensaver.max_time_us = r64!(),
+        10 => state.cfg.config.output[0].number = r32!(),
+        11 => state.cfg.config.output[0].screen_count = r32!(),
+        12 => state.cfg.config.output[0].speed_x = r32!() as i32,
+        13 => state.cfg.config.output[0].speed_y = r32!() as i32,
+        14 => state.cfg.config.output[0].border.top = r32!() as i32,
+        15 => state.cfg.config.output[0].border.bottom = r32!() as i32,
+        16 => state.cfg.config.output[0].os = r8!(),
+        17 => state.cfg.config.output[0].pos = r8!(),
+        18 => state.cfg.config.output[0].mouse_park_pos = r8!(),
+        19 => state.cfg.config.output[0].screensaver.mode = r8!(),
+        20 => state.cfg.config.output[0].screensaver.only_if_inactive = r8!(),
+        21 => state.cfg.config.output[0].screensaver.idle_time_us = r64!(),
+        22 => state.cfg.config.output[0].screensaver.max_time_us = r64!(),
 
-        40 => state.config.output[1].number = r32!(),
-        41 => state.config.output[1].screen_count = r32!(),
-        42 => state.config.output[1].speed_x = r32!() as i32,
-        43 => state.config.output[1].speed_y = r32!() as i32,
-        44 => state.config.output[1].border.top = r32!() as i32,
-        45 => state.config.output[1].border.bottom = r32!() as i32,
-        46 => state.config.output[1].os = r8!(),
-        47 => state.config.output[1].pos = r8!(),
-        48 => state.config.output[1].mouse_park_pos = r8!(),
-        49 => state.config.output[1].screensaver.mode = r8!(),
-        50 => state.config.output[1].screensaver.only_if_inactive = r8!(),
-        51 => state.config.output[1].screensaver.idle_time_us = r64!(),
-        52 => state.config.output[1].screensaver.max_time_us = r64!(),
+        40 => state.cfg.config.output[1].number = r32!(),
+        41 => state.cfg.config.output[1].screen_count = r32!(),
+        42 => state.cfg.config.output[1].speed_x = r32!() as i32,
+        43 => state.cfg.config.output[1].speed_y = r32!() as i32,
+        44 => state.cfg.config.output[1].border.top = r32!() as i32,
+        45 => state.cfg.config.output[1].border.bottom = r32!() as i32,
+        46 => state.cfg.config.output[1].os = r8!(),
+        47 => state.cfg.config.output[1].pos = r8!(),
+        48 => state.cfg.config.output[1].mouse_park_pos = r8!(),
+        49 => state.cfg.config.output[1].screensaver.mode = r8!(),
+        50 => state.cfg.config.output[1].screensaver.only_if_inactive = r8!(),
+        51 => state.cfg.config.output[1].screensaver.idle_time_us = r64!(),
+        52 => state.cfg.config.output[1].screensaver.max_time_us = r64!(),
 
-        70 => state.config.version = r32!(),
-        71 => state.config.force_mouse_boot_mode = r8!(),
-        72 => state.config.force_kbd_boot_protocol = r8!(),
-        73 => state.config.kbd_led_as_indicator = r8!(),
-        74 => state.config.hotkey_toggle = r8!(),
-        75 => state.config.enable_acceleration = r8!(),
-        76 => state.config.enforce_ports = r8!(),
-        77 => state.config.jump_threshold = r16!(),
+        70 => state.cfg.config.version = r32!(),
+        71 => state.cfg.config.force_mouse_boot_mode = r8!(),
+        72 => state.cfg.config.force_kbd_boot_protocol = r8!(),
+        73 => state.cfg.config.kbd_led_as_indicator = r8!(),
+        74 => state.cfg.config.hotkey_toggle = r8!(),
+        75 => state.cfg.config.enable_acceleration = r8!(),
+        76 => state.cfg.config.enforce_ports = r8!(),
+        77 => state.cfg.config.jump_threshold = r16!(),
         // 78-82 are readonly
         _ => {}
     }
@@ -155,7 +155,7 @@ pub fn write_field(state: &mut Device, idx: u8, data: &[u8]) {
 
 /// Handle a single API config message (GET or SET).
 pub fn handle_api_msg<H: Timer + PacketQueue>(
-    state: &mut Device,
+    state: &mut DeviceState<'_>,
     hal: &H,
     ptype: u8,
     api_idx: u8,
@@ -180,11 +180,11 @@ pub fn handle_api_msg<H: Timer + PacketQueue>(
         hal.push_config_packet(&response);
     }
 
-    state.config_mode_timer = hal.now_us_64() + 300_000_000;
+    state.cfg.config_mode_timer = hal.now_us_64() + 300_000_000;
 }
 
 /// Read all config fields and send GET responses for each.
-pub fn handle_api_read_all<H: Timer + PacketQueue>(state: &mut Device, hal: &H) {
+pub fn handle_api_read_all<H: Timer + PacketQueue>(state: &mut DeviceState<'_>, hal: &H) {
     for f in FIELDS.iter() {
         handle_api_msg(
             state,
@@ -200,7 +200,7 @@ pub fn handle_api_read_all<H: Timer + PacketQueue>(state: &mut Device, hal: &H) 
 mod tests {
     extern crate alloc;
     use super::*;
-    use crate::domain::structs::Device;
+    use crate::domain::structs::DeviceState;
     use crate::hal::mock::MockHal;
 
     // Field idx 70 = config.version (u32, writable, len=4)
@@ -209,12 +209,13 @@ mod tests {
 
     #[test]
     fn test_read_write_roundtrip() {
-        let mut dev = Device::zeroed();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
         let value: u32 = 0xDEAD_BEEF;
         let data = value.to_le_bytes();
 
         write_field(&mut dev, 70, &data);
-        assert_eq!(dev.config.version, 0xDEAD_BEEF);
+        assert_eq!(dev.cfg.config.version, 0xDEAD_BEEF);
 
         let mut out = [0u8; 8];
         read_field(&dev, 70, &mut out);
@@ -223,7 +224,8 @@ mod tests {
 
     #[test]
     fn test_handle_api_msg_set_val() {
-        let mut dev = Device::zeroed();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
         let hal = MockHal::new();
         let data = 42u32.to_le_bytes();
         let mut buf = [0u8; 8];
@@ -236,13 +238,14 @@ mod tests {
             &buf,
         );
 
-        assert_eq!(dev.config.version, 42);
+        assert_eq!(dev.cfg.config.version, 42);
     }
 
     #[test]
     fn test_handle_api_msg_get_val() {
-        let mut dev = Device::zeroed();
-        dev.config.version = 99;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        dev.cfg.config.version = 99;
         let hal = MockHal::new();
 
         handle_api_msg(
@@ -263,8 +266,9 @@ mod tests {
 
     #[test]
     fn test_handle_api_msg_readonly_field() {
-        let mut dev = Device::zeroed();
-        dev.active_output = 0;
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        dev.cfg.active_output = 0;
         let hal = MockHal::new();
 
         // Field idx 0 (active_output) is readonly
@@ -276,12 +280,13 @@ mod tests {
         );
 
         // Value must remain unchanged
-        assert_eq!(dev.active_output, 0);
+        assert_eq!(dev.cfg.active_output, 0);
     }
 
     #[test]
     fn test_handle_api_msg_updates_timer() {
-        let mut dev = Device::zeroed();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
         let hal = MockHal::new();
         hal.set_time(1_000_000);
 
@@ -292,12 +297,13 @@ mod tests {
             &[0u8; 8],
         );
 
-        assert_eq!(dev.config_mode_timer, 1_000_000 + 300_000_000);
+        assert_eq!(dev.cfg.config_mode_timer, 1_000_000 + 300_000_000);
     }
 
     #[test]
     fn test_handle_api_read_all() {
-        let mut dev = Device::zeroed();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
         let hal = MockHal::new();
 
         handle_api_read_all(&mut dev, &hal);

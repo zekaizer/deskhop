@@ -18,7 +18,7 @@
  *  Data Extraction
  *==============================================================================*/
 
-int32_t    extract_kbd_data(uint8_t *, int, uint8_t, hid_interface_t *, hid_keyboard_report_t *);
+int32_t    extract_kbd_data(uint8_t *, int, uint8_t, hid_interface_t *, hid_kbd_report_t *);
 
 /*==============================================================================
  *  Hotkey Handling
@@ -35,9 +35,7 @@ int32_t    extract_kbd_data(uint8_t *, int, uint8_t, hid_interface_t *, hid_keyb
 void     process_consumer_report(uint8_t *, int, uint8_t, hid_interface_t *);
 void     process_keyboard_report(uint8_t *, int, uint8_t, hid_interface_t *);
 void     process_system_report(uint8_t *, int, uint8_t, hid_interface_t *);
-void     queue_cc_packet(uint8_t *, device_t *);
-void     queue_system_packet(uint8_t *, device_t *);
-void     release_all_keys(device_t *);
+void     release_all_keys(void);
 
 /* ==================================================== *
  * Map hotkeys to alternative layouts

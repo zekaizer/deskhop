@@ -71,29 +71,29 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t *
         return (int32_t)bufsize;
 
     if (uf2->blockNo == 0) {
-        global_state.fw.checksum = 0xffffffff;
+        global_fw.fw.checksum = 0xffffffff;
 
         /* Make sure nobody else touches the flash during this operation, otherwise we get empty pages */
-        global_state.fw.upgrade_in_progress = true;
+        global_fw.fw.upgrade_in_progress = true;
     }
 
     /* Update checksum continuously as blocks are being received */
     const uint32_t last_block_with_checksum = (STAGING_IMAGE_SIZE - FLASH_SECTOR_SIZE) / FLASH_PAGE_SIZE;
     for (int i=0; i<FLASH_PAGE_SIZE && uf2->blockNo < last_block_with_checksum; i++)
-        global_state.fw.checksum = crc32_iter(global_state.fw.checksum, buffer[32 + i]);
+        global_fw.fw.checksum = crc32_iter(global_fw.fw.checksum, buffer[32 + i]);
 
     write_flash_page(flash_addr, &buffer[32]);
 
     if (is_final_block) {
-        global_state.fw.checksum = ~global_state.fw.checksum;
+        global_fw.fw.checksum = ~global_fw.fw.checksum;
 
         /* If checksums don't match, overwrite first sector and rely on ROM bootloader for recovery */
-        if (global_state.fw.checksum != calculate_firmware_crc32()) {
+        if (global_fw.fw.checksum != calculate_firmware_crc32()) {
             flash_range_erase((uint32_t)ADDR_FW_RUNNING - XIP_BASE, FLASH_SECTOR_SIZE);
             reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0);
         }
         else {
-            global_state.reboot_requested = true;
+            global_fw.reboot_requested = true;
         }
     }
 

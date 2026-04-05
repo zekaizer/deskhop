@@ -11,9 +11,48 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "flash.h"
 #include "packet.h"
 #include "screen.h"
+#include "constants.h"
+
+/* TU_ATTR_PACKED: use __attribute__((packed)) when TinyUSB is not included */
+#ifndef TU_ATTR_PACKED
+#define TU_ATTR_PACKED __attribute__((packed))
+#endif
+
+/* Opaque SDK types — size/alignment verified by _Static_assert in sdk_verify.h.
+ * C code accesses actual SDK types via inline accessors in sdk_verify.h. */
+#define QUEUE_OPAQUE_SIZE  16
+#define QUEUE_OPAQUE_ALIGN 4
+typedef struct __attribute__((aligned(QUEUE_OPAQUE_ALIGN))) {
+    uint8_t _data[QUEUE_OPAQUE_SIZE];
+} queue_opaque_t;
+
+#define HID_KBD_REPORT_SIZE 8
+typedef struct TU_ATTR_PACKED {
+    uint8_t modifier;
+    uint8_t reserved;
+    uint8_t keycode[6];
+} hid_kbd_report_t;
+
+/* Constants from hid_parser.h — duplicated here to avoid SDK dependency chain.
+ * Verified by _Static_assert in sdk_verify.h. */
+#ifndef MAX_DEVICES
+#define MAX_DEVICES    4
+#endif
+#ifndef MAX_INTERFACES
+#define MAX_INTERFACES 4
+#endif
+
+/* hid_interface_t — opaque placeholder. Actual type in hid_parser.h (SDK-dependent).
+ * Size/alignment verified by _Static_assert in sdk_verify.h. */
+#define HID_INTERFACE_OPAQUE_SIZE  932
+#define HID_INTERFACE_OPAQUE_ALIGN 4
+typedef struct __attribute__((aligned(HID_INTERFACE_OPAQUE_ALIGN))) {
+    uint8_t _data[HID_INTERFACE_OPAQUE_SIZE];
+} hid_iface_opaque_t;
 
 typedef void (*action_handler_t)();
 
@@ -88,76 +127,77 @@ typedef struct {
 
 
 /*==============================================================================
- *  Device State
+ *  Device Sub-structs — independent global state groups
  *==============================================================================*/
+
+/* HID input state (keyboard/mouse) */
 typedef struct {
-    uint8_t kbd_dev_addr; // Address of the Keyboard device
-    uint8_t kbd_instance; // Keyboard instance (d'uh - isn't this a useless comment)
+    uint8_t kbd_dev_addr;                            // Address of the keyboard device
+    uint8_t kbd_instance;                            // Keyboard instance
+    hid_kbd_report_t local_kbd_states[MAX_DEVICES];  // Per-device keyboard states
+    hid_kbd_report_t remote_kbd_state;               // Combined remote keyboard state
+    uint8_t max_kbd_idx;                             // Largest kbd_idx seen
+    int16_t pointer_x;                               // Mouse pointer X
+    int16_t pointer_y;                               // Mouse pointer Y
+    int16_t mouse_buttons;                           // Mouse button state
+} device_hid_t;
 
-    uint8_t keyboard_leds[NUM_SCREENS];  // State of keyboard LEDs (index 0 = A, index 1 = B)
-    uint64_t last_activity[NUM_SCREENS]; // Timestamp of the last input activity (-||-)
-    uint64_t core1_last_loop_pass;       // Timestamp of last core1 loop execution
-    uint8_t active_output;               // Currently selected output (0 = A, 1 = B)
-    uint8_t board_role;                  // Which board are we running on? (0 = A, 1 = B, etc.)
+/* Configuration, output control, and feature flags */
+typedef struct {
+    config_t config;                      // Board configuration (flash-backed)
+    uint8_t active_output;                // Currently selected output (0 = A, 1 = B)
+    uint8_t board_role;                   // Which board are we running on?
+    uint8_t keyboard_leds[NUM_SCREENS];   // Keyboard LED state per output
+    uint64_t last_activity[NUM_SCREENS];  // Last input activity timestamp per output
+    uint64_t core1_last_loop_pass;        // Last core1 loop timestamp (health check)
 
-    hid_keyboard_report_t local_kbd_states[MAX_DEVICES]; // Store keyboard states
-    hid_keyboard_report_t remote_kbd_state;              // Store combined remote keyboard state
-    uint8_t max_kbd_idx;                                 // Store largest kbd_idx seen
-
-    int16_t pointer_x; // Store and update the location of our mouse pointer
-    int16_t pointer_y;
-    int16_t mouse_buttons; // Store and update the state of mouse buttons
-
-    config_t config;       // Device configuration, loaded from flash or defaults used
-    queue_t hid_queue_out; // Queue that stores outgoing hid messages
-    queue_t kbd_queue;     // Queue that stores keyboard reports
-    queue_t mouse_queue;   // Queue that stores mouse reports
-    queue_t uart_tx_queue; // Queue that stores outgoing packets
-
-    hid_interface_t iface[MAX_DEVICES][MAX_INTERFACES]; // Store info about HID interfaces
-    uart_packet_t in_packet;
-
-    /* DMA */
-    uint32_t dma_ptr;             // Stores info about DMA ring buffer last checked position
-    uint32_t dma_rx_channel;      // DMA RX channel we're using to receive
-    uint32_t dma_control_channel; // DMA channel that controls the RX transfer channel
-    uint32_t dma_tx_channel;      // DMA TX channel we're using to send
-
-    /* Firmware */
-    fw_upgrade_state_t fw;           // State of the firmware upgrader
-    firmware_metadata_t _running_fw; // RAM copy of running fw metadata
-    bool reboot_requested;           // If set, stop updating watchdog
-    uint64_t config_mode_timer;      // Counts how long are we to remain in config mode
-
-    uint8_t page_buffer[FLASH_PAGE_SIZE]; // For firmware-over-serial upgrades
-
-    /* Connection status flags */
-    bool tud_connected;      // True when TinyUSB device successfully connects
-    bool keyboard_connected; // True when our keyboard is connected locally
-    bool mouse_connected;    // True when our mouse is connected locally
+    /* Connection status */
+    bool tud_connected;       // TinyUSB device connected
+    bool keyboard_connected;  // Local keyboard connected
+    bool mouse_connected;     // Local mouse connected
 
     /* Feature flags */
-    bool mouse_zoom;         // True when "mouse zoom" is enabled
-    bool switch_lock;        // True when device is prevented from switching
-    bool onboard_led_state;  // True when LED is ON
-    bool relative_mouse;     // True when relative mouse mode is used
-    bool gaming_mode;        // True when gaming mode is on (relative passthru + lock)
-    bool config_mode_active; // True when config mode is active
-    bool digitizer_active;   // True when digitizer Win/Mac workaround is active
+    bool mouse_zoom;
+    bool switch_lock;
+    bool onboard_led_state;
+    bool relative_mouse;
+    bool gaming_mode;
+    bool config_mode_active;
+    bool digitizer_active;
 
-    /* Onboard LED blinky (provide feedback when e.g. mouse connected) */
-    int32_t blinks_left;     // How many blink transitions are left
-    int32_t last_led_change; // Timestamp of the last time led state transitioned
-} device_t;
-/*==============================================================================*/
+    uint64_t config_mode_timer;  // Config mode timeout timestamp
+} device_config_t;
 
-
+/* Firmware upgrade state */
 typedef struct {
-    void (*exec)(device_t *state);
-    uint64_t frequency;
-    uint64_t next_run;
-    bool *enabled;
-} task_t;
+    fw_upgrade_state_t fw;                // Upgrade state machine
+    firmware_metadata_t _running_fw;      // RAM copy of running fw metadata
+    bool reboot_requested;                // If set, stop updating watchdog
+    uint8_t page_buffer[FLASH_PAGE_SIZE]; // Shared buffer for flash writes
+} device_fw_t;
+
+/* Onboard LED blinky */
+typedef struct {
+    int32_t blinks_left;     // Remaining blink transitions
+    int32_t last_led_change; // Timestamp of last LED state change
+} device_led_t;
+
+/* Hardware / SDK-dependent state (C-only, not bindgen-able) */
+typedef struct {
+    queue_opaque_t hid_queue_out; // Outgoing HID messages
+    queue_opaque_t kbd_queue;     // Keyboard reports
+    queue_opaque_t mouse_queue;   // Mouse reports
+    queue_opaque_t uart_tx_queue; // Outgoing UART packets
+
+    hid_iface_opaque_t iface[MAX_DEVICES][MAX_INTERFACES]; // HID interfaces (opaque)
+    uart_packet_t in_packet;                                // Incoming UART packet
+
+    /* DMA */
+    uint32_t dma_ptr;             // DMA ring buffer position
+    uint32_t dma_rx_channel;
+    uint32_t dma_control_channel;
+    uint32_t dma_tx_channel;
+} device_hw_t;
 
 enum os_type_e {
     LINUX   = 1,
