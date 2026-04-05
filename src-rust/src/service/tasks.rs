@@ -184,8 +184,8 @@ pub fn heartbeat_tick(
         hal.blink();
     }
 
-    let version = state.fw.running_fw.version;
-    let crc16 = state.fw.running_fw.checksum as u16;
+    let version = state.fw._running_fw.version;
+    let crc16 = state.fw._running_fw.checksum as u16;
     let mut pkt = [0u8; 10];
     pkt[0] = PacketType::Heartbeat as u8;
     pkt[1] = (version & 0xFF) as u8;
@@ -293,7 +293,7 @@ mod tests {
         let hal = MockHal::new();
         let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
         let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
-        state.fw.running_fw.version = 0x1234;
+        state.fw._running_fw.version = 0x1234;
         state.cfg.active_output = 1;
         heartbeat_tick(&state, &hal);
         let pkts = hal.outbound_packets.borrow();

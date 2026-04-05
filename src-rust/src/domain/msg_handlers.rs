@@ -48,9 +48,9 @@ pub fn handle_simple_msg(ptype: u8, data: &[u8; 8], state: &DeviceState<'_>) -> 
         Some(PacketType::Heartbeat) => {
             let other_version = u16::from_le_bytes([data[0], data[1]]);
             let other_crc16 = u16::from_le_bytes([data[2], data[3]]);
-            let my_crc16 = state.fw.running_fw.checksum as u16;
+            let my_crc16 = state.fw._running_fw.checksum as u16;
             match should_start_fw_upgrade(
-                other_version, state.fw.running_fw.version,
+                other_version, state.fw._running_fw.version,
                 other_crc16, my_crc16,
                 state.cfg.board_role,
                 state.fw.fw.upgrade_in_progress,
@@ -222,7 +222,7 @@ mod tests {
     fn test_heartbeat_newer_version() {
         let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
         let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
-        state.fw.running_fw.version = 100;
+        state.fw._running_fw.version = 100;
         let data = [0xC8, 0x00, 0, 0, 0, 0, 0, 0]; // version 200
         let action = handle_simple_msg(PacketType::Heartbeat as u8, &data, &state);
         match action {
@@ -235,7 +235,7 @@ mod tests {
     fn test_heartbeat_same_version() {
         let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
         let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
-        state.fw.running_fw.version = 100;
+        state.fw._running_fw.version = 100;
         let data = [100, 0, 0, 0, 0, 0, 0, 0];
         let action = handle_simple_msg(PacketType::Heartbeat as u8, &data, &state);
         match action {
