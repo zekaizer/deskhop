@@ -23,13 +23,12 @@ tusb_desc_device_t const desc_device_config = DEVICE_DESCRIPTOR(0x2e8a, 0x107c);
                                         // https://pid.codes/1209/C000/
 tusb_desc_device_t const desc_device = DEVICE_DESCRIPTOR(0x1209, 0xc000);
 
-// Invoked when received GET DEVICE DESCRIPTOR
-// Application return pointer to descriptor
+extern uint8_t const *rust_get_device_descriptor(void);
+extern uint8_t const *rust_get_hid_report_descriptor(uint8_t instance);
+extern uint8_t const *rust_get_configuration_descriptor(void);
+
 uint8_t const *tud_descriptor_device_cb(void) {
-    if (global_cfg.config_mode_active)
-        return (uint8_t const *)&desc_device_config;
-    else
-        return (uint8_t const *)&desc_device;
+    return rust_get_device_descriptor();
 }
 
 //--------------------------------------------------------------------+
@@ -53,18 +52,7 @@ uint8_t const desc_hid_report_vendor[] = {TUD_HID_REPORT_DESC_VENDOR_CTRL(HID_RE
 // Application return pointer to descriptor
 // Descriptor contents must exist long enough for transfer to complete
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
-    if (global_cfg.config_mode_active)
-        if (instance == ITF_NUM_HID_VENDOR)
-            return desc_hid_report_vendor;
-
-    switch(instance) {
-        case ITF_NUM_HID:
-            return desc_hid_report;
-        case ITF_NUM_HID_REL_M:
-            return desc_hid_report_relmouse;
-        default:
-            return desc_hid_report;
-    }
+    return rust_get_hid_report_descriptor(instance);
 }
 
 bool tud_mouse_report(uint8_t mode, uint8_t buttons, int16_t x, int16_t y, int8_t wheel, int8_t pan) {
@@ -259,10 +247,6 @@ uint8_t const desc_configuration_config[] = {
 };
 
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
-    (void)index; // for multiple configurations
-
-    if (global_cfg.config_mode_active)
-        return desc_configuration_config;
-    else
-        return desc_configuration;
+    (void)index;
+    return rust_get_configuration_descriptor();
 }

@@ -530,3 +530,71 @@ pub unsafe extern "C" fn rust_on_tud_set_report(
 
     hal.send_value(leds, constants::PacketType::KbdSetReport as u8);
 }
+
+// ============================================================
+// TinyUSB descriptor selection — C callbacks delegate here
+// ============================================================
+
+// C descriptor arrays (defined in usb_descriptors.c, static const)
+extern "C" {
+    static desc_device_config: u8;
+    static desc_device: u8;
+    static desc_hid_report: u8;
+    static desc_hid_report_relmouse: u8;
+    static desc_hid_report_vendor: u8;
+    static desc_configuration_config: u8;
+    static desc_configuration: u8;
+}
+
+const ITF_NUM_HID_VENDOR: u8 = 2;
+const ITF_NUM_HID_C: u8 = 0;
+const ITF_NUM_HID_REL_M: u8 = 1;
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_get_device_descriptor() -> *const u8 {
+    let cfg = &*core::ptr::addr_of!(structs::global_cfg);
+    if cfg.config_mode_active {
+        core::ptr::addr_of!(desc_device_config)
+    } else {
+        core::ptr::addr_of!(desc_device)
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_get_hid_report_descriptor(instance: u8) -> *const u8 {
+    let cfg = &*core::ptr::addr_of!(structs::global_cfg);
+    if cfg.config_mode_active && instance == ITF_NUM_HID_VENDOR {
+        return core::ptr::addr_of!(desc_hid_report_vendor);
+    }
+    match instance {
+        ITF_NUM_HID_C => core::ptr::addr_of!(desc_hid_report),
+        ITF_NUM_HID_REL_M => core::ptr::addr_of!(desc_hid_report_relmouse),
+        _ => core::ptr::addr_of!(desc_hid_report),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_get_configuration_descriptor() -> *const u8 {
+    let cfg = &*core::ptr::addr_of!(structs::global_cfg);
+    if cfg.config_mode_active {
+        core::ptr::addr_of!(desc_configuration_config)
+    } else {
+        core::ptr::addr_of!(desc_configuration)
+    }
+}
+
+// ============================================================
+// TinyUSB device mount/unmount — set tud_connected flag
+// ============================================================
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_on_tud_mount() {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::global_cfg);
+    cfg.tud_connected = true;
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_on_tud_umount() {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::global_cfg);
+    cfg.tud_connected = false;
+}

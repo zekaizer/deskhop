@@ -37,15 +37,11 @@ void tud_hid_set_report_cb(uint8_t instance,
     rust_on_tud_set_report(instance, report_id, (uint8_t)report_type, buffer, bufsize);
 }
 
-/* Invoked when device is mounted */
-void tud_mount_cb(void) {
-    global_cfg.tud_connected = true;
-}
+extern void rust_on_tud_mount(void);
+extern void rust_on_tud_umount(void);
 
-/* Invoked when device is unmounted */
-void tud_umount_cb(void) {
-    global_cfg.tud_connected = false;
-}
+void tud_mount_cb(void) { rust_on_tud_mount(); }
+void tud_umount_cb(void) { rust_on_tud_umount(); }
 
 #ifdef DH_DEBUG_CDC_FLASH
 void tud_cdc_rx_cb(uint8_t itf) {
