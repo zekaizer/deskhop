@@ -29,61 +29,12 @@ uint16_t tud_hid_get_report_cb(uint8_t instance,
     return 0;
 }
 
-/**
- * Computer controls our LEDs by sending USB SetReport messages with a payload
- * of just 1 byte and report type output. It's type 0x21 (USB_REQ_DIR_OUT |
- * USB_REQ_TYP_CLASS | USB_REQ_REC_IFACE) Request code for SetReport is 0x09,
- * report type is 0x02 (HID_REPORT_TYPE_OUTPUT). We get a set_report callback
- * from TinyUSB device HID and then figure out what to do with the LEDs.
- */
 void tud_hid_set_report_cb(uint8_t instance,
                            uint8_t report_id,
                            hid_report_type_t report_type,
                            uint8_t const *buffer,
                            uint16_t bufsize) {
-
-    /* We received a report on the config report ID */
-    if (instance == ITF_NUM_HID_VENDOR && report_id == REPORT_ID_VENDOR) {
-        /* Security - only if config mode is enabled are we allowed to do anything. While the report_id
-           isn't even advertised when not in config mode, security must always be explicit and never assume */
-        if (!global_cfg.config_mode_active)
-            return;
-
-        /* We insist on a fixed size packet. No overflows. */
-        if (bufsize != RAW_PACKET_LENGTH)
-            return;
-
-        uart_packet_t *packet = (uart_packet_t *) (buffer + START_LENGTH);
-
-        /* Only a certain packet types are accepted */
-        if (!validate_packet(packet))
-            return;
-
-        process_packet(packet);
-    }
-
-    /* Only other set report we care about is LED state change, and that's exactly 1 byte long */
-    if (report_id != REPORT_ID_KEYBOARD || bufsize != 1 || report_type != HID_REPORT_TYPE_OUTPUT)
-        return;
-
-    uint8_t leds = buffer[0];
-
-    /* If we are using caps lock LED to indicate the chosen output, that has priority */
-    if (global_cfg.config.kbd_led_as_indicator) {
-        leds = leds & 0xFD; /* 1111 1101 (Clear Caps Lock bit) */
-
-        if (global_cfg.active_output)
-            leds |= KEYBOARD_LED_CAPSLOCK;
-    }
-
-    global_cfg.keyboard_leds[BOARD_ROLE] = leds;
-
-    /* If the board has a keyboard connected directly, restore those leds. */
-    if (global_cfg.keyboard_connected && CURRENT_BOARD_IS_ACTIVE_OUTPUT)
-        restore_leds();
-
-    /* Always send to the other one, so it is aware of the change */
-    send_value(leds, KBD_SET_REPORT_MSG);
+    rust_on_tud_set_report(instance, report_id, (uint8_t)report_type, buffer, bufsize);
 }
 
 /* Invoked when device is mounted */
@@ -119,161 +70,32 @@ void tud_cdc_rx_cb(uint8_t itf) {
  * ===============  USB HOST Section  =============== *
  * ================================================== */
 
-void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
-    uint8_t itf_protocol = tuh_hid_interface_protocol(dev_addr, instance);
+/* Thin stubs — resolve opaque iface pointer, delegate all logic to Rust */
 
+void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
     if (dev_addr > MAX_DEVICES || instance >= MAX_INTERFACES)
         return;
-
     hid_interface_t *iface = iface_from_opaque(&global_hw.iface[dev_addr-1][instance]);
-
-    switch (itf_protocol) {
-        case HID_ITF_PROTOCOL_KEYBOARD:
-            global_cfg.keyboard_connected = false;
-            break;
-
-        case HID_ITF_PROTOCOL_MOUSE:
-            global_cfg.mouse_connected = false;
-            break;
-    }
-
-    /* Also clear the interface structure, otherwise plugging something else later
-       might be a fun (and confusing) experience */
-    memset(iface, 0, sizeof(hid_interface_t));
+    rust_on_hid_umount(dev_addr, instance, iface);
 }
 
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_report, uint16_t desc_len) {
-    uint8_t itf_protocol = tuh_hid_interface_protocol(dev_addr, instance);
-
     if (dev_addr > MAX_DEVICES || instance >= MAX_INTERFACES)
         return;
-
-    /* Get interface information */
     hid_interface_t *iface = iface_from_opaque(&global_hw.iface[dev_addr-1][instance]);
-
-    iface->protocol = tuh_hid_get_protocol(dev_addr, instance);
-
-    /* Parse the report descriptor into our internal structure. */
-    parse_report_descriptor(iface, desc_report, desc_len);
-
-    switch (itf_protocol) {
-        case HID_ITF_PROTOCOL_KEYBOARD:
-            if (global_cfg.config.enforce_ports && BOARD_ROLE == OUTPUT_B)
-                return;
-
-            if (global_cfg.config.force_kbd_boot_protocol)
-                tuh_hid_set_protocol(dev_addr, instance, HID_PROTOCOL_BOOT);
-
-            /* Keeping this is required for setting leds from device set_report callback */
-            global_hid.kbd_dev_addr         = dev_addr;
-            global_hid.kbd_instance         = instance;
-            global_cfg.keyboard_connected   = true;
-            break;
-
-        case HID_ITF_PROTOCOL_MOUSE:
-            if (global_cfg.config.enforce_ports && BOARD_ROLE == OUTPUT_A)
-                return;
-
-            if (global_cfg.config.force_mouse_boot_mode) {
-                /* User requested boot mode - simpler protocol for compatibility.
-                   Note: many mice still send wheel data even in boot mode. */
-                tuh_hid_set_protocol(dev_addr, instance, HID_PROTOCOL_BOOT);
-            } else {
-                /* Switch to using report protocol instead of boot, it's more complicated but
-                   at least we get all the information we need (looking at you, mouse wheel) */
-                if (tuh_hid_get_protocol(dev_addr, instance) == HID_PROTOCOL_BOOT) {
-                    tuh_hid_set_protocol(dev_addr, instance, HID_PROTOCOL_REPORT);
-                }
-            }
-            global_cfg.mouse_connected = true;
-            break;
-
-        case HID_ITF_PROTOCOL_NONE:
-            break;
-    }
-
-    /* Also set mouse_connected if report descriptor contains mouse, even if interface
-       protocol says keyboard. This handles composite devices like QMK. */
-    if (iface->mouse.is_found) {
-        global_cfg.mouse_connected = true;
-    }
-
-    /* Flash local led to indicate a device was connected */
-    blink_led();
-
-    /* Also signal the other board to flash LED, to enable easy verification if serial works */
-    send_value(ENABLE, FLASH_LED_MSG);
-
-    /* Kick off the report querying */
-    tuh_hid_receive_report(dev_addr, instance);
+    rust_on_hid_mount(dev_addr, instance, desc_report, desc_len, iface);
 }
 
-/* Invoked when received report from device via interrupt endpoint */
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *report, uint16_t len) {
-    uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, instance);
-
     if (dev_addr > MAX_DEVICES || instance >= MAX_INTERFACES)
         return;
-
     hid_interface_t *iface = iface_from_opaque(&global_hw.iface[dev_addr-1][instance]);
-
-    /* Calculate a device index that distinguishes between different devices
-       while staying within the bounds of MAX_DEVICES.
-
-       Device index assignment:
-       - 0: Primary keyboard (the one set in tuh_hid_mount_cb)
-       - 1: Mouse devices
-       - MAX_DEVICES-2: Secondary keyboards (e.g., wireless keyboard through unified dongle)
-       - (dev_addr-1) % (MAX_DEVICES-1): Other devices
-
-       Note: Slot MAX_DEVICES-1 is reserved for the remote device (used in handle_keyboard_uart_msg) */
-    uint8_t device_idx;
-
-    if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD) {
-        if (dev_addr == global_hid.kbd_dev_addr && instance == global_hid.kbd_instance) {
-            /* Primary keyboard */
-            device_idx = 0;
-        } else {
-            /* Secondary keyboard (e.g., wireless keyboard through unified dongle) */
-            device_idx = (MAX_DEVICES - 2);
-        }
-    } else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE) {
-        /* Mouse devices */
-        device_idx = 1;
-    } else {
-        /* Other devices */
-        device_idx = (dev_addr - 1) % (MAX_DEVICES - 1);
-    }
-
-    if (iface->uses_report_id || itf_protocol == HID_ITF_PROTOCOL_NONE) {
-        uint8_t report_id = 0;
-
-        if (iface->uses_report_id)
-            report_id = report[0];
-
-        if (report_id < MAX_REPORTS) {
-            process_report_f receiver = iface->report_handler[report_id];
-
-            if (receiver != NULL)
-                receiver((uint8_t *)report, len, device_idx, iface);
-        }
-    }
-    else if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD) {
-        process_keyboard_report((uint8_t *)report, len, device_idx, iface);
-    }
-    else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE) {
-        process_mouse_report((uint8_t *)report, len, device_idx, iface);
-    }
-
-    /* Continue requesting reports */
-    tuh_hid_receive_report(dev_addr, instance);
+    rust_on_hid_report_received(dev_addr, instance, report, len, iface);
 }
 
-/* Set protocol in a callback. This is tied to an interface, not a specific report ID */
 void tuh_hid_set_protocol_complete_cb(uint8_t dev_addr, uint8_t idx, uint8_t protocol) {
     if (dev_addr > MAX_DEVICES || idx > MAX_INTERFACES)
         return;
-
     hid_interface_t *iface = iface_from_opaque(&global_hw.iface[dev_addr-1][idx]);
-    iface->protocol = protocol;
+    rust_on_hid_set_protocol_complete(iface, protocol);
 }

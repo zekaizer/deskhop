@@ -81,6 +81,20 @@ bool hal_tud_suspended(void) { return tud_suspended(); }
 void hal_tud_remote_wakeup(void) { tud_remote_wakeup(); }
 bool hal_tud_hid_n_ready(uint8_t instance) { return tud_hid_n_ready(instance); }
 
+/* TinyUSB host wrappers — called from Rust USB callback logic */
+uint8_t hal_tuh_hid_interface_protocol(uint8_t dev_addr, uint8_t instance) {
+    return tuh_hid_interface_protocol(dev_addr, instance);
+}
+uint8_t hal_tuh_hid_get_protocol(uint8_t dev_addr, uint8_t instance) {
+    return tuh_hid_get_protocol(dev_addr, instance);
+}
+void hal_tuh_hid_set_protocol(uint8_t dev_addr, uint8_t instance, uint8_t protocol) {
+    tuh_hid_set_protocol(dev_addr, instance, protocol);
+}
+bool hal_tuh_hid_receive_report(uint8_t dev_addr, uint8_t instance) {
+    return tuh_hid_receive_report(dev_addr, instance);
+}
+
 bool hal_tud_hid_keyboard_report(uint8_t report_id, uint8_t modifier, const uint8_t *keycode) {
     return tud_hid_keyboard_report(report_id, modifier, (uint8_t *)keycode);
 }

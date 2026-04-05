@@ -5,7 +5,8 @@ use crate::domain::hid_routing;
 use crate::domain::keyboard::HotkeyAction;
 use crate::domain::mouse_logic;
 use crate::domain::hid_parser::{self, ReportVal};
-use crate::domain::structs::{iface_from_ptr, get_keyboard, KBD_REPORT_LENGTH};
+use crate::domain::constants;
+use crate::domain::structs::{self, iface_from_ptr, get_keyboard, KBD_REPORT_LENGTH, HidInterface};
 use crate::hal::device;
 use crate::hal::traits::*;
 use crate::service::router::ReportRouter;
@@ -295,4 +296,237 @@ pub unsafe extern "C" fn rust_extract_data(iface_ptr: *mut c_void, val_ptr: *con
     if let Some(handler_type) = populate_interface_field(iface, &val) {
         device::hal_set_report_handler(iface_ptr, rid, handler_type);
     }
+}
+
+// ============================================================
+// TinyUSB host callbacks — business logic moved from usb.c
+// C side keeps only thin stubs that resolve opaque pointers.
+// ============================================================
+
+/// HID device mounted — configure protocol and start receiving reports.
+/// Called from C tuh_hid_mount_cb after bounds check and iface resolution.
+#[export_name = "rust_on_hid_mount"]
+pub unsafe extern "C" fn rust_on_hid_mount(
+    dev_addr: u8,
+    instance: u8,
+    desc_report: *const u8,
+    desc_len: u16,
+    iface_ptr: *mut c_void,
+) {
+    let itf_protocol = device::hal_tuh_hid_interface_protocol(dev_addr, instance);
+
+    let iface = iface_from_ptr(iface_ptr);
+    iface.protocol = device::hal_tuh_hid_get_protocol(dev_addr, instance);
+
+    // Parse HID report descriptor (already Rust — call internal fn directly)
+    rust_parse_report_descriptor(iface_ptr, desc_report, desc_len as i32);
+
+    let mut state = structs::DeviceState::from_globals();
+    let hal = crate::hal::pico::PicoHal::new();
+
+    match itf_protocol {
+        constants::HID_ITF_PROTOCOL_KEYBOARD => {
+            if state.cfg.config.enforce_ports != 0
+                && state.cfg.board_role == constants::OUTPUT_B
+            {
+                return;
+            }
+
+            if state.cfg.config.force_kbd_boot_protocol != 0 {
+                device::hal_tuh_hid_set_protocol(
+                    dev_addr, instance, constants::HID_PROTOCOL_BOOT,
+                );
+            }
+
+            state.hid.kbd_dev_addr = dev_addr;
+            state.hid.kbd_instance = instance;
+            state.cfg.keyboard_connected = true;
+        }
+
+        constants::HID_ITF_PROTOCOL_MOUSE => {
+            if state.cfg.config.enforce_ports != 0
+                && state.cfg.board_role == constants::OUTPUT_A
+            {
+                return;
+            }
+
+            if state.cfg.config.force_mouse_boot_mode != 0 {
+                device::hal_tuh_hid_set_protocol(
+                    dev_addr, instance, constants::HID_PROTOCOL_BOOT,
+                );
+            } else if iface.protocol == constants::HID_PROTOCOL_BOOT {
+                device::hal_tuh_hid_set_protocol(
+                    dev_addr, instance, constants::HID_PROTOCOL_REPORT,
+                );
+            }
+
+            state.cfg.mouse_connected = true;
+        }
+
+        _ => {} // HID_ITF_PROTOCOL_NONE
+    }
+
+    // Composite devices (e.g. QMK) may expose mouse via keyboard interface
+    if iface.mouse.is_found {
+        state.cfg.mouse_connected = true;
+    }
+
+    hal.blink();
+    hal.send_value(constants::ENABLE, constants::PacketType::FlashLed as u8);
+
+    device::hal_tuh_hid_receive_report(dev_addr, instance);
+}
+
+/// HID device unmounted — clear connection state and zero interface.
+/// Called from C tuh_hid_umount_cb after bounds check and iface resolution.
+#[export_name = "rust_on_hid_umount"]
+pub unsafe extern "C" fn rust_on_hid_umount(
+    dev_addr: u8,
+    instance: u8,
+    iface_ptr: *mut c_void,
+) {
+    let itf_protocol = device::hal_tuh_hid_interface_protocol(dev_addr, instance);
+    let mut state = structs::DeviceState::from_globals();
+
+    match itf_protocol {
+        constants::HID_ITF_PROTOCOL_KEYBOARD => {
+            state.cfg.keyboard_connected = false;
+        }
+        constants::HID_ITF_PROTOCOL_MOUSE => {
+            state.cfg.mouse_connected = false;
+        }
+        _ => {}
+    }
+
+    // Zero the interface structure
+    let iface = iface_ptr as *mut HidInterface;
+    core::ptr::write_bytes(iface, 0, 1);
+}
+
+/// HID report received — dispatch to appropriate handler.
+/// Called from C tuh_hid_report_received_cb after bounds check and iface resolution.
+#[export_name = "rust_on_hid_report_received"]
+pub unsafe extern "C" fn rust_on_hid_report_received(
+    dev_addr: u8,
+    instance: u8,
+    report: *const u8,
+    len: u16,
+    iface_ptr: *mut c_void,
+) {
+    let itf_protocol = device::hal_tuh_hid_interface_protocol(dev_addr, instance);
+    let iface = iface_from_ptr(iface_ptr);
+
+    let state = structs::DeviceState::from_globals();
+    let device_idx = hid_routing::calculate_device_idx(
+        itf_protocol,
+        dev_addr,
+        instance,
+        state.hid.kbd_dev_addr,
+        state.hid.kbd_instance,
+    );
+
+    if iface.uses_report_id || itf_protocol == constants::HID_ITF_PROTOCOL_NONE {
+        let report_id = if iface.uses_report_id { *report } else { 0 };
+
+        if (report_id as usize) < structs::MAX_REPORTS {
+            if let Some(handler) = iface.report_handler[report_id as usize] {
+                handler(report as *mut u8, len as i32, device_idx, iface as *mut HidInterface);
+            }
+        }
+    } else if itf_protocol == constants::HID_ITF_PROTOCOL_KEYBOARD {
+        if let Some(handler) = get_process_keyboard_report() {
+            handler(report as *mut u8, len as i32, device_idx, iface as *mut HidInterface);
+        }
+    } else if itf_protocol == constants::HID_ITF_PROTOCOL_MOUSE {
+        if let Some(handler) = get_process_mouse_report() {
+            handler(report as *mut u8, len as i32, device_idx, iface as *mut HidInterface);
+        }
+    }
+
+    device::hal_tuh_hid_receive_report(dev_addr, instance);
+}
+
+// Direct references to the Rust-exported report processors for fallback dispatch.
+extern "C" {
+    #[link_name = "process_keyboard_report"]
+    fn process_keyboard_report_c(report: *mut u8, len: i32, itf: u8, iface: *mut HidInterface);
+    #[link_name = "process_mouse_report"]
+    fn process_mouse_report_c(report: *mut u8, len: i32, itf: u8, iface: *mut HidInterface);
+}
+
+fn get_process_keyboard_report() -> Option<unsafe extern "C" fn(*mut u8, i32, u8, *mut HidInterface)> {
+    Some(process_keyboard_report_c)
+}
+
+fn get_process_mouse_report() -> Option<unsafe extern "C" fn(*mut u8, i32, u8, *mut HidInterface)> {
+    Some(process_mouse_report_c)
+}
+
+/// HID set_protocol completed — update interface protocol field.
+/// Called from C tuh_hid_set_protocol_complete_cb after bounds check and iface resolution.
+#[export_name = "rust_on_hid_set_protocol_complete"]
+pub unsafe extern "C" fn rust_on_hid_set_protocol_complete(
+    iface_ptr: *mut c_void,
+    protocol: u8,
+) {
+    let iface = iface_from_ptr(iface_ptr);
+    iface.protocol = protocol;
+}
+
+/// TinyUSB device set_report callback — config packets and keyboard LED handling.
+/// Called from C tud_hid_set_report_cb (thin stub).
+#[export_name = "rust_on_tud_set_report"]
+pub unsafe extern "C" fn rust_on_tud_set_report(
+    instance: u8,
+    report_id: u8,
+    report_type: u8,
+    buffer: *const u8,
+    bufsize: u16,
+) {
+    use crate::domain::constants::{RAW_PACKET_LENGTH, START_LENGTH};
+
+    const ITF_NUM_HID_VENDOR: u8 = 2;
+    const REPORT_ID_VENDOR: u8 = 6;
+    const REPORT_ID_KEYBOARD: u8 = 1;
+    const HID_REPORT_TYPE_OUTPUT: u8 = 2;
+
+    if buffer.is_null() { return; }
+
+    // Config vendor report
+    if instance == ITF_NUM_HID_VENDOR && report_id == REPORT_ID_VENDOR {
+        let mut state = structs::DeviceState::from_globals();
+        if !state.cfg.config_mode_active { return; }
+        if bufsize as usize != RAW_PACKET_LENGTH { return; }
+
+        let packet_ptr = buffer.add(START_LENGTH);
+        // validate_packet and process_packet are Rust #[export_name] functions
+        extern "C" {
+            fn validate_packet(packet: *const u8) -> bool;
+            fn process_packet(packet: *const u8);
+        }
+        if !validate_packet(packet_ptr) { return; }
+        process_packet(packet_ptr);
+    }
+
+    // Keyboard LED state change
+    if report_id != REPORT_ID_KEYBOARD || bufsize != 1 || report_type != HID_REPORT_TYPE_OUTPUT {
+        return;
+    }
+
+    let mut state = structs::DeviceState::from_globals();
+    let hal = crate::hal::pico::PicoHal::new();
+
+    let leds = hid_routing::process_led_state(
+        *buffer,
+        state.cfg.config.kbd_led_as_indicator != 0,
+        state.cfg.active_output,
+    );
+
+    state.cfg.keyboard_leds[state.cfg.board_role as usize] = leds;
+
+    if state.cfg.keyboard_connected && state.is_active_output() {
+        hal.sync_leds();
+    }
+
+    hal.send_value(leds, constants::PacketType::KbdSetReport as u8);
 }
