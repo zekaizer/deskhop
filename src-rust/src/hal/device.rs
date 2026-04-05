@@ -50,6 +50,10 @@ extern "C" {
     pub fn hal_tuh_hid_set_protocol(dev_addr: u8, instance: u8, protocol: u8);
     pub fn hal_tuh_hid_receive_report(dev_addr: u8, instance: u8) -> bool;
 
+    // ---- LED / HID host (via hal_shim.c) ----
+    pub fn hal_gpio_put_led(state: bool);
+    pub fn hal_tuh_hid_set_report(dev_addr: u8, instance: u8, data: *const u8, len: u8);
+
     // ---- hid_interface_t (remaining C-dependent function) ----
     /// Assigns C function pointers (process_*_report) to report_handler array
     pub fn hal_set_report_handler(iface: *mut core::ffi::c_void, report_id: u8, handler_type: u8);

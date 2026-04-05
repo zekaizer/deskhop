@@ -532,6 +532,33 @@ pub unsafe extern "C" fn rust_on_tud_set_report(
 }
 
 // ============================================================
+// LED control — replaces C led.c functions
+// ============================================================
+
+#[export_name = "restore_leds"]
+pub unsafe extern "C" fn rust_restore_leds() {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::global_cfg);
+    let hid = &*core::ptr::addr_of!(structs::global_hid);
+    let is_active = cfg.active_output == cfg.board_role;
+    cfg.onboard_led_state = is_active;
+    device::hal_gpio_put_led(is_active);
+
+    if cfg.keyboard_connected {
+        let leds = cfg.keyboard_leds[cfg.active_output as usize];
+        device::hal_tuh_hid_set_report(hid.kbd_dev_addr, hid.kbd_instance, &leds, 1);
+    }
+}
+
+#[export_name = "set_keyboard_leds"]
+pub unsafe extern "C" fn rust_set_keyboard_leds(leds: u8) {
+    let cfg = &*core::ptr::addr_of!(structs::global_cfg);
+    let hid = &*core::ptr::addr_of!(structs::global_hid);
+    if cfg.keyboard_connected {
+        device::hal_tuh_hid_set_report(hid.kbd_dev_addr, hid.kbd_instance, &leds, 1);
+    }
+}
+
+// ============================================================
 // TinyUSB descriptor selection — C callbacks delegate here
 // ============================================================
 

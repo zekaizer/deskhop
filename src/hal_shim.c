@@ -95,6 +95,12 @@ bool hal_tuh_hid_receive_report(uint8_t dev_addr, uint8_t instance) {
     return tuh_hid_receive_report(dev_addr, instance);
 }
 
+/* LED / HID host wrappers — called from Rust LED logic */
+void hal_gpio_put_led(bool state) { gpio_put(GPIO_LED_PIN, state); }
+void hal_tuh_hid_set_report(uint8_t dev_addr, uint8_t instance, const uint8_t *data, uint8_t len) {
+    tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT, (void *)data, len);
+}
+
 bool hal_tud_hid_keyboard_report(uint8_t report_id, uint8_t modifier, const uint8_t *keycode) {
     return tud_hid_keyboard_report(report_id, modifier, (uint8_t *)keycode);
 }
