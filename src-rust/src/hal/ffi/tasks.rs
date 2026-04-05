@@ -184,11 +184,17 @@ pub unsafe extern "C" fn rust_remap_engine_tick_task() {
     }
 }
 
-/// Initialize remap engine. Called once during device setup.
+/// Initialize remap engine and apply gaming_mode_default. Called once from initial_setup.
 #[no_mangle]
-pub unsafe extern "C" fn rust_remap_engine_init(os_a: u8, os_b: u8) {
+pub unsafe extern "C" fn rust_passthrough_init() {
+    let state = crate::domain::structs::DeviceState::from_globals();
+    let os_a = state.cfg.config.output[0].os;
+    let os_b = state.cfg.config.output[1].os;
     let engine = get_remap_engine();
     crate::domain::key_remap::remap_engine_init(engine, os_a, os_b);
+    // Apply gaming_mode_default from config
+    let cfg = &mut *core::ptr::addr_of_mut!(crate::domain::structs::GLOBAL_CFG);
+    cfg.gaming_mode = cfg.config.gaming_mode_default != 0;
 }
 
 // --- Passthrough FFI accessors for C (usb_descriptors.c) ---

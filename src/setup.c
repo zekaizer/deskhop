@@ -238,6 +238,10 @@ void initial_setup(void) {
 
     dh_debug_printf("boot role=%c config=%d\n", role == OUTPUT_A ? 'A' : 'B', config_mode);
 
+    /* Initialize key remap engine + apply gaming_mode_default (Rust-owned globals) */
+    extern void rust_passthrough_init(void);
+    rust_passthrough_init();
+
     /* Setup RP2040 Core 1 */
     multicore_reset_core1();
     multicore_launch_core1(core1_main);
