@@ -532,6 +532,52 @@ pub unsafe extern "C" fn rust_on_tud_set_report(
 }
 
 // ============================================================
+// Flash config — replaces C load_config/save_config/reset_config_timer
+// ============================================================
+
+const MAGIC_HEADER: u32 = 0xB00B1E5;
+const CURRENT_CONFIG_VERSION: u32 = 8;
+const CONFIG_MODE_TIMEOUT: u64 = 300_000_000;
+
+extern "C" {
+    #[link_name = "default_config"]
+    static DEFAULT_CONFIG: structs::Config;
+}
+
+#[export_name = "load_config"]
+pub unsafe extern "C" fn rust_load_config() {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::global_cfg);
+    let size = core::mem::size_of::<structs::Config>();
+    device::hal_flash_read_config(&mut cfg.config as *mut structs::Config as *mut u8, size as u32);
+    let raw = core::slice::from_raw_parts(&cfg.config as *const structs::Config as *const u8, size - 4);
+    let cs = crate::domain::crc::calc_crc32(raw);
+    if cfg.config.magic_header != MAGIC_HEADER
+        || cfg.config.checksum != cs
+        || cfg.config.version != CURRENT_CONFIG_VERSION
+    {
+        cfg.config = DEFAULT_CONFIG;
+    }
+}
+
+#[export_name = "save_config"]
+pub unsafe extern "C" fn rust_save_config() {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::global_cfg);
+    let size = core::mem::size_of::<structs::Config>();
+    let raw = core::slice::from_raw_parts(&cfg.config as *const structs::Config as *const u8, size - 4);
+    cfg.config.checksum = crate::domain::crc::calc_crc32(raw);
+    let mut page = [0u8; structs::FLASH_PAGE_SIZE];
+    let config_bytes = core::slice::from_raw_parts(&cfg.config as *const structs::Config as *const u8, size);
+    page[..size].copy_from_slice(config_bytes);
+    device::hal_flash_write_config(page.as_ptr());
+}
+
+#[export_name = "reset_config_timer"]
+pub unsafe extern "C" fn rust_reset_config_timer() {
+    let cfg = &mut *core::ptr::addr_of_mut!(structs::global_cfg);
+    cfg.config_mode_timer = device::hal_time_us_64() + CONFIG_MODE_TIMEOUT;
+}
+
+// ============================================================
 // Output switching — replaces C set_active_output in hal_shim.c
 // ============================================================
 

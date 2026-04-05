@@ -50,6 +50,10 @@ extern "C" {
     pub fn hal_tuh_hid_set_protocol(dev_addr: u8, instance: u8, protocol: u8);
     pub fn hal_tuh_hid_receive_report(dev_addr: u8, instance: u8) -> bool;
 
+    // ---- Flash config (via hal_shim.c) ----
+    pub fn hal_flash_read_config(buf: *mut u8, len: u32);
+    pub fn hal_flash_write_config(buf: *const u8);
+
     // ---- LED / HID host (via hal_shim.c) ----
     pub fn hal_gpio_put_led(state: bool);
     pub fn hal_tuh_hid_set_report(dev_addr: u8, instance: u8, data: *const u8, len: u8);

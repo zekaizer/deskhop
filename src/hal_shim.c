@@ -92,6 +92,14 @@ bool hal_tuh_hid_receive_report(uint8_t dev_addr, uint8_t instance) {
     return tuh_hid_receive_report(dev_addr, instance);
 }
 
+/* Flash config wrappers — called from Rust config logic */
+void hal_flash_read_config(uint8_t *buf, uint32_t len) {
+    memcpy(buf, ADDR_CONFIG, len);
+}
+void hal_flash_write_config(const uint8_t *buf) {
+    write_flash_page((uint32_t)ADDR_CONFIG - XIP_BASE, (uint8_t *)buf);
+}
+
 /* LED / HID host wrappers — called from Rust LED logic */
 void hal_gpio_put_led(bool state) { gpio_put(GPIO_LED_PIN, state); }
 void hal_tuh_hid_set_report(uint8_t dev_addr, uint8_t instance, const uint8_t *data, uint8_t len) {
