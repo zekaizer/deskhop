@@ -46,7 +46,7 @@ void tud_hid_set_report_cb(uint8_t instance,
     if (instance == ITF_NUM_HID_VENDOR && report_id == REPORT_ID_VENDOR) {
         /* Security - only if config mode is enabled are we allowed to do anything. While the report_id
            isn't even advertised when not in config mode, security must always be explicit and never assume */
-        if (!global_state.config_mode_active)
+        if (!global_cfg.config_mode_active)
             return;
 
         /* We insist on a fixed size packet. No overflows. */
@@ -69,17 +69,17 @@ void tud_hid_set_report_cb(uint8_t instance,
     uint8_t leds = buffer[0];
 
     /* If we are using caps lock LED to indicate the chosen output, that has priority */
-    if (global_state.config.kbd_led_as_indicator) {
+    if (global_cfg.config.kbd_led_as_indicator) {
         leds = leds & 0xFD; /* 1111 1101 (Clear Caps Lock bit) */
 
-        if (global_state.active_output)
+        if (global_cfg.active_output)
             leds |= KEYBOARD_LED_CAPSLOCK;
     }
 
-    global_state.keyboard_leds[BOARD_ROLE] = leds;
+    global_cfg.keyboard_leds[BOARD_ROLE] = leds;
 
     /* If the board has a keyboard connected directly, restore those leds. */
-    if (global_state.keyboard_connected && CURRENT_BOARD_IS_ACTIVE_OUTPUT)
+    if (global_cfg.keyboard_connected && CURRENT_BOARD_IS_ACTIVE_OUTPUT)
         restore_leds(&global_state);
 
     /* Always send to the other one, so it is aware of the change */
@@ -88,12 +88,12 @@ void tud_hid_set_report_cb(uint8_t instance,
 
 /* Invoked when device is mounted */
 void tud_mount_cb(void) {
-    global_state.tud_connected = true;
+    global_cfg.tud_connected = true;
 }
 
 /* Invoked when device is unmounted */
 void tud_umount_cb(void) {
-    global_state.tud_connected = false;
+    global_cfg.tud_connected = false;
 }
 
 #ifdef DH_DEBUG_CDC_FLASH
@@ -125,15 +125,15 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
     if (dev_addr > MAX_DEVICES || instance >= MAX_INTERFACES)
         return;
 
-    hid_interface_t *iface = iface_from_opaque(&global_state.iface[dev_addr-1][instance]);
+    hid_interface_t *iface = iface_from_opaque(&global_hw.iface[dev_addr-1][instance]);
 
     switch (itf_protocol) {
         case HID_ITF_PROTOCOL_KEYBOARD:
-            global_state.keyboard_connected = false;
+            global_cfg.keyboard_connected = false;
             break;
 
         case HID_ITF_PROTOCOL_MOUSE:
-            global_state.mouse_connected = false;
+            global_cfg.mouse_connected = false;
             break;
     }
 
@@ -149,7 +149,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
         return;
 
     /* Get interface information */
-    hid_interface_t *iface = iface_from_opaque(&global_state.iface[dev_addr-1][instance]);
+    hid_interface_t *iface = iface_from_opaque(&global_hw.iface[dev_addr-1][instance]);
 
     iface->protocol = tuh_hid_get_protocol(dev_addr, instance);
 
@@ -158,23 +158,23 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
 
     switch (itf_protocol) {
         case HID_ITF_PROTOCOL_KEYBOARD:
-            if (global_state.config.enforce_ports && BOARD_ROLE == OUTPUT_B)
+            if (global_cfg.config.enforce_ports && BOARD_ROLE == OUTPUT_B)
                 return;
 
-            if (global_state.config.force_kbd_boot_protocol)
+            if (global_cfg.config.force_kbd_boot_protocol)
                 tuh_hid_set_protocol(dev_addr, instance, HID_PROTOCOL_BOOT);
 
             /* Keeping this is required for setting leds from device set_report callback */
-            global_state.kbd_dev_addr       = dev_addr;
-            global_state.kbd_instance       = instance;
-            global_state.keyboard_connected = true;
+            global_hid.kbd_dev_addr         = dev_addr;
+            global_hid.kbd_instance         = instance;
+            global_cfg.keyboard_connected   = true;
             break;
 
         case HID_ITF_PROTOCOL_MOUSE:
-            if (global_state.config.enforce_ports && BOARD_ROLE == OUTPUT_A)
+            if (global_cfg.config.enforce_ports && BOARD_ROLE == OUTPUT_A)
                 return;
 
-            if (global_state.config.force_mouse_boot_mode) {
+            if (global_cfg.config.force_mouse_boot_mode) {
                 /* User requested boot mode - simpler protocol for compatibility.
                    Note: many mice still send wheel data even in boot mode. */
                 tuh_hid_set_protocol(dev_addr, instance, HID_PROTOCOL_BOOT);
@@ -185,7 +185,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
                     tuh_hid_set_protocol(dev_addr, instance, HID_PROTOCOL_REPORT);
                 }
             }
-            global_state.mouse_connected = true;
+            global_cfg.mouse_connected = true;
             break;
 
         case HID_ITF_PROTOCOL_NONE:
@@ -195,7 +195,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
     /* Also set mouse_connected if report descriptor contains mouse, even if interface
        protocol says keyboard. This handles composite devices like QMK. */
     if (iface->mouse.is_found) {
-        global_state.mouse_connected = true;
+        global_cfg.mouse_connected = true;
     }
 
     /* Flash local led to indicate a device was connected */
@@ -215,7 +215,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
     if (dev_addr > MAX_DEVICES || instance >= MAX_INTERFACES)
         return;
 
-    hid_interface_t *iface = iface_from_opaque(&global_state.iface[dev_addr-1][instance]);
+    hid_interface_t *iface = iface_from_opaque(&global_hw.iface[dev_addr-1][instance]);
 
     /* Calculate a device index that distinguishes between different devices
        while staying within the bounds of MAX_DEVICES.
@@ -230,7 +230,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
     uint8_t device_idx;
 
     if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD) {
-        if (dev_addr == global_state.kbd_dev_addr && instance == global_state.kbd_instance) {
+        if (dev_addr == global_hid.kbd_dev_addr && instance == global_hid.kbd_instance) {
             /* Primary keyboard */
             device_idx = 0;
         } else {
@@ -274,6 +274,6 @@ void tuh_hid_set_protocol_complete_cb(uint8_t dev_addr, uint8_t idx, uint8_t pro
     if (dev_addr > MAX_DEVICES || idx > MAX_INTERFACES)
         return;
 
-    hid_interface_t *iface = iface_from_opaque(&global_state.iface[dev_addr-1][idx]);
+    hid_interface_t *iface = iface_from_opaque(&global_hw.iface[dev_addr-1][idx]);
     iface->protocol = protocol;
 }
