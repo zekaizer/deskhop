@@ -1,5 +1,8 @@
-// build.rs — parse C structs.h via bindgen to generate compile-time layout asserts.
-// C header is the source of truth. Rust Device struct must match.
+// build.rs — parse C sub-structs via bindgen to generate compile-time layout asserts.
+// C header (structs.h) is the source of truth. Rust sub-structs must match.
+//
+// Verified types: device_hid_t, device_config_t, device_fw_t, device_led_t
+// Excluded: device_hw_t (contains SDK-dependent opaque types, not bindgen-able)
 
 use std::env;
 use std::path::PathBuf;
@@ -16,7 +19,10 @@ fn main() {
         .clang_arg("--target=arm-none-eabi")
         .use_core()
         .layout_tests(true)
-        .allowlist_type("device_t")
+        .allowlist_type("device_hid_t")
+        .allowlist_type("device_config_t")
+        .allowlist_type("device_fw_t")
+        .allowlist_type("device_led_t")
         .generate()
         .expect("bindgen failed — is structs.h SDK-free?");
 
@@ -27,52 +33,71 @@ fn main() {
          // Source of truth: src/include/structs.h\n\n"
     );
 
-    // Bindgen 0.71 layout test format (array-size trick, may span two lines):
-    //   ["Offset of field: device_t::config"][...offset_of!(...) - 88usize];
-    //   OR:
-    //   ["Offset of field: device_t::active_output"]
-    //           [...offset_of!(...) - 32usize];
-    //
-    // Strategy: join all lines, then split on `["` boundaries.
+    // Bindgen 0.71 layout test format uses array-size trick (may span multiple lines).
+    // Join all lines and parse assertions from the flattened text.
     let joined = code.replace('\n', " ");
 
-    // Size of device_t
-    if let Some(start) = joined.find("[\"Size of device_t\"]") {
-        let rest = &joined[start..];
-        if let Some(val) = extract_value(rest) {
-            asserts.push_str(&format!(
-                "const _: () = assert!(core::mem::size_of::<Device>() == {val}, \
-                 \"Device size mismatch with C\");\n"
-            ));
+    // For each sub-struct, extract size and field offsets
+    for (c_type, rust_type) in [
+        ("device_hid_t", "DeviceHid"),
+        ("device_config_t", "DeviceConfig"),
+        ("device_fw_t", "DeviceFw"),
+        ("device_led_t", "DeviceLed"),
+    ] {
+        // Size assertion
+        let size_pattern = format!("[\"Size of {c_type}\"]");
+        if let Some(start) = joined.find(&size_pattern) {
+            let rest = &joined[start..];
+            if let Some(semi) = rest.find(';') {
+                if let Some(val) = extract_value(&rest[..semi]) {
+                    asserts.push_str(&format!(
+                        "const _: () = assert!(core::mem::size_of::<{rust_type}>() == {val}, \
+                         \"{rust_type} size mismatch with C {c_type}\");\n"
+                    ));
+                }
+            }
         }
-    }
 
-    // Field offsets: find all ["Offset of field: device_t::FIELD"] patterns
-    let pattern = "[\"Offset of field: device_t::";
-    let mut search_from = 0;
-    while let Some(pos) = joined[search_from..].find(pattern) {
-        let abs_pos = search_from + pos + pattern.len();
-        let rest = &joined[abs_pos..];
-        if let Some(field_end) = rest.find("\"]") {
-            let c_field = &rest[..field_end];
-            // Find the value in the same assertion (up to the next semicolon)
-            let assertion_rest = &rest[field_end..];
-            if let Some(semi) = assertion_rest.find(';') {
-                let chunk = &assertion_rest[..semi];
-                if let Some(rust_field) = c_to_rust_field(c_field) {
+        // Alignment assertion
+        let align_pattern = format!("[\"Alignment of {c_type}\"]");
+        if let Some(start) = joined.find(&align_pattern) {
+            let rest = &joined[start..];
+            if let Some(semi) = rest.find(';') {
+                if let Some(val) = extract_value(&rest[..semi]) {
+                    asserts.push_str(&format!(
+                        "const _: () = assert!(core::mem::align_of::<{rust_type}>() == {val}, \
+                         \"{rust_type} alignment mismatch with C {c_type}\");\n"
+                    ));
+                }
+            }
+        }
+
+        // Field offset assertions
+        let field_pattern = format!("[\"Offset of field: {c_type}::");
+        let mut search_from = 0;
+        while let Some(pos) = joined[search_from..].find(&field_pattern) {
+            let abs_pos = search_from + pos + field_pattern.len();
+            let rest = &joined[abs_pos..];
+            if let Some(field_end) = rest.find("\"]") {
+                let c_field = &rest[..field_end];
+                let assertion_rest = &rest[field_end..];
+                if let Some(semi) = assertion_rest.find(';') {
+                    let chunk = &assertion_rest[..semi];
+                    // Map C field name to Rust field name
+                    let rust_field = c_to_rust_field(c_field);
                     if let Some(val) = extract_value(chunk) {
                         asserts.push_str(&format!(
-                            "const _: () = assert!(core::mem::offset_of!(Device, {rust_field}) == {val}, \
-                             \"{rust_field} offset mismatch with C\");\n"
+                            "const _: () = assert!(core::mem::offset_of!({rust_type}, {rust_field}) == {val}, \
+                             \"{rust_type}::{rust_field} offset mismatch with C\");\n"
                         ));
                     }
                 }
             }
+            search_from = abs_pos;
         }
-        search_from = abs_pos;
     }
 
-    // Guard: fail build if parser produced nothing (bindgen format may have changed)
+    // Guard: fail build if parser produced nothing
     assert!(
         asserts.contains("const _:"),
         "build.rs: no layout assertions extracted from bindgen output — parser broken?"
@@ -97,21 +122,10 @@ fn extract_value(line: &str) -> Option<usize> {
     before[start..].trim().parse().ok()
 }
 
-fn c_to_rust_field(c_field: &str) -> Option<&'static str> {
+/// Map C field names to Rust field names (identity for most fields).
+fn c_to_rust_field(c_field: &str) -> &str {
     match c_field {
-        "tud_connected" => Some("usb_connected"),
-        "active_output" => Some("active_output"),
-        "core1_last_loop_pass" => Some("core1_last_loop_pass"),
-        "reboot_requested" => Some("reboot_requested"),
-        "blinks_left" => Some("blinks_left"),
-        "config" => Some("config"),
-        "iface" => Some("iface"),
-        "page_buffer" => Some("page_buffer"),
-        "keyboard_leds" => Some("keyboard_leds"),
-        "pointer_x" => Some("pointer_x"),
-        "_running_fw" => Some("running_fw"),
-        "fw" => Some("fw"),
-        "config_mode_timer" => Some("config_mode_timer"),
-        _ => None,
+        "_running_fw" => "running_fw",
+        _ => c_field,
     }
 }
