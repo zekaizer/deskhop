@@ -162,6 +162,22 @@ pub fn led_blink_tick(
     state: &mut DeviceState<'_>,
     hal: &(impl Indicator + OutputControl + Timer),
 ) {
+    use crate::domain::structs::LED_BLINK_PT_WAIT;
+
+    // PT_WAIT mode: slow pulse (50ms on / 450ms off) — independent of blinks_left
+    if state.led.led_blink_mode == LED_BLINK_PT_WAIT {
+        let now = hal.now_us_32();
+        let elapsed = now.wrapping_sub(state.led.last_led_change as u32);
+        let is_on = state.cfg.onboard_led_state;
+        let threshold = if is_on { 50_000u32 } else { 450_000u32 };
+        if elapsed >= threshold {
+            hal.toggle();
+            state.cfg.onboard_led_state = !is_on;
+            state.led.last_led_change = now as i32;
+        }
+        return;
+    }
+
     use crate::domain::blink::{blink_step, BlinkAction};
 
     let now = hal.now_us_32();

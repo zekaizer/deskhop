@@ -47,6 +47,10 @@ uint8_t const desc_hid_report_relmouse[] = {TUD_HID_REPORT_DESC_MOUSEHELP(HID_RE
 
 uint8_t const desc_hid_report_vendor[] = {TUD_HID_REPORT_DESC_VENDOR_CTRL(HID_REPORT_ID(REPORT_ID_VENDOR))};
 
+/* Sizes exported for hal_shim.c passthrough config descriptor builder */
+const uint16_t desc_hid_report_size = sizeof(desc_hid_report);
+const uint16_t desc_hid_report_relmouse_size = sizeof(desc_hid_report_relmouse);
+
 
 // Invoked when received GET HID REPORT DESCRIPTOR
 // Application return pointer to descriptor

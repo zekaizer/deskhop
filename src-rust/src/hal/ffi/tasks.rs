@@ -124,6 +124,126 @@ pub unsafe extern "C" fn rust_process_mouse_queue_task() {
     crate::service::backend::host_link::send_pending_mouse(state, &hal);
 }
 
+// --- Passthrough task ---
+
+#[export_name = "passthrough_task"]
+pub unsafe extern "C" fn rust_passthrough_task() {
+    let hal = crate::hal::pico::PicoHal::new();
+    let mut state = crate::domain::structs::DeviceState::from_globals();
+    let state = &mut state;
+    let pt = get_pt_state();
+    crate::service::passthrough_service::passthrough_task(pt, state, &hal);
+}
+
+// --- Remap engine tick task ---
+
+use crate::domain::key_remap::RemapEngine;
+
+static mut REMAP_ENGINE: RemapEngine = unsafe { core::mem::zeroed() };
+
+/// Get mutable reference to remap engine (Core0 only).
+pub(crate) unsafe fn get_remap_engine() -> &'static mut RemapEngine {
+    &mut *core::ptr::addr_of_mut!(REMAP_ENGINE)
+}
+
+#[export_name = "remap_engine_tick_task"]
+pub unsafe extern "C" fn rust_remap_engine_tick_task() {
+    let hal = crate::hal::pico::PicoHal::new();
+    let mut state = crate::domain::structs::DeviceState::from_globals();
+    let state = &mut state;
+    use crate::hal::traits::Timer;
+    let now = hal.now_us_64();
+    let engine = get_remap_engine();
+    use crate::domain::key_remap;
+    let hold_entered = key_remap::remap_engine_tick(engine, now);
+
+    // Safety net: emit pending tap from previous process_keyboard_report
+    let mut pending = crate::domain::structs::HidKeyboardReport::default();
+    if key_remap::remap_engine_get_pending(engine, &mut pending) {
+        let mut tap_press = crate::domain::kbd_state::combine_kbd_states(state);
+        for k in tap_press.keycode.iter_mut() {
+            if *k == 0 {
+                *k = pending.keycode[0];
+                break;
+            }
+        }
+        tap_press.modifier |= pending.modifier;
+        use crate::service::router::ReportRouter;
+        let report_bytes: [u8; 8] = core::mem::transmute(tap_press);
+        hal.route_kbd(state, &report_bytes);
+        let release = crate::domain::kbd_state::combine_kbd_states(state);
+        let release_bytes: [u8; 8] = core::mem::transmute(release);
+        hal.route_kbd(state, &release_bytes);
+    }
+
+    if hold_entered {
+        let combined = crate::domain::kbd_state::combine_kbd_states(state);
+        let bytes: [u8; 8] = core::mem::transmute(combined);
+        use crate::service::router::ReportRouter;
+        hal.route_kbd(state, &bytes);
+    }
+}
+
+/// Initialize remap engine. Called once during device setup.
+#[no_mangle]
+pub unsafe extern "C" fn rust_remap_engine_init(os_a: u8, os_b: u8) {
+    let engine = get_remap_engine();
+    crate::domain::key_remap::remap_engine_init(engine, os_a, os_b);
+}
+
+// --- Passthrough FFI accessors for C (usb_descriptors.c) ---
+
+#[no_mangle]
+pub unsafe extern "C" fn pt_is_active() -> bool {
+    (*core::ptr::addr_of!(PT_STATE)).active
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn pt_iface_count() -> u8 {
+    (*core::ptr::addr_of!(PT_STATE)).iface_count
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn pt_upstream_vid() -> u16 {
+    (*core::ptr::addr_of!(PT_STATE)).upstream_vid
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn pt_upstream_pid() -> u16 {
+    (*core::ptr::addr_of!(PT_STATE)).upstream_pid
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn pt_config_desc(out_len: *mut u16) -> *const u8 {
+    let (ptr, len) = super::pt_config_desc_ptr();
+    if !out_len.is_null() { *out_len = len; }
+    ptr
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn pt_get_report_desc(device_instance: u8, out_len: *mut u16) -> *const u8 {
+    let pt = &*core::ptr::addr_of!(PT_STATE);
+    match crate::domain::passthrough::get_report_desc(pt, device_instance) {
+        Some((desc, len)) => {
+            if !out_len.is_null() { *out_len = len; }
+            desc.as_ptr()
+        }
+        None => core::ptr::null(),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn pt_iface_protocol(idx: u8) -> u8 {
+    let pt = &*core::ptr::addr_of!(PT_STATE);
+    if (idx as usize) < pt.ifaces.len() { pt.ifaces[idx as usize].itf_protocol } else { 0 }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn pt_iface_desc_len(idx: u8) -> u16 {
+    let pt = &*core::ptr::addr_of!(PT_STATE);
+    if (idx as usize) < pt.ifaces.len() { pt.ifaces[idx as usize].desc_len } else { 0 }
+}
+
 // --- UART TX task ---
 
 #[export_name = "process_uart_tx_task"]

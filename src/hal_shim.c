@@ -320,3 +320,139 @@ bool peer_log_cdc_connected(void) { return false; }
 uint32_t peer_log_cdc_write(const uint8_t *data, uint32_t len) { (void)data; (void)len; return 0; }
 void peer_log_cdc_flush(void) {}
 #endif
+
+/* ==================================================== *
+ * Passthrough (Semi-DDM) FFI
+ * ==================================================== */
+
+void hal_tud_disconnect(void) { tud_disconnect(); }
+void hal_tud_connect(void) { tud_connect(); }
+
+void hal_tuh_vid_pid_get(uint8_t dev_addr, uint16_t *vid, uint16_t *pid) {
+    tuh_vid_pid_get(dev_addr, vid, pid);
+}
+
+/* Rust FFI accessors for passthrough interface data */
+extern uint8_t pt_iface_protocol(uint8_t idx);
+extern uint16_t pt_iface_desc_len(uint8_t idx);
+
+/* Report descriptor sizes from usb_descriptors.c */
+extern const uint16_t desc_hid_report_size;
+extern const uint16_t desc_hid_report_relmouse_size;
+
+/* Append one HID interface descriptor block using TinyUSB macro */
+static uint16_t _append_hid_itf(uint8_t *buf, uint8_t itf_num, uint8_t str_idx,
+                                 uint8_t protocol, uint16_t report_desc_len,
+                                 uint8_t ep_addr, uint16_t ep_size, uint8_t ep_interval) {
+    const uint8_t desc[] = {
+        TUD_HID_DESCRIPTOR(itf_num, str_idx, protocol, report_desc_len,
+                           ep_addr, ep_size, ep_interval)
+    };
+    memcpy(buf, desc, sizeof(desc));
+    return sizeof(desc);
+}
+
+/* Build passthrough config descriptor using TinyUSB macros.
+ * Reads interface data from Rust via FFI accessors. */
+void hal_passthrough_build_config_desc(uint8_t *config_desc, uint16_t *config_desc_len,
+                                        const uint8_t *ifaces, uint8_t iface_count) {
+    (void)ifaces; /* Data accessed via Rust FFI accessors instead */
+
+    uint8_t *buf = config_desc;
+    uint16_t off = 0;
+    uint8_t num_itf = 2 + iface_count; /* DeskHop base + passthrough */
+
+#ifdef DH_DEBUG
+    num_itf += 2; /* CDC Communication + Data interfaces */
+#endif
+
+    /* Configuration descriptor header (9 bytes) */
+    buf[off++] = 9;
+    buf[off++] = TUSB_DESC_CONFIGURATION;
+    off += 2; /* wTotalLength — filled at end */
+    buf[off++] = num_itf;
+    buf[off++] = 1;    /* bConfigurationValue */
+    buf[off++] = 0;    /* iConfiguration */
+    buf[off++] = 0x80 | TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP;
+    buf[off++] = 250;  /* bMaxPower: 500mA / 2 */
+
+    /* DeskHop ITF 0: main HID (keyboard + abs mouse + consumer + system) */
+    off += _append_hid_itf(buf + off, ITF_NUM_HID, 2 /* STRID_PRODUCT */,
+                           HID_ITF_PROTOCOL_NONE, desc_hid_report_size,
+                           0x81, CFG_TUD_HID_EP_BUFSIZE, 1);
+
+    /* DeskHop ITF 1: relative mouse helper */
+    off += _append_hid_itf(buf + off, ITF_NUM_HID_REL_M, 4 /* STRID_MOUSE */,
+                           HID_ITF_PROTOCOL_NONE, desc_hid_report_relmouse_size,
+                           0x82, CFG_TUD_HID_EP_BUFSIZE, 1);
+
+    /* Passthrough interfaces (data from Rust via FFI) */
+    for (uint8_t i = 0; i < iface_count; i++) {
+        off += _append_hid_itf(buf + off, ITF_NUM_PT_BASE + i, 0,
+                               pt_iface_protocol(i),
+                               pt_iface_desc_len(i),
+                               EPNUM_PT_BASE + i,
+                               CFG_TUD_HID_EP_BUFSIZE, 1);
+    }
+
+#ifdef DH_DEBUG
+    {
+        uint8_t cdc_itf  = ITF_NUM_PT_BASE + iface_count;
+        uint8_t ep_notif = 0x80 | (3 + iface_count);
+        uint8_t ep_out   = (uint8_t)(3 + iface_count + 1);
+        uint8_t ep_in    = 0x80 | (3 + iface_count + 1);
+
+        const uint8_t cdc[] = {
+            TUD_CDC_DESCRIPTOR(cdc_itf, 7 /* STRID_DEBUG */, ep_notif, 8,
+                               ep_out, ep_in, 64)
+        };
+        memcpy(buf + off, cdc, sizeof(cdc));
+        off += sizeof(cdc);
+    }
+#endif
+
+    if (off > 280) { /* MAX_CONFIG_DESC_SIZE */
+        *config_desc_len = 0;
+        return;
+    }
+
+    /* Fill wTotalLength (bytes 2-3 of config header) */
+    buf[2] = (uint8_t)(off);
+    buf[3] = (uint8_t)(off >> 8);
+
+    *config_desc_len = off;
+}
+
+bool hal_tuh_set_report(uint8_t dev_addr, uint8_t itf_num,
+                        uint8_t report_id, uint8_t report_type,
+                        const uint8_t *data, uint16_t len) {
+    static uint8_t buf[33];
+    buf[0] = report_id;
+    if (len > sizeof(buf) - 1) len = sizeof(buf) - 1;
+    memcpy(buf + 1, data, len);
+    uint16_t full_len = len + 1;
+
+    static tusb_control_request_t request;
+    request = (tusb_control_request_t){
+        .bmRequestType_bit = {
+            .recipient = TUSB_REQ_RCPT_INTERFACE,
+            .type      = TUSB_REQ_TYPE_CLASS,
+            .direction = TUSB_DIR_OUT
+        },
+        .bRequest = HID_REQ_CONTROL_SET_REPORT,
+        .wValue   = tu_htole16((uint16_t)((report_type << 8) | report_id)),
+        .wIndex   = tu_htole16((uint16_t)itf_num),
+        .wLength  = tu_htole16(full_len)
+    };
+
+    tuh_xfer_t xfer = {
+        .daddr       = dev_addr,
+        .ep_addr     = 0,
+        .setup       = &request,
+        .buffer      = buf,
+        .complete_cb = NULL,
+        .user_data   = 0
+    };
+
+    return tuh_control_xfer(&xfer);
+}

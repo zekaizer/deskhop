@@ -321,6 +321,14 @@ pub unsafe extern "C" fn rust_on_hid_mount(
 
     let mut state = structs::DeviceState::from_globals();
     let hal = crate::hal::pico::PicoHal::new();
+
+    // Passthrough: capture descriptor if enabled
+    let pt = super::tasks::get_pt_state();
+    let desc_slice = core::slice::from_raw_parts(desc_report, desc_len as usize);
+    crate::service::passthrough_service::on_device_mount(
+        pt, &state, dev_addr, instance, itf_protocol, desc_slice, &hal,
+    );
+
     let params = crate::service::usb::MountParams { dev_addr, instance, itf_protocol };
 
     if let Some(proto) = crate::service::usb::on_hid_mount(&mut state, &hal, iface, &params) {
@@ -342,6 +350,11 @@ pub unsafe extern "C" fn rust_on_hid_umount(
 
     crate::service::usb::on_hid_umount(state.cfg, itf_protocol);
 
+    // Passthrough: clean up state for this device
+    let pt = super::tasks::get_pt_state();
+    let hal = crate::hal::pico::PicoHal::new();
+    crate::service::passthrough_service::on_device_unmount(pt, dev_addr, &hal);
+
     // Zero the interface structure
     let iface = iface_ptr as *mut HidInterface;
     core::ptr::write_bytes(iface, 0, 1);
@@ -359,7 +372,22 @@ pub unsafe extern "C" fn rust_on_hid_report_received(
 ) {
     let itf_protocol = device::hal_tuh_hid_interface_protocol(dev_addr, instance);
     let iface = iface_from_ptr(iface_ptr);
-    let state = structs::DeviceState::from_globals();
+    let mut state = structs::DeviceState::from_globals();
+
+    // Passthrough: forward non-keyboard reports first
+    if itf_protocol != crate::domain::constants::HID_ITF_PROTOCOL_KEYBOARD {
+        let pt = super::tasks::get_pt_state();
+        let hal = crate::hal::pico::PicoHal::new();
+        let report_slice = core::slice::from_raw_parts(report, len as usize);
+        if matches!(
+            crate::service::passthrough_service::on_report_received(
+                pt, &mut state, report_slice, dev_addr, instance, &hal,
+            ),
+            crate::service::passthrough_service::ReportAction::Handled
+        ) {
+            return;
+        }
+    }
 
     let device_idx = hid_routing::calculate_device_idx(
         itf_protocol, dev_addr, instance,
@@ -430,6 +458,18 @@ pub unsafe extern "C" fn rust_on_tud_set_report(
     const HID_REPORT_TYPE_OUTPUT: u8 = 2;
 
     if buffer.is_null() { return; }
+
+    // Passthrough: forward output reports from host to receiver
+    {
+        let pt = super::tasks::get_pt_state();
+        if pt.active && instance >= crate::domain::passthrough::ITF_NUM_PT_BASE {
+            let buf = core::slice::from_raw_parts(buffer, bufsize as usize);
+            crate::service::passthrough_service::on_set_report(
+                pt, instance, report_id, report_type, buf,
+            );
+            return;
+        }
+    }
 
     // Config vendor report (pointer dispatch stays in FFI)
     if instance == ITF_NUM_HID_VENDOR && report_id == REPORT_ID_VENDOR {

@@ -26,6 +26,8 @@
 #define ITF_NUM_HID_REL_M  1
 #define ITF_NUM_HID_VENDOR 2
 #define ITF_NUM_MSC        3
+#define ITF_NUM_PT_BASE    2   /* Passthrough interfaces start here */
+#define EPNUM_PT_BASE      0x83
 
 /*==============================================================================
  *  Mouse Modes

@@ -31,6 +31,8 @@ extern "C" {
     fn process_hid_queue_task();
     fn process_uart_tx_task();
     fn debug_log_flush_task();
+    fn passthrough_task();
+    fn remap_engine_tick_task();
 
     fn usb_host_task();
     fn packet_receiver_task();
@@ -57,6 +59,8 @@ pub extern "C" fn rust_main_loop() -> ! {
         scheduler::Task::new(process_hid_queue_task, scheduler::hz(1000)),
         scheduler::Task::new(process_uart_tx_task, scheduler::top()),
         scheduler::Task::new(debug_log_flush_task, scheduler::hz(1000)),
+        scheduler::Task::new(passthrough_task, scheduler::hz(100)),
+        scheduler::Task::new(remap_engine_tick_task, scheduler::hz(1000)),
     ];
 
     loop {
