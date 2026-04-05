@@ -171,5 +171,6 @@ add_custom_command(
 target_link_options(${binary} PRIVATE
   -Xlinker
   --print-memory-usage
+  "LINKER:--no-warn-execstack"
 )
 
