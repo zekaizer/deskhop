@@ -15,6 +15,7 @@
 #include "flash.h"
 #include "packet.h"
 #include "screen.h"
+#include "constants.h"
 
 /* TU_ATTR_PACKED: use __attribute__((packed)) when TinyUSB is not included */
 #ifndef TU_ATTR_PACKED
@@ -36,9 +37,22 @@ typedef struct TU_ATTR_PACKED {
     uint8_t keycode[6];
 } hid_kbd_report_t;
 
-/* hid_interface_t and firmware_metadata_t are project types defined
- * in their own headers (hid_parser.h, flash.h). No SDK dependency
- * for their definitions — only for queue_t. */
+/* Constants from hid_parser.h — duplicated here to avoid SDK dependency chain.
+ * Verified by _Static_assert in sdk_verify.h. */
+#ifndef MAX_DEVICES
+#define MAX_DEVICES    4
+#endif
+#ifndef MAX_INTERFACES
+#define MAX_INTERFACES 12
+#endif
+
+/* hid_interface_t — opaque placeholder. Actual type in hid_parser.h (SDK-dependent).
+ * Size/alignment verified by _Static_assert in sdk_verify.h. */
+#define HID_INTERFACE_OPAQUE_SIZE  932
+#define HID_INTERFACE_OPAQUE_ALIGN 4
+typedef struct __attribute__((aligned(HID_INTERFACE_OPAQUE_ALIGN))) {
+    uint8_t _data[HID_INTERFACE_OPAQUE_SIZE];
+} hid_iface_opaque_t;
 
 typedef void (*action_handler_t)();
 
@@ -139,7 +153,7 @@ typedef struct {
     queue_opaque_t mouse_queue;   // Queue that stores mouse reports
     queue_opaque_t uart_tx_queue; // Queue that stores outgoing packets
 
-    hid_interface_t iface[MAX_DEVICES][MAX_INTERFACES]; // Store info about HID interfaces
+    hid_iface_opaque_t iface[MAX_DEVICES][MAX_INTERFACES]; // HID interfaces (opaque)
     uart_packet_t in_packet;
 
     /* DMA */

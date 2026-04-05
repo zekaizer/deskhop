@@ -125,7 +125,7 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
     if (dev_addr > MAX_DEVICES || instance >= MAX_INTERFACES)
         return;
 
-    hid_interface_t *iface = &global_state.iface[dev_addr-1][instance];
+    hid_interface_t *iface = iface_from_opaque(&global_state.iface[dev_addr-1][instance]);
 
     switch (itf_protocol) {
         case HID_ITF_PROTOCOL_KEYBOARD:
@@ -149,7 +149,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
         return;
 
     /* Get interface information */
-    hid_interface_t *iface = &global_state.iface[dev_addr-1][instance];
+    hid_interface_t *iface = iface_from_opaque(&global_state.iface[dev_addr-1][instance]);
 
     iface->protocol = tuh_hid_get_protocol(dev_addr, instance);
 
@@ -215,7 +215,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
     if (dev_addr > MAX_DEVICES || instance >= MAX_INTERFACES)
         return;
 
-    hid_interface_t *iface = &global_state.iface[dev_addr-1][instance];
+    hid_interface_t *iface = iface_from_opaque(&global_state.iface[dev_addr-1][instance]);
 
     /* Calculate a device index that distinguishes between different devices
        while staying within the bounds of MAX_DEVICES.
@@ -274,6 +274,6 @@ void tuh_hid_set_protocol_complete_cb(uint8_t dev_addr, uint8_t idx, uint8_t pro
     if (dev_addr > MAX_DEVICES || idx > MAX_INTERFACES)
         return;
 
-    hid_interface_t *iface = &global_state.iface[dev_addr-1][idx];
+    hid_interface_t *iface = iface_from_opaque(&global_state.iface[dev_addr-1][idx]);
     iface->protocol = protocol;
 }
