@@ -151,9 +151,12 @@ pub struct QueueOpaque {
  * DeviceState — unified mutable view over sub-struct globals
  * ================================================================== */
 
+// global_cfg is Rust-owned; C accesses it via `extern device_config_t global_cfg`.
+#[no_mangle]
+pub static mut global_cfg: DeviceConfig = unsafe { core::mem::zeroed() };
+
 extern "C" {
     pub static mut global_hid: DeviceHid;
-    pub static mut global_cfg: DeviceConfig;
     pub static mut global_fw: DeviceFw;
     pub static mut global_led: DeviceLed;
 }
