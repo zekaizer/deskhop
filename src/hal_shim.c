@@ -276,3 +276,30 @@ void hal_trace_write(const uint8_t *buf, uint32_t len) {
     (void)buf; (void)len;
 }
 #endif
+
+/* ==================================================== *
+ * Peer log spinlock — cross-core MPSC ring buffer guard.
+ * Used by Rust service::peer_log to forward debug logs over UART
+ * (DH_DEBUG only). Initialized once during initial_setup().
+ * ==================================================== */
+
+#ifdef DH_DEBUG
+static spin_lock_t *peer_log_spin = NULL;
+
+void peer_log_lock_init(void) {
+    int n = spin_lock_claim_unused(true);
+    peer_log_spin = spin_lock_init((uint)n);
+}
+
+uint32_t peer_log_lock_acquire(void) {
+    return spin_lock_blocking(peer_log_spin);
+}
+
+void peer_log_lock_release(uint32_t saved_irq) {
+    spin_unlock(peer_log_spin, saved_irq);
+}
+#else
+void peer_log_lock_init(void) {}
+uint32_t peer_log_lock_acquire(void) { return 0; }
+void peer_log_lock_release(uint32_t saved_irq) { (void)saved_irq; }
+#endif

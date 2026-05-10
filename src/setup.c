@@ -228,6 +228,10 @@ void initial_setup(void) {
     queue_init(queue_from_opaque(&global_hw.uart_tx_queue), sizeof(uart_packet_t), UART_QUEUE_LENGTH);
     diag_led(4); /* BootSerial */
 
+    /* Initialize peer-log spinlock before any producer can fire (DH_DEBUG only). */
+    extern void peer_log_lock_init(void);
+    peer_log_lock_init();
+
     /* Store probed values into Rust-owned global_cfg BEFORE launching core1 */
     extern void rust_init_config(bool config_mode_active, uint8_t board_role, uint64_t timestamp);
     rust_init_config(config_mode, role, time_us_64());
