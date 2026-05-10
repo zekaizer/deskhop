@@ -37,7 +37,7 @@ const RECONNECT_DELAY_US: u64 = ms(500);
 pub fn passthrough_task(
     pt: &mut PassthroughState,
     dev: &mut DeviceState<'_>,
-    hal: &(impl PassthroughHal + UsbDevice + UsbHost + OutputControl + Timer),
+    hal: &(impl PassthroughHal + UsbDevice + UsbHost + OutputControl + HidQueue + Timer),
 ) {
     // SmartShift double-click → toggle A/B output
     if dev.cfg.switch_requested {
@@ -130,6 +130,16 @@ pub fn passthrough_task(
     if pt.hidpp_scan.state == HidppScanState::QueryIRoot {
         if let Some(q) = passthrough_scan::scan_step(pt, now) {
             pt.out_queue = q;
+        }
+    }
+
+    // SmartShift double-click window expiry: flush buffered events so the
+    // host sees a delayed-but-correct click sequence.
+    if pt.smartshift_window_us > 0 {
+        let window_us = (dev.cfg.config.smartshift_double_click_ms as u64) * 1000;
+        if now.wrapping_sub(pt.smartshift_window_us) > window_us {
+            flush_smartshift_buffer(pt, hal);
+            pt.smartshift_window_us = 0;
         }
     }
 }
@@ -230,11 +240,69 @@ pub fn on_report_received(
 
         let is_input = passthrough::is_hidpp_input_event(report);
 
-        // SmartShift button (CID 0xC4) double-click detection
-        if is_input && report.len() >= 7 {
-            let fn_chk = (report[3] >> 4) & 0x0F;
-            if fn_chk == 2 && report[4] == 0x00 && report[5] == 0xC4 && report[6] != 0 {
-                dev.cfg.switch_requested = true;
+        // SmartShift double-click state machine. On first SmartShift press,
+        // buffer the event and start a window. On a second press within the
+        // window, consume both presses + the upcoming release and trigger an
+        // output switch — the host never sees the click. On window expiry,
+        // buffered events are flushed by passthrough_task so the host sees a
+        // delayed-but-correct sequence.
+        if is_input {
+            let now_us = hal.now_us_64();
+            let window_us = (dev.cfg.config.smartshift_double_click_ms as u64) * 1000;
+
+            // (a) consume the release that follows a switch-trigger press
+            if pt.smartshift_consume > 0 && passthrough::is_smartshift_event(report) && report[6] == 0 {
+                pt.smartshift_consume -= 1;
+                hal.receive_report(dev_addr, instance);
+                return ReportAction::Handled;
+            }
+
+            // (b) inside an active double-click window
+            if pt.smartshift_window_us > 0 {
+                let elapsed = now_us.wrapping_sub(pt.smartshift_window_us);
+                if passthrough::is_smartshift_press(report) {
+                    if elapsed <= window_us {
+                        // Second press within window — consume buffered + this press,
+                        // mark the upcoming release for consumption, trigger switch.
+                        passthrough::smartshift_reset(pt);
+                        pt.smartshift_consume = 1;
+                        dev.cfg.switch_requested = true;
+                        hal.receive_report(dev_addr, instance);
+                        return ReportAction::Handled;
+                    }
+                    // Window expired — let passthrough_task flush on the next tick;
+                    // start a fresh window with this press as the new Down1.
+                    flush_smartshift_buffer(pt, hal);
+                    pt.smartshift_window_us = now_us;
+                    if !passthrough::smartshift_buf_push(pt, dev_inst, report) {
+                        // Should not happen with empty buffer, but stay safe.
+                        passthrough::smartshift_reset(pt);
+                        // Fall through to normal forwarding below.
+                    } else {
+                        hal.receive_report(dev_addr, instance);
+                        return ReportAction::Handled;
+                    }
+                } else {
+                    // Non-SmartShift event during window — buffer to preserve order.
+                    if passthrough::smartshift_buf_push(pt, dev_inst, report) {
+                        hal.receive_report(dev_addr, instance);
+                        return ReportAction::Handled;
+                    }
+                    // Buffer overflow — abandon double-click detection: flush
+                    // everything and let the current event take the normal path.
+                    flush_smartshift_buffer(pt, hal);
+                    passthrough::smartshift_reset(pt);
+                }
+            }
+            // (c) idle state, first SmartShift press → enter pending
+            else if passthrough::is_smartshift_press(report) {
+                pt.smartshift_window_us = now_us;
+                if passthrough::smartshift_buf_push(pt, dev_inst, report) {
+                    hal.receive_report(dev_addr, instance);
+                    return ReportAction::Handled;
+                }
+                // Buffer immediately full (unreachable with empty buffer) → reset.
+                passthrough::smartshift_reset(pt);
             }
         }
 
@@ -324,6 +392,19 @@ pub fn on_set_report(
 // ================================================================
 // Helpers
 // ================================================================
+
+/// Forward all events buffered by the SmartShift double-click state machine
+/// to the host in capture order, then clear the buffer count. Caller is
+/// responsible for resetting smartshift_window_us.
+fn flush_smartshift_buffer(pt: &mut PassthroughState, hal: &impl HidQueue) {
+    let count = pt.smartshift_buf_count as usize;
+    for i in 0..count {
+        let entry = &pt.smartshift_buf[i];
+        let len = entry.len as usize;
+        hal.send_hid_report(entry.dev_inst, 0, &entry.data[..len]);
+    }
+    pt.smartshift_buf_count = 0;
+}
 
 /// Serialize MouseReportC to a byte array for queue pushing.
 fn mouse_report_to_bytes(m: &MouseReportC) -> [u8; 8] {
@@ -586,5 +667,123 @@ mod tests {
         let mut pt = PassthroughState::default();
         on_set_report(&mut pt, 0, 0x10, 2, &[0x01]);
         assert!(!pt.out_queue.pending);
+    }
+
+    // -- SmartShift double-click state machine --
+
+    /// Build a HID++ short input event for SmartShift CID (0xC4).
+    /// `pressed` true = press (action != 0), false = release.
+    fn smartshift_event(pressed: bool) -> [u8; 7] {
+        [
+            HIDPP_REPORT_ID_SHORT,
+            0x01,         // device_idx
+            0x05,         // feature_idx (ReprogControls, learned)
+            0x20,         // (fn=2 << 4) | sw_id=0
+            0x00,
+            passthrough::SMARTSHIFT_CID,
+            if pressed { 0x01 } else { 0x00 },
+        ]
+    }
+
+    fn ss_setup() -> (PassthroughState, DeviceHid, DeviceConfig, DeviceFw, DeviceLed, MockHal) {
+        let mut t = setup();
+        // Vendor iface (always_passthrough = true via itf_protocol = 0)
+        passthrough::capture_descriptor(&mut t.0, 1, 0, 0, &[0x06, 0x00, 0xFF]);
+        t.0.active = true;
+        t.2.config.smartshift_double_click_ms = 350;
+        t
+    }
+
+    #[test]
+    fn smartshift_first_press_buffers() {
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = ss_setup();
+        hal.set_time(1_000_000);
+        let report = smartshift_event(true);
+        let action = on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                                        &report, 1, 0, &hal);
+        assert!(matches!(action, ReportAction::Handled));
+        assert_eq!(pt.smartshift_window_us, 1_000_000);
+        assert_eq!(pt.smartshift_buf_count, 1);
+        assert_eq!(hal.hid_sent.borrow().len(), 0, "press must not be forwarded immediately");
+    }
+
+    #[test]
+    fn smartshift_second_press_within_window_triggers_switch() {
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = ss_setup();
+        hal.set_time(1_000_000);
+        let press = smartshift_event(true);
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &press, 1, 0, &hal);
+        // 100ms later, second press
+        hal.set_time(1_100_000);
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &press, 1, 0, &hal);
+        assert!(cfg.switch_requested, "second press within window must trigger switch");
+        assert_eq!(pt.smartshift_window_us, 0, "window must clear");
+        assert_eq!(pt.smartshift_buf_count, 0, "buffer must clear");
+        assert_eq!(pt.smartshift_consume, 1, "release of second press must be marked for consumption");
+        assert_eq!(hal.hid_sent.borrow().len(), 0, "no events forwarded on switch trigger");
+    }
+
+    #[test]
+    fn smartshift_release_after_switch_consumed() {
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = ss_setup();
+        pt.smartshift_consume = 1;
+        let release = smartshift_event(false);
+        let action = on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                                        &release, 1, 0, &hal);
+        assert!(matches!(action, ReportAction::Handled));
+        assert_eq!(pt.smartshift_consume, 0);
+        assert_eq!(hal.hid_sent.borrow().len(), 0, "release must be silently dropped");
+    }
+
+    #[test]
+    fn smartshift_window_expiry_flushes_buffer() {
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = ss_setup();
+        hal.set_time(1_000_000);
+        let press = smartshift_event(true);
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &press, 1, 0, &hal);
+        // 400ms later — window expired (350ms threshold)
+        hal.set_time(1_400_000);
+        passthrough_task(&mut pt, &mut dev!(hid, cfg, fw, led), &hal);
+        assert_eq!(pt.smartshift_window_us, 0);
+        assert_eq!(pt.smartshift_buf_count, 0);
+        assert_eq!(hal.hid_sent.borrow().len(), 1, "buffered press must be flushed");
+        assert_eq!(hal.hid_sent.borrow()[0].2, press.to_vec());
+    }
+
+    #[test]
+    fn smartshift_third_press_starts_new_window() {
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = ss_setup();
+        hal.set_time(1_000_000);
+        let press = smartshift_event(true);
+        // First press at T=1s
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &press, 1, 0, &hal);
+        // Third press at T=1.5s — past window expiry (350ms)
+        hal.set_time(1_500_000);
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &press, 1, 0, &hal);
+        // First press is flushed, new window opened
+        assert_eq!(pt.smartshift_window_us, 1_500_000, "new window opened at third press");
+        assert_eq!(pt.smartshift_buf_count, 1, "third press buffered as new Down1");
+        assert_eq!(hal.hid_sent.borrow().len(), 1, "first press flushed before new window");
+    }
+
+    #[test]
+    fn smartshift_non_event_during_window_buffered() {
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = ss_setup();
+        hal.set_time(1_000_000);
+        let press = smartshift_event(true);
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &press, 1, 0, &hal);
+        // A scroll event (not SmartShift) during the window must be buffered
+        // to preserve ordering when the window flushes.
+        let scroll = [HIDPP_REPORT_ID_SHORT, 0x01, 0x06, 0x00, 0x00, 0x05, 0x00];
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &scroll, 1, 0, &hal);
+        assert_eq!(pt.smartshift_buf_count, 2, "scroll event buffered alongside press");
+        assert_eq!(hal.hid_sent.borrow().len(), 0);
     }
 }

@@ -21,6 +21,18 @@ pub const HIDPP_SWID_DESKHOP: u8 = 0x0F;
 pub const HIDPP_REPORT_ID_SHORT: u8 = 0x10;
 pub const HIDPP_REPORT_ID_LONG: u8 = 0x11;
 
+/// SmartShift button CID — used for double-click detection on MX Master.
+pub const SMARTSHIFT_CID: u8 = 0xC4;
+
+/// Maximum buffered events while in SmartShift double-click pending state.
+/// 8 entries is enough for the typical Down1/Up1/Down2/Up2 plus a small
+/// burst of unrelated HID++ events (scroll, etc.) within the window.
+pub const SMARTSHIFT_BUF_SIZE: usize = 8;
+
+/// Per-event capacity in the SmartShift buffer (matches HID++ short/long
+/// report sizes; long is 20 bytes plus a small margin).
+pub const SMARTSHIFT_BUF_ENTRY_CAP: usize = 32;
+
 /// HID interface protocol: vendor/HID++ (always passthrough)
 const HID_ITF_PROTOCOL_NONE: u8 = 0;
 
@@ -87,6 +99,21 @@ pub struct HidppScan {
     pub pipe_debug_enabled: bool,
 }
 
+/// One buffered HID++ event awaiting flush by the SmartShift double-click
+/// state machine. Holds enough metadata to replay via send_hid_report.
+#[derive(Clone, Copy)]
+pub struct SmartShiftBufEntry {
+    pub dev_inst: u8,
+    pub len: u8,
+    pub data: [u8; SMARTSHIFT_BUF_ENTRY_CAP],
+}
+
+impl Default for SmartShiftBufEntry {
+    fn default() -> Self {
+        Self { dev_inst: 0, len: 0, data: [0; SMARTSHIFT_BUF_ENTRY_CAP] }
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct PassthroughOutQueue {
     pub dev_addr: u8,
@@ -124,6 +151,17 @@ pub struct PassthroughState {
 
     // HID++ feature scan (debug hotkey)
     pub hidpp_scan: HidppScan,
+
+    // SmartShift double-click state machine.
+    /// Timestamp of the first SmartShift press currently being deferred.
+    /// 0 = idle (not in double-click window).
+    pub smartshift_window_us: u64,
+    pub smartshift_buf_count: u8,
+    pub smartshift_buf: [SmartShiftBufEntry; SMARTSHIFT_BUF_SIZE],
+    /// Number of subsequent SmartShift events to consume after a switch
+    /// trigger (so the release of the second press isn't forwarded as an
+    /// orphan event).
+    pub smartshift_consume: u8,
 }
 
 impl Default for PassthroughState {
@@ -140,6 +178,10 @@ impl Default for PassthroughState {
             out_queue: PassthroughOutQueue::default(),
             hidpp_disc: HidppDiscovery::default(),
             hidpp_scan: HidppScan::default(),
+            smartshift_window_us: 0,
+            smartshift_buf_count: 0,
+            smartshift_buf: [SmartShiftBufEntry::default(); SMARTSHIFT_BUF_SIZE],
+            smartshift_consume: 0,
         }
     }
 }
@@ -314,6 +356,40 @@ pub fn is_hidpp_input_event(report: &[u8]) -> bool {
         return false;
     }
     (report[3] & 0x0F) == 0
+}
+
+/// Check if a raw HID++ input event is a SmartShift button event (CID 0xC4).
+/// Caller must already know the report is a HID++ input event.
+pub fn is_smartshift_event(report: &[u8]) -> bool {
+    if report.len() < 7 { return false; }
+    let fn_chk = (report[3] >> 4) & 0x0F;
+    fn_chk == 2 && report[4] == 0x00 && report[5] == SMARTSHIFT_CID
+}
+
+/// Returns true if the report is a SmartShift button-down event.
+pub fn is_smartshift_press(report: &[u8]) -> bool {
+    is_smartshift_event(report) && report[6] != 0
+}
+
+/// Append an event to the SmartShift buffer. Returns false if the buffer
+/// is full (caller should flush + abandon double-click detection).
+pub fn smartshift_buf_push(state: &mut PassthroughState, dev_inst: u8, report: &[u8]) -> bool {
+    if state.smartshift_buf_count as usize >= SMARTSHIFT_BUF_SIZE { return false; }
+    if report.len() > SMARTSHIFT_BUF_ENTRY_CAP { return false; }
+    let idx = state.smartshift_buf_count as usize;
+    let entry = &mut state.smartshift_buf[idx];
+    entry.dev_inst = dev_inst;
+    entry.len = report.len() as u8;
+    entry.data[..report.len()].copy_from_slice(report);
+    state.smartshift_buf_count += 1;
+    true
+}
+
+/// Reset SmartShift state (idle the window, clear buffer, clear consume counter).
+pub fn smartshift_reset(state: &mut PassthroughState) {
+    state.smartshift_window_us = 0;
+    state.smartshift_buf_count = 0;
+    state.smartshift_consume = 0;
 }
 
 /// Accumulate a scroll delta and scale by HIRES_SCROLL_DIVISOR.

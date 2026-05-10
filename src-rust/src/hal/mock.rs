@@ -46,6 +46,8 @@ pub struct MockHal {
     pub host_set_report_count: Cell<u32>,
     pub host_upstream_vid_pid: Cell<(u16, u16)>,
     pub pt_config_desc_ready: Cell<bool>,
+    /// (instance, report_id, payload) forwarded via send_hid_report.
+    pub hid_sent: RefCell<Vec<(u8, u8, Vec<u8>)>>,
 }
 
 impl MockHal {
@@ -85,6 +87,7 @@ impl MockHal {
             host_set_report_count: Cell::new(0),
             host_upstream_vid_pid: Cell::new((0, 0)),
             pt_config_desc_ready: Cell::new(false),
+            hid_sent: RefCell::new(Vec::new()),
         }
     }
 
@@ -171,7 +174,10 @@ impl ReportQueue for MockHal {
 impl HidQueue for MockHal {
     fn peek_hid_report(&self, _out: &mut [u8]) -> bool { false }
     fn pop_hid_report(&self, _out: &mut [u8]) -> bool { false }
-    fn send_hid_report(&self, _instance: u8, _report_id: u8, _data: &[u8]) -> bool { true }
+    fn send_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) -> bool {
+        self.hid_sent.borrow_mut().push((instance, report_id, data.to_vec()));
+        true
+    }
 }
 
 // ---- PacketQueue ----
