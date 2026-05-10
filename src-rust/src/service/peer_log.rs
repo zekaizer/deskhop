@@ -122,6 +122,21 @@ impl Ring {
         Some(b)
     }
 
+    /// Pop up to `out.len()` bytes into the slice. Returns count written.
+    pub fn pop_into(&mut self, out: &mut [u8]) -> usize {
+        let mut n = 0;
+        while n < out.len() {
+            match self.pop_byte() {
+                Some(b) => {
+                    out[n] = b;
+                    n += 1;
+                }
+                None => break,
+            }
+        }
+        n
+    }
+
     /// Pop up to 8 bytes for a DebugLog packet. If `allow_partial` is false,
     /// returns None when fewer than 8 bytes are queued (waiting for a full
     /// chunk). Partial packets are NUL-padded.
@@ -222,6 +237,12 @@ pub fn pop_chunk_8(allow_partial: bool) -> Option<[u8; 8]> {
     unsafe { (*core::ptr::addr_of_mut!(RING)).pop_chunk_8(allow_partial) }
 }
 
+#[cfg(feature = "dh_debug")]
+pub fn pop_into(out: &mut [u8]) -> usize {
+    let _g = lock();
+    unsafe { (*core::ptr::addr_of_mut!(RING)).pop_into(out) }
+}
+
 #[cfg(not(feature = "dh_debug"))]
 pub fn push(_bytes: &[u8]) {}
 #[cfg(not(feature = "dh_debug"))]
@@ -234,6 +255,83 @@ pub fn pop_byte() -> Option<u8> {
 pub fn pop_chunk_8(_allow_partial: bool) -> Option<[u8; 8]> {
     None
 }
+#[cfg(not(feature = "dh_debug"))]
+pub fn pop_into(_out: &mut [u8]) -> usize {
+    0
+}
+
+// ============================================================
+// Drain task — runs at 1kHz on Core0 and routes by board role:
+//   OUTPUT_A → packetize 8-byte chunks → UART (queue_packet)
+//   OUTPUT_B → bulk-pop bytes → tud_cdc_write
+// Holds in the ring while CDC is disconnected (B side).
+// ============================================================
+
+#[cfg(all(feature = "dh_debug", target_os = "none"))]
+extern "C" {
+    fn peer_log_cdc_connected() -> bool;
+    fn peer_log_cdc_write(data: *const u8, len: u32) -> u32;
+    fn peer_log_cdc_flush();
+}
+
+#[cfg(feature = "dh_debug")]
+fn flush_to_uart() {
+    while let Some(chunk) = pop_chunk_8(true) {
+        unsafe {
+            crate::hal::device::queue_packet(
+                chunk.as_ptr(),
+                crate::domain::constants::PacketType::DebugLog as u8,
+                8,
+            );
+        }
+    }
+}
+
+#[cfg(all(feature = "dh_debug", target_os = "none"))]
+fn flush_to_cdc() {
+    if !unsafe { peer_log_cdc_connected() } {
+        return;
+    }
+    let mut buf = [0u8; 64];
+    let mut wrote = false;
+    loop {
+        let n = pop_into(&mut buf);
+        if n == 0 {
+            break;
+        }
+        unsafe { peer_log_cdc_write(buf.as_ptr(), n as u32) };
+        wrote = true;
+    }
+    if wrote {
+        unsafe { peer_log_cdc_flush() };
+    }
+}
+
+#[cfg(all(feature = "dh_debug", not(target_os = "none")))]
+fn flush_to_cdc() {}
+
+/// Periodic drain task — register on Core0 at ~1kHz.
+///
+/// # Safety
+/// Internally takes the peer_log spinlock; safe to call from main loop only.
+#[cfg(feature = "dh_debug")]
+#[no_mangle]
+pub unsafe extern "C" fn debug_log_flush_task() {
+    let role = (*core::ptr::addr_of!(GLOBAL_CFG)).board_role;
+    if role == OUTPUT_A {
+        flush_to_uart();
+    } else {
+        flush_to_cdc();
+    }
+}
+
+/// No-op stub when dh_debug is disabled.
+///
+/// # Safety
+/// No-op.
+#[cfg(not(feature = "dh_debug"))]
+#[no_mangle]
+pub unsafe extern "C" fn debug_log_flush_task() {}
 
 // ============================================================
 // C-callable FFI export

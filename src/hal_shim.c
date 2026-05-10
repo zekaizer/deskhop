@@ -298,8 +298,25 @@ uint32_t peer_log_lock_acquire(void) {
 void peer_log_lock_release(uint32_t saved_irq) {
     spin_unlock(peer_log_spin, saved_irq);
 }
+
+bool peer_log_cdc_connected(void) {
+    return tud_cdc_connected();
+}
+
+uint32_t peer_log_cdc_write(const uint8_t *data, uint32_t len) {
+    uint32_t avail = (uint32_t)tud_cdc_write_available();
+    if (len > avail) len = avail;
+    return (uint32_t)tud_cdc_write(data, len);
+}
+
+void peer_log_cdc_flush(void) {
+    tud_cdc_write_flush();
+}
 #else
 void peer_log_lock_init(void) {}
 uint32_t peer_log_lock_acquire(void) { return 0; }
 void peer_log_lock_release(uint32_t saved_irq) { (void)saved_irq; }
+bool peer_log_cdc_connected(void) { return false; }
+uint32_t peer_log_cdc_write(const uint8_t *data, uint32_t len) { (void)data; (void)len; return 0; }
+void peer_log_cdc_flush(void) {}
 #endif
