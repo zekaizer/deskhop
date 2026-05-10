@@ -55,8 +55,7 @@ pub fn extract_bit_variable(
     let mut key_count = 0;
     let start_bit = (bit_offset & 0b111) as usize;
 
-    let mut j = start_bit;
-    for i in usage_min..=usage_max {
+    for (j, i) in (start_bit..).zip(usage_min..=usage_max) {
         if key_count >= dst.len() {
             break;
         }
@@ -68,8 +67,6 @@ pub fn extract_bit_variable(
             dst[key_count] = i as u8;
             key_count += 1;
         }
-
-        j += 1;
     }
 
     key_count
