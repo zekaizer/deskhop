@@ -2,19 +2,36 @@
 // C-called FFI exports (#[no_mangle]) are at the bottom of this file.
 
 // --- Static state ---
-// These are only accessed from a single core's task scheduler, so
-// raw static mut access via addr_of_mut! is safe in practice.
+// DBG_COUNT and LAST_POINTER_MOVE are touched only from Core0 scheduler tasks,
+// so raw static mut access via addr_of_mut! is safe.
 
 static mut DBG_COUNT: u32 = 0;
 static mut LAST_POINTER_MOVE: u32 = 0;
 
-// --- Passthrough state (Core0 only) ---
+// --- Passthrough state ---
+//
+// KNOWN RACE: PT_STATE is shared mutable state accessed from BOTH cores
+// without atomic protection. Writers:
+//   - Core0: passthrough_task (scheduler), rust_on_tud_set_report (TinyUSB
+//     device cb)
+//   - Core1: rust_on_hid_mount, rust_on_hid_umount, rust_on_hid_report_received
+//     (TinyUSB host callbacks)
+// Readers (Core0): rust_get_*_descriptor, pt_is_active, pt_iface_count,
+// pt_upstream_vid/pid (called from TinyUSB device GET_DESCRIPTOR path).
+//
+// This violates ADR-0002's "no contention" invariant. Race windows are narrow
+// in practice (USB enumeration is the only timing-sensitive path) and the
+// failure modes (torn descriptor reads, use-after-compaction) are rare but
+// real. Production fix is a Core1→Core0 mount/umount/report event queue so
+// PT_STATE mutation is serialized to Core0; deferred. See CONTEXT.md
+// "Flagged ambiguities".
 
 use crate::domain::passthrough::PassthroughState;
 
 static mut PT_STATE: PassthroughState = unsafe { core::mem::zeroed() };
 
-/// Get mutable reference to passthrough state (Core0 only).
+/// Get mutable reference to passthrough state.
+/// SAFETY: Caller must accept the cross-core race documented above.
 pub(crate) unsafe fn get_pt_state() -> &'static mut PassthroughState {
     &mut *core::ptr::addr_of_mut!(PT_STATE)
 }
