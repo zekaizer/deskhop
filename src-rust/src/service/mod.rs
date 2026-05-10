@@ -10,6 +10,7 @@ pub mod led;
 pub mod msg_bridge;
 pub mod output;
 pub mod packet_dispatch;
+pub mod peer_log;
 pub mod router;
 pub mod tasks;
 pub mod usb;

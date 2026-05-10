@@ -36,31 +36,26 @@ bool is_bootsel_pressed(void) {
     return pressed;
 }
 
-/* CDC debug output */
+/* Debug output: forward formatted text to the Rust peer-log ring buffer.
+ * The drain task in service::peer_log either packetizes to UART (board A)
+ * or writes to local CDC (board B) — see Rust side for routing. */
 #ifdef DH_DEBUG
-static void cdc_write_str(const char *str) {
-    int len = strlen(str);
-    if (!tud_cdc_connected()) return;
-    uint64_t t = time_us_64();
-    for (int w = 0; w < len;) {
-        int r = len - w, a = (int)tud_cdc_write_available();
-        int c = (r < a) ? r : a;
-        if (c > 0) { w += (int)tud_cdc_write(str + w, (uint32_t)c); tud_task(); tud_cdc_write_flush(); t = time_us_64(); }
-        else { tud_task(); tud_cdc_write_flush(); if (!tud_cdc_connected() || time_us_64() > t + 1000) break; }
-    }
-}
+extern void peer_log_push(const uint8_t *data, size_t len);
 
 int dh_debug_printf(const char *fmt, ...) {
     va_list a; va_start(a, fmt); char b[512];
     int l = vsnprintf(b, 512, fmt, a);
+    va_end(a);
+    if (l <= 0) return l;
+    if (l > 512) l = 512;
     /* Convert \n to \r\n for CDC terminal compatibility */
     char cr[1024]; int j = 0;
     for (int i = 0; i < l && j < 1022; i++) {
         if (b[i] == '\n' && (i == 0 || b[i-1] != '\r')) cr[j++] = '\r';
         cr[j++] = b[i];
     }
-    cr[j] = '\0';
-    cdc_write_str(cr); tud_cdc_write_flush(); va_end(a); return l;
+    peer_log_push((const uint8_t *)cr, (size_t)j);
+    return l;
 }
 #else
 int dh_debug_printf(const char *fmt, ...) { return 0; }

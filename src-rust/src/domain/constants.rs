@@ -97,6 +97,7 @@ pub enum PacketType {
     ProxyPacket = 23,
     RequestByte = 24,
     ResponseByte = 25,
+    DebugLog = 26,
 }
 
 impl PacketType {
@@ -125,6 +126,7 @@ impl PacketType {
             23 => Some(Self::ProxyPacket),
             24 => Some(Self::RequestByte),
             25 => Some(Self::ResponseByte),
+            26 => Some(Self::DebugLog),
             _ => None,
         }
     }

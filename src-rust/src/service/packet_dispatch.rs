@@ -65,6 +65,12 @@ pub fn dispatch_packet(
         DispatchAction::FirmwareUpgrade => {
             hal.reboot_to_bootloader();
         }
+        DispatchAction::DebugLog => {
+            // Sender already prefixed with [A] — push raw bytes into B's
+            // local ring (NUL padding stripped). On A this is a loopback
+            // that shouldn't happen; pushing it is harmless either way.
+            crate::service::peer_log::push_received(&packet.data);
+        }
 
         // Simple messages: domain state mutation + optional HAL side-effect
         _ => {
