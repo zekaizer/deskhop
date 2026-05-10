@@ -160,6 +160,14 @@ pub(crate) unsafe fn remap_engine_tick_task() {
 // C-callable FFI exports (#[no_mangle] / #[export_name])
 // ============================================================
 
+/// Called from C initial_setup right after tud_init() — returns true if
+/// device side should stay disconnected until host descriptors are captured.
+#[no_mangle]
+pub unsafe extern "C" fn rust_passthrough_should_delay() -> bool {
+    let cfg = &*core::ptr::addr_of!(crate::domain::structs::GLOBAL_CFG);
+    cfg.config.passthrough_enabled != 0
+}
+
 /// Called from C initial_setup to init remap engine + apply gaming_mode_default.
 #[no_mangle]
 pub unsafe extern "C" fn rust_passthrough_init() {

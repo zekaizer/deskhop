@@ -249,6 +249,10 @@ void initial_setup(void) {
 
     /* Initialize and configure TinyUSB Device + Host */
     tud_init(BOARD_TUD_RHPORT);
+    /* Passthrough: hold device side disconnected until host descriptors are captured */
+    extern bool rust_passthrough_should_delay(void);
+    if (rust_passthrough_should_delay())
+        tud_disconnect();
     pio_usb_host_config(role);
     diag_led(6); /* BootUsb */
 
