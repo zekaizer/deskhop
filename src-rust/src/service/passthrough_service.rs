@@ -219,28 +219,24 @@ pub fn on_report_received(
             // Protocol responses always forward; input events only on active output
             hal.send_hid_report(dev_inst, 0, report);
         } else {
-            // Inactive output: convert HID++ → mouse
+            // Inactive output: convert HID++ → mouse for peer routing.
+            // Always RELATIVE — passthrough activate forces gaming_mode=true,
+            // and a stale ABSOLUTE branch here would inject pointer_x/y from a
+            // mouse pipeline that's been bypassed by the vendor interface.
             let prev_btn = pt.hidpp_disc.button_state;
             let mut mouse = MouseReportC::default();
             let converted = passthrough::convert_hidpp_to_mouse(pt, report, &mut mouse);
 
             if pt.hidpp_disc.button_state != prev_btn {
-                // Button state changed — send immediate mouse report
-                let mut btn_report = MouseReportC {
+                let btn_report = MouseReportC {
                     buttons: pt.hidpp_disc.button_state,
+                    mode: 1, // RELATIVE
                     ..Default::default()
                 };
-                if dev.cfg.relative_mouse || dev.cfg.gaming_mode {
-                    btn_report.mode = 1; // RELATIVE
-                } else {
-                    btn_report.mode = 0; // ABSOLUTE
-                    btn_report.x = dev.hid.pointer_x;
-                    btn_report.y = dev.hid.pointer_y;
-                }
                 let report_bytes = mouse_report_to_bytes(&btn_report);
                 hal.push_mouse_report(&report_bytes);
             } else if converted {
-                mouse.mode = if dev.cfg.relative_mouse || dev.cfg.gaming_mode { 1 } else { 0 };
+                mouse.mode = 1; // RELATIVE
                 let report_bytes = mouse_report_to_bytes(&mouse);
                 hal.push_mouse_report(&report_bytes);
             }
