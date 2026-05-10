@@ -3,6 +3,7 @@
 
 use crate::domain::passthrough::{self, PassthroughState, HIDPP_REPORT_ID_SHORT,
     HIDPP_SWID_DESKHOP, ITF_NUM_PT_BASE, HidppScanState};
+use crate::domain::passthrough_scan;
 use crate::domain::structs::{DeviceState, MouseReportC, LED_BLINK_NONE, LED_BLINK_PT_WAIT};
 use crate::hal::traits::*;
 
@@ -102,7 +103,7 @@ pub fn passthrough_task(
 
     // HID++ scan step
     if pt.hidpp_scan.state == HidppScanState::QueryIRoot {
-        if let Some(q) = passthrough::scan_step(pt, now) {
+        if let Some(q) = passthrough_scan::scan_step(pt, now) {
             pt.out_queue = q;
         }
     }
@@ -196,7 +197,7 @@ pub fn on_report_received(
         // Intercept DeskHop sw_id responses (scan only)
         if report.len() >= 7 && (report[3] & 0x0F) == HIDPP_SWID_DESKHOP {
             if pt.hidpp_scan.state == HidppScanState::QueryIRoot {
-                passthrough::handle_scan_response(pt, report);
+                passthrough_scan::handle_scan_response(pt, report);
             }
             hal.receive_report(dev_addr, instance);
             return ReportAction::Handled;

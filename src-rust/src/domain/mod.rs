@@ -24,5 +24,6 @@ pub mod mouse_logic;
 pub mod msg_handlers;
 pub mod packet;
 pub mod passthrough;
+pub mod passthrough_scan;
 pub mod screensaver;
 pub mod structs;
