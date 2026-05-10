@@ -15,8 +15,8 @@ const CAPTURE_STABILIZE_US: u64 = ms(500);
 /// Fallback: connect with default descriptors after 3s if no receiver
 const DEFAULT_CONNECT_US: u64 = ms(3000);
 
-/// Reconnect delay after device removal (200ms)
-const RECONNECT_DELAY_US: u64 = ms(200);
+/// Reconnect delay after disconnect (500ms — host needs time to detect removal)
+const RECONNECT_DELAY_US: u64 = ms(500);
 
 // ================================================================
 // passthrough_task — periodic main-loop task
@@ -46,27 +46,33 @@ pub fn passthrough_task(
 
     let now = hal.now_us_64();
 
-    // LED: slow pulse while waiting for host connect
+    // LED: slow pulse while device side is disconnected (waiting for host captures)
     if !dev.cfg.tud_connected && dev.led.led_blink_mode != LED_BLINK_PT_WAIT {
         dev.led.led_blink_mode = LED_BLINK_PT_WAIT;
     }
 
-    // Fallback: no receiver detected after 3s → connect with defaults
-    if !pt.active && !dev.cfg.tud_connected && pt.iface_count == 0 && now > DEFAULT_CONNECT_US {
+    // DEBUG: bring-up fallback — connect after 3s regardless of receiver
+    // presence so we can verify that hal.device_connect() actually re-attaches
+    // the device side after the boot-time tud_disconnect(). Production policy
+    // should require receiver detection (pt.iface_count == 0 && !pt.active).
+    if !dev.cfg.tud_connected && now > DEFAULT_CONNECT_US {
         hal.device_connect();
     }
 
-    // Phase 1: Activate after captures stabilize (only if vendor/HID++ interface present)
+    // Activate after host captures stabilize.
+    // DEBUG: vendor/HID++ interface check removed — any captured interface
+    // triggers activation so non-Logitech mice can also be exercised on the
+    // bring-up rig. Production policy should require has_vendor_interface(pt).
     if dev.cfg.config.passthrough_enabled != 0
         && !pt.active
         && pt.iface_count > 0
         && pt.last_capture_us > 0
-        && passthrough::has_vendor_interface(pt)
         && now.wrapping_sub(pt.last_capture_us) > CAPTURE_STABILIZE_US
     {
         let desc_ready = hal.build_config_desc();
         if passthrough::activate(pt, desc_ready) {
             dev.cfg.gaming_mode = true;
+            // Device is already disconnected — connect with passthrough descriptors
             hal.device_connect();
         }
     }
