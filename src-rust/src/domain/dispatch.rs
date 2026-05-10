@@ -53,6 +53,9 @@ pub enum DispatchAction {
     RequestByte,
     ResponseByte,
     Heartbeat,
+
+    // Debug
+    DebugLog,
 }
 
 /// Map a PacketType to the corresponding dispatch action
@@ -81,6 +84,7 @@ pub fn get_dispatch_action(ptype: PacketType) -> DispatchAction {
         PacketType::ProxyPacket => DispatchAction::ProxyPacket,
         PacketType::RequestByte => DispatchAction::RequestByte,
         PacketType::ResponseByte => DispatchAction::ResponseByte,
+        PacketType::DebugLog => DispatchAction::DebugLog,
     }
 }
 
@@ -137,7 +141,7 @@ mod tests {
     #[test]
     fn test_process_packet_all_types() {
         // Verify all packet types map to some action
-        let types = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21, 22, 23, 24, 25];
+        let types = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21, 22, 23, 24, 25, 26];
         for &t in &types {
             let pkt = make_valid_packet(t);
             assert!(process_packet(&pkt).is_ok(), "Failed for type {}", t);
@@ -154,7 +158,7 @@ mod tests {
     #[test]
     fn test_validate_gap_types() {
         // Types 16, 17 don't exist — should be UnknownType
-        for t in [0u8, 16, 17, 26, 100] {
+        for t in [0u8, 16, 17, 27, 100] {
             let pkt = UartPacket { ptype: t, data: [0; PACKET_DATA_LENGTH], checksum: 0 };
             assert_eq!(validate_received_packet(&pkt), Err(PacketError::UnknownType));
         }
