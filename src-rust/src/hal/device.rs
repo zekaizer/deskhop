@@ -109,7 +109,7 @@ extern "C" {
         data: *const u8, len: u16,
     ) -> bool;
     pub fn hal_passthrough_build_config_desc(
-        config_desc: *mut u8, config_desc_len: *mut u16,
-        ifaces: *const u8, iface_count: u8,
+        config_desc: *mut u8, buf_size: u16,
+        config_desc_len: *mut u16, iface_count: u8,
     );
 }

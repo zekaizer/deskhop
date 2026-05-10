@@ -20,8 +20,8 @@ pub(crate) unsafe fn passthrough_hal_build_config_desc() -> bool {
     let buf_ptr = core::ptr::addr_of_mut!(PT_CONFIG_DESC).cast::<u8>();
     let len_ptr = core::ptr::addr_of_mut!(PT_CONFIG_DESC_LEN);
     super::device::hal_passthrough_build_config_desc(
-        buf_ptr, len_ptr,
-        pt.ifaces.as_ptr() as *const u8, pt.iface_count,
+        buf_ptr, MAX_CONFIG_DESC_SIZE as u16,
+        len_ptr, pt.iface_count,
     );
     *len_ptr > 0
 }

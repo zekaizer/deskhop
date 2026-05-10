@@ -340,33 +340,37 @@ extern uint16_t pt_iface_desc_len(uint8_t idx);
 extern const uint16_t desc_hid_report_size;
 extern const uint16_t desc_hid_report_relmouse_size;
 
-/* Append one HID interface descriptor block using TinyUSB macro */
-static uint16_t _append_hid_itf(uint8_t *buf, uint8_t itf_num, uint8_t str_idx,
+/* Append one HID interface descriptor block using TinyUSB macro.
+ * Returns the number of bytes written, or 0 if the buffer would overflow. */
+static uint16_t _append_hid_itf(uint8_t *buf, uint16_t off, uint16_t buf_size,
+                                 uint8_t itf_num, uint8_t str_idx,
                                  uint8_t protocol, uint16_t report_desc_len,
                                  uint8_t ep_addr, uint16_t ep_size, uint8_t ep_interval) {
     const uint8_t desc[] = {
         TUD_HID_DESCRIPTOR(itf_num, str_idx, protocol, report_desc_len,
                            ep_addr, ep_size, ep_interval)
     };
-    memcpy(buf, desc, sizeof(desc));
+    if (off + sizeof(desc) > buf_size) return 0;
+    memcpy(buf + off, desc, sizeof(desc));
     return sizeof(desc);
 }
 
 /* Build passthrough config descriptor using TinyUSB macros.
- * Reads interface data from Rust via FFI accessors. */
-void hal_passthrough_build_config_desc(uint8_t *config_desc, uint16_t *config_desc_len,
-                                        const uint8_t *ifaces, uint8_t iface_count) {
-    (void)ifaces; /* Data accessed via Rust FFI accessors instead */
-
+ * Reads interface data from Rust via FFI accessors. Returns *config_desc_len
+ * = 0 if the supplied buffer is too small for the resulting descriptor. */
+void hal_passthrough_build_config_desc(uint8_t *config_desc, uint16_t buf_size,
+                                        uint16_t *config_desc_len, uint8_t iface_count) {
     uint8_t *buf = config_desc;
     uint16_t off = 0;
     uint8_t num_itf = 2 + iface_count; /* DeskHop base + passthrough */
+    uint16_t written;
 
 #ifdef DH_DEBUG
     num_itf += 2; /* CDC Communication + Data interfaces */
 #endif
 
     /* Configuration descriptor header (9 bytes) */
+    if (off + 9 > buf_size) goto overflow;
     buf[off++] = 9;
     buf[off++] = TUSB_DESC_CONFIGURATION;
     off += 2; /* wTotalLength — filled at end */
@@ -377,22 +381,28 @@ void hal_passthrough_build_config_desc(uint8_t *config_desc, uint16_t *config_de
     buf[off++] = 250;  /* bMaxPower: 500mA / 2 */
 
     /* DeskHop ITF 0: main HID (keyboard + abs mouse + consumer + system) */
-    off += _append_hid_itf(buf + off, ITF_NUM_HID, 2 /* STRID_PRODUCT */,
-                           HID_ITF_PROTOCOL_NONE, desc_hid_report_size,
-                           0x81, CFG_TUD_HID_EP_BUFSIZE, 1);
+    written = _append_hid_itf(buf, off, buf_size, ITF_NUM_HID, 2 /* STRID_PRODUCT */,
+                              HID_ITF_PROTOCOL_NONE, desc_hid_report_size,
+                              0x81, CFG_TUD_HID_EP_BUFSIZE, 1);
+    if (written == 0) goto overflow;
+    off += written;
 
     /* DeskHop ITF 1: relative mouse helper */
-    off += _append_hid_itf(buf + off, ITF_NUM_HID_REL_M, 4 /* STRID_MOUSE */,
-                           HID_ITF_PROTOCOL_NONE, desc_hid_report_relmouse_size,
-                           0x82, CFG_TUD_HID_EP_BUFSIZE, 1);
+    written = _append_hid_itf(buf, off, buf_size, ITF_NUM_HID_REL_M, 4 /* STRID_MOUSE */,
+                              HID_ITF_PROTOCOL_NONE, desc_hid_report_relmouse_size,
+                              0x82, CFG_TUD_HID_EP_BUFSIZE, 1);
+    if (written == 0) goto overflow;
+    off += written;
 
     /* Passthrough interfaces (data from Rust via FFI) */
     for (uint8_t i = 0; i < iface_count; i++) {
-        off += _append_hid_itf(buf + off, ITF_NUM_PT_BASE + i, 0,
-                               pt_iface_protocol(i),
-                               pt_iface_desc_len(i),
-                               EPNUM_PT_BASE + i,
-                               CFG_TUD_HID_EP_BUFSIZE, 1);
+        written = _append_hid_itf(buf, off, buf_size, ITF_NUM_PT_BASE + i, 0,
+                                  pt_iface_protocol(i),
+                                  pt_iface_desc_len(i),
+                                  EPNUM_PT_BASE + i,
+                                  CFG_TUD_HID_EP_BUFSIZE, 1);
+        if (written == 0) goto overflow;
+        off += written;
     }
 
 #ifdef DH_DEBUG
@@ -406,21 +416,21 @@ void hal_passthrough_build_config_desc(uint8_t *config_desc, uint16_t *config_de
             TUD_CDC_DESCRIPTOR(cdc_itf, 7 /* STRID_DEBUG */, ep_notif, 8,
                                ep_out, ep_in, 64)
         };
+        if (off + sizeof(cdc) > buf_size) goto overflow;
         memcpy(buf + off, cdc, sizeof(cdc));
         off += sizeof(cdc);
     }
 #endif
-
-    if (off > 280) { /* MAX_CONFIG_DESC_SIZE */
-        *config_desc_len = 0;
-        return;
-    }
 
     /* Fill wTotalLength (bytes 2-3 of config header) */
     buf[2] = (uint8_t)(off);
     buf[3] = (uint8_t)(off >> 8);
 
     *config_desc_len = off;
+    return;
+
+overflow:
+    *config_desc_len = 0;
 }
 
 bool hal_tuh_set_report(uint8_t dev_addr, uint8_t itf_num,
