@@ -293,6 +293,16 @@ impl DmaRx for PicoHal {
     }
 
     #[inline]
+    fn dma_rx_read_pos(&self) -> u32 {
+        unsafe { device::hal_dma_read_pos() }
+    }
+
+    #[inline]
+    fn dma_rx_advance_one(&self) {
+        unsafe { device::hal_dma_advance_one() }
+    }
+
+    #[inline]
     fn is_start_of_packet(&self) -> bool {
         unsafe { device::hal_is_start_of_packet() }
     }
@@ -300,6 +310,11 @@ impl DmaRx for PicoHal {
     #[inline]
     fn fetch_packet(&self) {
         unsafe { device::hal_fetch_packet() }
+    }
+
+    #[inline]
+    fn in_packet_ptr(&self) -> *const u8 {
+        unsafe { device::hal_get_in_packet_ptr() }
     }
 }
 

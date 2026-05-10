@@ -236,8 +236,11 @@ impl Indicator for MockHal {
 
 impl DmaRx for MockHal {
     fn dma_rx_current_pos(&self) -> u32 { 0 }
+    fn dma_rx_read_pos(&self) -> u32 { 0 }
+    fn dma_rx_advance_one(&self) {}
     fn is_start_of_packet(&self) -> bool { false }
     fn fetch_packet(&self) {}
+    fn in_packet_ptr(&self) -> *const u8 { core::ptr::null() }
 }
 
 // ---- Trace ----

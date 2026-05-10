@@ -131,12 +131,18 @@ pub trait Indicator {
 
 /// DMA receive channel — UART packet reception from ring buffer.
 pub trait DmaRx {
-    /// Current DMA write position in the ring buffer.
+    /// Current DMA write position in the ring buffer (where the next byte will land).
     fn dma_rx_current_pos(&self) -> u32;
+    /// Current Rust-side read position in the ring buffer (kept by C in global_hw.dma_ptr).
+    fn dma_rx_read_pos(&self) -> u32;
+    /// Advance the read position by one byte (used while scanning for START1+START2).
+    fn dma_rx_advance_one(&self);
     /// Check if the ring buffer at the current read position starts with START1+START2.
     fn is_start_of_packet(&self) -> bool;
-    /// Copy one packet from the ring buffer into Device.in_packet, advancing dma_ptr.
+    /// Copy one packet from the ring buffer into global_hw.in_packet, advancing dma_ptr.
     fn fetch_packet(&self);
+    /// Pointer to the most recently fetched packet (10 bytes: ptype + data[8] + checksum).
+    fn in_packet_ptr(&self) -> *const u8;
 }
 
 /// Debug/diagnostic output.

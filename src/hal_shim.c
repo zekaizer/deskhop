@@ -142,6 +142,19 @@ void hal_fetch_packet(void) {
     }
 }
 
+/* Used by Rust packet_receive_tick to scan past non-preamble bytes. */
+void hal_dma_advance_one(void) {
+    global_hw.dma_ptr = NEXT_RING_IDX(global_hw.dma_ptr);
+}
+
+uint32_t hal_dma_read_pos(void) {
+    return global_hw.dma_ptr;
+}
+
+const uint8_t *hal_get_in_packet_ptr(void) {
+    return (const uint8_t *)&global_hw.in_packet;
+}
+
 /* ==================================================== *
  * HID report extraction
  * ==================================================== */

@@ -94,6 +94,9 @@ extern "C" {
     pub fn hal_dma_channel_is_busy() -> bool;
     pub fn hal_dma_tx_send(buf: *const u8, len: u32);
     pub fn hal_dma_rx_remaining() -> u32;
+    pub fn hal_dma_advance_one();
+    pub fn hal_dma_read_pos() -> u32;
+    pub fn hal_get_in_packet_ptr() -> *const u8;
     pub fn hal_is_start_of_packet() -> bool;
     pub fn hal_fetch_packet();
 }

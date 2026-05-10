@@ -1,7 +1,7 @@
 // Task logic — extracted from hal/ffi/tasks.rs for testability.
 // All functions are generic over HAL traits, enabling MockHal in tests.
 
-use crate::domain::constants::PacketType;
+use crate::domain::constants::{PacketType, RAW_PACKET_LENGTH};
 use crate::domain::packet;
 use crate::domain::screensaver::{self, ScreensaverConfig};
 use crate::domain::structs::DeviceState;
@@ -74,25 +74,47 @@ pub fn process_hid_queue(
 }
 
 
+const DMA_RX_BUFFER_SIZE: u32 = 1024;
+
 /// Poll the DMA ring buffer for incoming UART packets.
-/// Scans for START1+START2 preamble, fetches packet, dispatches via Rust.
+/// Scans for START1+START2 preamble, fetches one packet per tick, dispatches.
 ///
-/// NOTE: dma_ptr and in_packet are C-only (in device_hw_t). Packet receive
-/// is handled entirely by C's packet_receiver_task. This function is only
-/// called from the C-side FFI entry point that passes a parsed packet.
-/// The Rust-side packet_receive_tick is no longer used directly — packet
-/// dispatch comes through rust_process_uart_packet in callbacks.rs.
+/// dma_ptr and in_packet live in C's global_hw; Rust accesses them through
+/// the DmaRx trait so the loop logic stays here. Single-packet-per-tick
+/// matches the original C behaviour and keeps Core1 responsive.
 pub fn packet_receive_tick(
     state: &mut DeviceState<'_>,
     hal: &(impl DmaRx + ReportRouter + OutputControl + ConfigStore
            + Watchdog + Indicator),
 ) {
-    // dma_ptr and in_packet are now in C-only device_hw_t.
-    // Packet fetching and parsing is done by C code, which calls
-    // rust_process_uart_packet (in callbacks.rs) with the parsed packet.
-    // This function body is intentionally left as a no-op placeholder
-    // until the C-side packet_receiver_task is fully ported.
-    let _ = (state, hal);
+    let cp = hal.dma_rx_current_pos();
+    let mut d = packet::get_ptr_delta(cp, hal.dma_rx_read_pos(), DMA_RX_BUFFER_SIZE);
+
+    while d >= RAW_PACKET_LENGTH as u32 {
+        if hal.is_start_of_packet() {
+            hal.fetch_packet();
+            // Build a Rust UartPacket from the freshly-fetched 10 bytes.
+            let p = hal.in_packet_ptr();
+            if p.is_null() {
+                return;
+            }
+            let pkt = unsafe {
+                packet::UartPacket {
+                    ptype: *p,
+                    data: {
+                        let mut b = [0u8; 8];
+                        core::ptr::copy_nonoverlapping(p.add(1), b.as_mut_ptr(), 8);
+                        b
+                    },
+                    checksum: *p.add(9),
+                }
+            };
+            crate::service::packet_dispatch::dispatch_packet(state, hal, &pkt);
+            return;
+        }
+        hal.dma_rx_advance_one();
+        d -= 1;
+    }
 }
 
 /// Check screensaver activation and generate mouse report if needed.
