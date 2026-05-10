@@ -236,6 +236,8 @@ void initial_setup(void) {
     extern void rust_init_config(bool config_mode_active, uint8_t board_role, uint64_t timestamp);
     rust_init_config(config_mode, role, time_us_64());
 
+    dh_debug_printf("boot role=%c config=%d\n", role == OUTPUT_A ? 'A' : 'B', config_mode);
+
     /* Setup RP2040 Core 1 */
     multicore_reset_core1();
     multicore_launch_core1(core1_main);
