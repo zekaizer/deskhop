@@ -16,6 +16,12 @@ const CAPTURE_STABILIZE_US: u64 = ms(500);
 /// Fallback: connect with default descriptors after 3s if no receiver
 const DEFAULT_CONNECT_US: u64 = ms(3000);
 
+/// Absolute safety timeout. If no vendor interface has appeared upstream
+/// by this point, fall back to default DeskHop descriptors so the user
+/// can still recover via the config-mode hotkey. Once this fires, late
+/// captures are ignored until the next reboot.
+const ABSOLUTE_TIMEOUT_US: u64 = ms(10_000);
+
 /// Reconnect delay after disconnect (500ms — host needs time to detect removal)
 const RECONNECT_DELAY_US: u64 = ms(500);
 
@@ -60,12 +66,31 @@ pub fn passthrough_task(
         hal.device_connect();
     }
 
+    // Absolute safety net (production policy). After ABSOLUTE_TIMEOUT_US
+    // without a vendor interface upstream, fall back to default DeskHop
+    // descriptors and lock out late captures so the user can recover via
+    // config-mode hotkey instead of reflashing.
+    //
+    // During bring-up the DEBUG block above already calls device_connect()
+    // at 3s, so tud_connected becomes true and this branch never fires.
+    // After the DEBUG block is reverted at merge time, this becomes the
+    // active recovery path.
+    if !pt.gave_up
+        && !dev.cfg.tud_connected
+        && now > ABSOLUTE_TIMEOUT_US
+        && !passthrough::has_vendor_interface(pt)
+    {
+        hal.device_connect();
+        pt.gave_up = true;
+    }
+
     // Activate after host captures stabilize.
     // DEBUG: vendor/HID++ interface check removed — any captured interface
     // triggers activation so non-Logitech mice can also be exercised on the
     // bring-up rig. Production policy should require has_vendor_interface(pt).
     if dev.cfg.config.passthrough_enabled != 0
         && !pt.active
+        && !pt.gave_up
         && pt.iface_count > 0
         && pt.last_capture_us > 0
         && now.wrapping_sub(pt.last_capture_us) > CAPTURE_STABILIZE_US
@@ -384,6 +409,56 @@ mod tests {
         hal.set_time(DEFAULT_CONNECT_US + 1);
         passthrough_task(&mut pt, &mut dev!(hid, cfg, fw, led), &hal);
         assert_eq!(hal.device_connect_count.get(), 1);
+    }
+
+    #[test]
+    fn task_safety_timeout_no_vendor() {
+        // No vendor iface ever appears — safety net should fire at ABSOLUTE_TIMEOUT_US
+        // and lock out passthrough activation (gave_up = true).
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = setup();
+        cfg.config.passthrough_enabled = 1;
+        cfg.tud_connected = false;
+        // Capture a non-vendor iface (e.g. boot mouse, itf_protocol = 2)
+        passthrough::capture_descriptor(&mut pt, 1, 0, 2, &[0x05, 0x01]);
+        pt.last_capture_us = 1000;
+        hal.set_time(ABSOLUTE_TIMEOUT_US + 1);
+
+        passthrough_task(&mut pt, &mut dev!(hid, cfg, fw, led), &hal);
+        assert!(pt.gave_up, "gave_up should be set after safety timeout");
+        assert!(!pt.active, "passthrough must not activate once gave_up is set");
+    }
+
+    #[test]
+    fn task_safety_timeout_inhibits_late_activate() {
+        // After the safety net fires, even a properly-stabilized vendor capture
+        // arriving later must NOT trigger activation — user must reboot.
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = setup();
+        cfg.config.passthrough_enabled = 1;
+        pt.gave_up = true; // safety net already fired
+
+        // Stabilized vendor iface capture
+        passthrough::capture_descriptor(&mut pt, 1, 0, 0, &[0x06, 0x00, 0xFF]);
+        pt.last_capture_us = 1000;
+        hal.set_time(1000 + CAPTURE_STABILIZE_US + 1);
+
+        passthrough_task(&mut pt, &mut dev!(hid, cfg, fw, led), &hal);
+        assert!(!pt.active, "late capture must not activate after gave_up");
+    }
+
+    #[test]
+    fn task_safety_timeout_skipped_when_vendor_present() {
+        // If a vendor iface has been captured, the safety net does NOT fire
+        // — we're still in the normal activation race window.
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = setup();
+        cfg.config.passthrough_enabled = 1;
+        cfg.tud_connected = false;
+        // Vendor iface (itf_protocol = 0 → always_passthrough)
+        passthrough::capture_descriptor(&mut pt, 1, 0, 0, &[0x06, 0x00, 0xFF]);
+        pt.last_capture_us = ABSOLUTE_TIMEOUT_US + 100;
+        hal.set_time(ABSOLUTE_TIMEOUT_US + 200);
+
+        passthrough_task(&mut pt, &mut dev!(hid, cfg, fw, led), &hal);
+        assert!(!pt.gave_up, "gave_up must not be set when vendor iface is present");
     }
 
     #[test]

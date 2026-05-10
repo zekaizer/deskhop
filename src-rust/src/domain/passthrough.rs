@@ -107,6 +107,11 @@ pub struct PassthroughState {
     pub last_capture_us: u64,
     pub reconnect_at_us: u64,
 
+    /// Set when the boot-time fallback fires after the absolute timeout.
+    /// Locks out late vendor captures from triggering a disconnect/reconnect
+    /// cycle — passthrough activation is deferred to the next reboot.
+    pub gave_up: bool,
+
     // Upstream device identity for VID/PID spoofing
     pub upstream_vid: u16,
     pub upstream_pid: u16,
@@ -129,6 +134,7 @@ impl Default for PassthroughState {
             active: false,
             last_capture_us: 0,
             reconnect_at_us: 0,
+            gave_up: false,
             upstream_vid: 0,
             upstream_pid: 0,
             out_queue: PassthroughOutQueue::default(),
