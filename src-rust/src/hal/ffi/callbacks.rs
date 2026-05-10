@@ -673,10 +673,25 @@ const ITF_NUM_HID_REL_M: u8 = 1;
 pub unsafe extern "C" fn rust_get_device_descriptor() -> *const u8 {
     let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
     if crate::service::usb::is_config_mode(cfg) {
-        core::ptr::addr_of!(desc_device_config)
-    } else {
-        core::ptr::addr_of!(desc_device)
+        return core::ptr::addr_of!(desc_device_config);
     }
+
+    // Passthrough: present upstream device identity
+    let pt = super::tasks::get_pt_state();
+    if pt.active && pt.upstream_vid != 0 {
+        // Reuse desc_device as template, patch VID/PID into static buffer
+        static mut PT_DEVICE_DESC: [u8; 18] = [0; 18];
+        let buf = core::ptr::addr_of_mut!(PT_DEVICE_DESC).cast::<u8>();
+        let src = core::ptr::addr_of!(desc_device).cast::<u8>();
+        core::ptr::copy_nonoverlapping(src, buf, 18);
+        *buf.add(8) = (pt.upstream_vid & 0xFF) as u8;
+        *buf.add(9) = (pt.upstream_vid >> 8) as u8;
+        *buf.add(10) = (pt.upstream_pid & 0xFF) as u8;
+        *buf.add(11) = (pt.upstream_pid >> 8) as u8;
+        return buf;
+    }
+
+    core::ptr::addr_of!(desc_device)
 }
 
 #[no_mangle]
@@ -685,6 +700,15 @@ pub unsafe extern "C" fn rust_get_hid_report_descriptor(instance: u8) -> *const 
     if crate::service::usb::is_config_mode(cfg) && instance == ITF_NUM_HID_VENDOR {
         return core::ptr::addr_of!(desc_hid_report_vendor);
     }
+
+    // Passthrough: return captured descriptor for passthrough instances
+    let pt = super::tasks::get_pt_state();
+    if pt.active && instance >= crate::domain::passthrough::ITF_NUM_PT_BASE {
+        if let Some((desc, _len)) = crate::domain::passthrough::get_report_desc(pt, instance) {
+            return desc.as_ptr();
+        }
+    }
+
     match instance {
         ITF_NUM_HID_C => core::ptr::addr_of!(desc_hid_report),
         ITF_NUM_HID_REL_M => core::ptr::addr_of!(desc_hid_report_relmouse),
@@ -696,10 +720,19 @@ pub unsafe extern "C" fn rust_get_hid_report_descriptor(instance: u8) -> *const 
 pub unsafe extern "C" fn rust_get_configuration_descriptor() -> *const u8 {
     let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
     if crate::service::usb::is_config_mode(cfg) {
-        core::ptr::addr_of!(desc_configuration_config)
-    } else {
-        core::ptr::addr_of!(desc_configuration)
+        return core::ptr::addr_of!(desc_configuration_config);
     }
+
+    // Passthrough: return dynamically built descriptor
+    let pt = super::tasks::get_pt_state();
+    if pt.active {
+        let (ptr, len) = super::pt_config_desc_ptr();
+        if len > 0 {
+            return ptr;
+        }
+    }
+
+    core::ptr::addr_of!(desc_configuration)
 }
 
 // ============================================================
