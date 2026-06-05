@@ -58,6 +58,7 @@ extern "C" {
     pub fn hal_gpio_put_led(state: bool);
     pub fn hal_gpio_get_led() -> bool;
     pub fn hal_tuh_hid_set_report(dev_addr: u8, instance: u8, data: *const u8, len: u8);
+    pub fn hal_is_core1() -> bool;
 
     // ---- hid_interface_t (remaining C-dependent function) ----
     /// Assigns C function pointers (process_*_report) to report_handler array

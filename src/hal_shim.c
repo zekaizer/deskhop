@@ -104,6 +104,10 @@ void hal_tuh_hid_set_report(uint8_t dev_addr, uint8_t instance, const uint8_t *d
     tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT, (void *)data, len);
 }
 
+/* True when running on Core1 (the USB host stack core). Used to gate host-stack
+ * access so Core0 contexts defer instead of racing tuh_task. */
+bool hal_is_core1(void) { return get_core_num() == 1; }
+
 bool hal_tud_hid_keyboard_report(uint8_t report_id, uint8_t modifier, const uint8_t *keycode) {
     return tud_hid_keyboard_report(report_id, modifier, (uint8_t *)keycode);
 }

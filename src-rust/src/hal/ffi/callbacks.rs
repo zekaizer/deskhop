@@ -561,6 +561,18 @@ extern "C" {
     fn release_all_keys();
 }
 
+/// Send an upstream keyboard-LED report, but only from Core1 (the host-stack
+/// core). Called on Core0, it defers by flagging leds_resync_pending; the Core1
+/// led_blink_tick drains the flag and re-sends. This keeps tuh_hid_set_report
+/// off Core0, which would otherwise race tuh_task and hang Core1.
+unsafe fn send_kbd_leds_xcore(da: u8, inst: u8, leds: *const u8, len: u8) {
+    if device::hal_is_core1() {
+        device::hal_tuh_hid_set_report(da, inst, leds, len);
+    } else {
+        (*core::ptr::addr_of_mut!(structs::GLOBAL_CFG)).leds_resync_pending = true;
+    }
+}
+
 #[export_name = "set_active_output"]
 pub unsafe extern "C" fn rust_set_active_output(output: u8) {
     let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
@@ -570,7 +582,7 @@ pub unsafe extern "C" fn rust_set_active_output(output: u8) {
         hid,
         output,
         |on| device::hal_gpio_put_led(on),
-        |da, inst, leds, len| device::hal_tuh_hid_set_report(da, inst, leds, len),
+        |da, inst, leds, len| send_kbd_leds_xcore(da, inst, leds, len),
         |val, ptype| device::send_value(val, ptype),
         || release_all_keys(),
     );
@@ -634,7 +646,7 @@ pub unsafe extern "C" fn rust_restore_leds() {
         cfg,
         hid,
         |on| device::hal_gpio_put_led(on),
-        |da, inst, leds, len| device::hal_tuh_hid_set_report(da, inst, leds, len),
+        |da, inst, leds, len| send_kbd_leds_xcore(da, inst, leds, len),
     );
 }
 
@@ -646,7 +658,7 @@ pub unsafe extern "C" fn rust_set_keyboard_leds(leds: u8) {
         cfg,
         hid,
         leds,
-        |da, inst, led_val, len| device::hal_tuh_hid_set_report(da, inst, led_val, len),
+        |da, inst, led_val, len| send_kbd_leds_xcore(da, inst, led_val, len),
     );
 }
 

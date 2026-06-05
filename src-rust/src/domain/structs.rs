@@ -69,6 +69,10 @@ pub struct DeviceConfig {
     pub config_mode_active: bool,
     pub digitizer_active: bool,
     pub switch_requested: bool,
+    /// Set by a Core0 context that wants the upstream keyboard-LED report
+    /// re-sent; the actual tuh_hid_set_report runs on Core1 (led_blink_tick)
+    /// since the host stack must not be touched from Core0.
+    pub leds_resync_pending: bool,
 
     pub config_mode_timer: u64,
 }

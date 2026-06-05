@@ -166,6 +166,14 @@ pub fn led_blink_tick(
 ) {
     use crate::domain::structs::LED_BLINK_PT_WAIT;
 
+    // Drain a deferred upstream keyboard-LED resync requested by a Core0 context.
+    // sync_leds() touches the host stack (tuh_hid_set_report), which is only safe
+    // on this core (Core1) — see send_kbd_leds_xcore.
+    if state.cfg.leds_resync_pending {
+        state.cfg.leds_resync_pending = false;
+        hal.sync_leds();
+    }
+
     // PT_WAIT mode: slow pulse (50ms on / 450ms off) — independent of blinks_left
     if state.led.led_blink_mode == LED_BLINK_PT_WAIT {
         let now = hal.now_us_32();
@@ -252,6 +260,27 @@ mod tests {
         state.cfg.core1_last_loop_pass = 900_000; // 100ms ago
         assert!(check_system_health(&state, &hal));
         assert!(hal.watchdog_kicked.get());
+    }
+
+    #[test]
+    fn led_blink_drains_pending_resync() {
+        // A Core0-deferred LED resync is flushed here (on Core1) via sync_leds.
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        cfg.leds_resync_pending = true;
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        led_blink_tick(&mut state, &hal);
+        assert!(!state.cfg.leds_resync_pending, "flag must be cleared");
+        assert_eq!(hal.leds_synced.get(), 1, "sync_leds must run on the drain");
+    }
+
+    #[test]
+    fn led_blink_no_resync_when_not_pending() {
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        led_blink_tick(&mut state, &hal);
+        assert_eq!(hal.leds_synced.get(), 0);
     }
 
     #[test]
