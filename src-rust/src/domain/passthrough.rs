@@ -369,17 +369,45 @@ pub fn is_hidpp_input_event(report: &[u8]) -> bool {
     (report[3] & 0x0F) == 0
 }
 
-/// Check if a raw HID++ input event is a SmartShift button event (CID 0xC4).
-/// Caller must already know the report is a HID++ input event.
-pub fn is_smartshift_event(report: &[u8]) -> bool {
-    if report.len() < 7 { return false; }
-    let fn_chk = (report[3] >> 4) & 0x0F;
-    fn_chk == 2 && report[4] == 0x00 && report[5] == SMARTSHIFT_CID
+/// True if a divertedButtonsEvent (fn=0) bitmap contains the SmartShift CID.
+/// The bitmap is report[4..], laid out as (cid_hi, cid_lo) pairs.
+fn diverted_has_smartshift(report: &[u8]) -> bool {
+    let mut i = 4;
+    while i + 1 < report.len() {
+        if report[i] == 0x00 && report[i + 1] == SMARTSHIFT_CID {
+            return true;
+        }
+        i += 2;
+    }
+    false
 }
 
-/// Returns true if the report is a SmartShift button-down event.
+/// Returns true if the report is a SmartShift button-DOWN event (CID 0xC4).
+/// Handles both HID++ shapes Logitech mice emit (the exact one depends on how
+/// the button is configured/diverted by Options+):
+/// - analyticsKeyEvent (fn=2): `[.., fn|sw, 0x00, cid_lo, action]` — down when action!=0.
+/// - divertedButtonsEvent (fn=0): `[.., fn|sw, cid_hi, cid_lo, ...]` bitmap — down when 0xC4 present.
+///
+/// Caller must already know the report is a HID++ input event.
 pub fn is_smartshift_press(report: &[u8]) -> bool {
-    is_smartshift_event(report) && report[6] != 0
+    if report.len() < 7 { return false; }
+    match (report[3] >> 4) & 0x0F {
+        2 => report[4] == 0x00 && report[5] == SMARTSHIFT_CID && report[6] != 0,
+        0 => diverted_has_smartshift(report),
+        _ => false,
+    }
+}
+
+/// Returns true if the report is a SmartShift button-UP event. For fn=2 this is
+/// the action=0 event for CID 0xC4; for fn=0 it is a divertedButtons bitmap that
+/// no longer contains 0xC4 (only checked in the post-trigger consume window).
+pub fn is_smartshift_release(report: &[u8]) -> bool {
+    if report.len() < 7 { return false; }
+    match (report[3] >> 4) & 0x0F {
+        2 => report[4] == 0x00 && report[5] == SMARTSHIFT_CID && report[6] == 0,
+        0 => !diverted_has_smartshift(report),
+        _ => false,
+    }
 }
 
 /// Append an event to the SmartShift buffer. Returns false if the buffer

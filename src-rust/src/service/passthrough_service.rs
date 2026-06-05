@@ -314,7 +314,7 @@ pub fn on_report_received(
             let window_us = (dev.cfg.config.smartshift_double_click_ms as u64) * 1000;
 
             // (a) consume the release that follows a switch-trigger press
-            if pt.smartshift_consume > 0 && passthrough::is_smartshift_event(report) && report[6] == 0 {
+            if pt.smartshift_consume > 0 && passthrough::is_smartshift_release(report) {
                 pt.smartshift_consume -= 1;
                 hal.receive_report(dev_addr, instance);
                 return ReportAction::Handled;
@@ -854,6 +854,21 @@ mod tests {
         ]
     }
 
+    /// divertedButtonsEvent (fn=0) form: a bitmap of pressed CIDs. SmartShift
+    /// (0xC4) present = down, absent (0x00) = up. This is what an MX Master
+    /// actually emits for the wheel-mode key.
+    fn smartshift_diverted(pressed: bool) -> [u8; 7] {
+        [
+            HIDPP_REPORT_ID_SHORT,
+            0x01,         // device_idx
+            0x05,         // feature_idx (ReprogControls)
+            0x00,         // (fn=0 << 4) | sw_id=0  → divertedButtonsEvent
+            0x00,         // cid_hi
+            if pressed { passthrough::SMARTSHIFT_CID } else { 0x00 }, // cid_lo (bitmap)
+            0x00,
+        ]
+    }
+
     fn ss_setup() -> (PassthroughState, DeviceHid, DeviceConfig, DeviceFw, DeviceLed, MockHal) {
         let mut t = setup();
         // Vendor iface (always_passthrough = true via itf_protocol = 0)
@@ -911,6 +926,31 @@ mod tests {
         assert_eq!(pt.smartshift_buf_count, 0, "buffer must clear");
         assert_eq!(pt.smartshift_consume, 1, "release of second press must be marked for consumption");
         assert_eq!(hal.hid_sent.borrow().len(), 0, "no events forwarded on switch trigger");
+    }
+
+    #[test]
+    fn smartshift_diverted_double_click_triggers_switch() {
+        // MX Master emits the wheel-mode key as divertedButtonsEvent (fn=0),
+        // not analyticsKeyEvent (fn=2). The double-click must still switch.
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = ss_setup();
+        hal.set_time(1_000_000);
+        // press1 (0xC4 in bitmap) then release1 (empty bitmap)
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &smartshift_diverted(true), 1, 0, &hal);
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &smartshift_diverted(false), 1, 0, &hal);
+        assert!(pt.smartshift_window_us > 0, "first diverted press opens the window");
+        // press2 within window
+        hal.set_time(1_100_000);
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &smartshift_diverted(true), 1, 0, &hal);
+        assert!(cfg.switch_requested, "diverted-button double-click must switch output");
+        assert_eq!(pt.smartshift_window_us, 0, "window cleared");
+        // release2 (empty bitmap) is consumed, not forwarded
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &smartshift_diverted(false), 1, 0, &hal);
+        assert_eq!(pt.smartshift_consume, 0, "post-switch release consumed");
+        assert_eq!(hal.hid_queued.borrow().len(), 0, "nothing forwarded for the double-click");
     }
 
     #[test]
