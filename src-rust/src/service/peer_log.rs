@@ -19,7 +19,7 @@ const RING_SIZE: usize = 1024;
 const PREFIX_A: &[u8; 4] = b"[A] ";
 #[cfg(any(feature = "dh_debug", test))]
 const PREFIX_B: &[u8; 4] = b"[B] ";
-const OVERFLOW_MSG: &[u8] = b"[peer_log overflow]\n";
+const OVERFLOW_MSG: &[u8] = b"[peer_log overflow]\r\n";
 
 // ============================================================
 // Ring (pure logic — host-testable, no spinlock dependency)
