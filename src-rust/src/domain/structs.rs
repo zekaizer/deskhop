@@ -73,6 +73,9 @@ pub struct DeviceConfig {
     /// re-sent; the actual tuh_hid_set_report runs on Core1 (led_blink_tick)
     /// since the host stack must not be touched from Core0.
     pub leds_resync_pending: bool,
+    /// Timestamp (us, 32-bit) of the last HID report processed. The board-LED
+    /// activity flicker reads this; a u32 is single-word/atomic across cores.
+    pub last_hid_activity_us: u32,
 
     pub config_mode_timer: u64,
 }

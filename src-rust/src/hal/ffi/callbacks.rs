@@ -373,6 +373,10 @@ pub unsafe extern "C" fn rust_on_hid_report_received(
     let iface = iface_from_ptr(iface_ptr);
     let mut state = structs::DeviceState::from_globals();
 
+    // Stamp HID activity (mouse/keyboard/HID++) for the board-LED activity
+    // flicker. u32 write is atomic across cores; led_blink_tick (Core1) reads it.
+    state.cfg.last_hid_activity_us = device::hal_time_us_32();
+
     // Passthrough: forward non-keyboard reports first
     if itf_protocol != crate::domain::constants::HID_ITF_PROTOCOL_KEYBOARD {
         let pt = super::tasks::get_pt_state();

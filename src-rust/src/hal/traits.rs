@@ -136,6 +136,8 @@ pub trait Indicator {
     fn toggle(&self) -> bool;
     /// Set keyboard LEDs (Num/Caps/Scroll) via USB host SET_REPORT.
     fn set_keyboard_leds(&self, leds: u8);
+    /// Drive the on-board LED to a specific state (true = ON).
+    fn set_board_led(&self, on: bool);
 }
 
 /// DMA receive channel — UART packet reception from ring buffer.

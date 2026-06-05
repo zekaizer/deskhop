@@ -79,7 +79,7 @@ pub extern "C" fn rust_core1_loop() -> ! {
     let mut task_list = [
         scheduler::Task::new(c_tasks::usb_host_task, scheduler::top()),
         scheduler::Task::new(tasks::packet_receiver_task, scheduler::top()),
-        scheduler::Task::new(tasks::led_blinking_task, scheduler::hz(30)),
+        scheduler::Task::new(tasks::led_blinking_task, scheduler::hz(120)),
         scheduler::Task::new(tasks::screensaver_task, scheduler::hz(120)),
         scheduler::Task::new(c_tasks::firmware_upgrade_task, scheduler::hz(4000)),
         scheduler::Task::new(tasks::heartbeat_output_task, scheduler::hz(1)),

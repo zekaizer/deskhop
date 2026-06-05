@@ -190,9 +190,33 @@ pub fn led_blink_tick(
 
     use crate::domain::blink::{blink_step, BlinkAction};
 
+    // HID activity window: while a HID report was processed within this, the
+    // active board's LED flickers instead of staying solid on.
+    const HID_ACTIVITY_US: u32 = 60_000;
+    // Flicker shape: a short OFF blip within each cycle (mostly-on, fast) so the
+    // LED never sits dark during continuous use. Phase is derived from the timer
+    // so it renders crisply at the task rate (hz120).
+    const FLICKER_PERIOD_US: u32 = 60_000;
+    const FLICKER_OFF_US: u32 = 15_000;
+
     let now = hal.now_us_32();
     match blink_step(state.led.blinks_left, state.led.last_led_change, now) {
-        BlinkAction::Idle | BlinkAction::Wait => {}
+        BlinkAction::Idle => {
+            // Running steady state (sole board-LED authority): active board's LED
+            // is on, inactive board off. While HID input is being processed, blink
+            // the active LED with a short off pulse so the user sees activity — it
+            // never stays solidly off during continuous use.
+            if state.is_active_output() {
+                if now.wrapping_sub(state.cfg.last_hid_activity_us) < HID_ACTIVITY_US {
+                    hal.set_board_led((now % FLICKER_PERIOD_US) >= FLICKER_OFF_US);
+                } else {
+                    hal.set_board_led(true);
+                }
+            } else {
+                hal.set_board_led(false);
+            }
+        }
+        BlinkAction::Wait => {}
         BlinkAction::Toggle => {
             let led_on = hal.toggle();
             if state.cfg.keyboard_connected {
@@ -281,6 +305,53 @@ mod tests {
         let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
         led_blink_tick(&mut state, &hal);
         assert_eq!(hal.leds_synced.get(), 0);
+    }
+
+    #[test]
+    fn led_steady_active_idle_is_on() {
+        // Active board (active_output == board_role == 0), no recent HID activity
+        // → solid on. Also covers restoring the LED after PT_WAIT/blink left it off.
+        let hal = MockHal::new();
+        hal.set_time(1_000_000);
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        hal.board_led.set(false); // pretend left off by a prior pulse
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        led_blink_tick(&mut state, &hal);
+        assert!(hal.board_led.get(), "active idle board LED must be on");
+    }
+
+    #[test]
+    fn led_steady_inactive_is_off() {
+        let hal = MockHal::new();
+        hal.set_time(1_000_000);
+        hal.board_led.set(true);
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        cfg.board_role = 1; // active_output stays 0 → this board is inactive
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        led_blink_tick(&mut state, &hal);
+        assert!(!hal.board_led.get(), "inactive board LED must be off");
+    }
+
+    #[test]
+    fn led_active_flickers_on_hid_activity() {
+        // During HID activity the active LED blinks with a short OFF window and is
+        // mostly ON (never solid-off). Phase = now % 60ms; off for the first 15ms.
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+
+        // OFF phase: now % 60ms < 15ms
+        hal.set_time(5_000);
+        cfg.last_hid_activity_us = 5_000; // recent → busy
+        led_blink_tick(
+            &mut DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led }, &hal);
+        assert!(!hal.board_led.get(), "short off blip during activity");
+
+        // ON phase: now % 60ms >= 15ms
+        hal.set_time(40_000);
+        cfg.last_hid_activity_us = 40_000; // recent → busy
+        led_blink_tick(
+            &mut DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led }, &hal);
+        assert!(hal.board_led.get(), "mostly on during activity");
     }
 
     #[test]

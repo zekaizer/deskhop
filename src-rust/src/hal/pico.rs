@@ -297,6 +297,11 @@ impl Indicator for PicoHal {
     fn set_keyboard_leds(&self, leds: u8) {
         unsafe { device::set_keyboard_leds(leds) }
     }
+
+    #[inline]
+    fn set_board_led(&self, on: bool) {
+        unsafe { device::hal_gpio_put_led(on) }
+    }
 }
 
 // ---- DmaRx ----

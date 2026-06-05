@@ -31,6 +31,7 @@ pub struct MockHal {
     pub config_wiped: Cell<u32>,
     pub blink_count: Cell<u32>,
     pub toggle_count: Cell<u32>,
+    pub board_led: Cell<bool>,
     pub output_switched: Cell<Option<u8>>,
     pub leds_synced: Cell<u32>,
     pub dump_count: Cell<u32>,
@@ -79,6 +80,7 @@ impl MockHal {
             config_wiped: Cell::new(0),
             blink_count: Cell::new(0),
             toggle_count: Cell::new(0),
+            board_led: Cell::new(false),
             output_switched: Cell::new(None),
             leds_synced: Cell::new(0),
             dump_count: Cell::new(0),
@@ -254,10 +256,15 @@ impl Indicator for MockHal {
     fn toggle(&self) -> bool {
         let n = self.toggle_count.get() + 1;
         self.toggle_count.set(n);
-        n % 2 == 1 // alternates: false→true→false→...
+        let on = !self.board_led.get();
+        self.board_led.set(on);
+        on
     }
     fn set_keyboard_leds(&self, _leds: u8) {
         // Tracked via toggle_count for now
+    }
+    fn set_board_led(&self, on: bool) {
+        self.board_led.set(on);
     }
 }
 
