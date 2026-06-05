@@ -544,6 +544,26 @@ mod tests {
     }
 
     #[test]
+    fn task_no_activate_when_build_config_desc_fails() {
+        // Models the C-side HID-budget guard rejecting an over-large composite
+        // (more HID interfaces than CFG_TUD_HID). build_config_desc() returns
+        // false, so we must NOT activate and must NOT disconnect — otherwise the
+        // device would drop into LED_BLINK_PT_WAIT forever with no way back.
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = setup();
+        cfg.config.passthrough_enabled = 1;
+        hal.pt_build_fails.set(true);
+        let desc = [0x05, 0x01];
+        passthrough::capture_descriptor(&mut pt, 1, 0, 0, &desc);
+        pt.last_capture_us = 1000;
+        hal.set_time(1000 + CAPTURE_STABILIZE_US + 1);
+
+        passthrough_task(&mut pt, &mut dev!(hid, cfg, fw, led), &hal);
+        assert!(!pt.active, "must not activate when the composite cannot be built");
+        assert_eq!(hal.device_disconnect_count.get(), 0, "must not disconnect");
+        assert_eq!(pt.reconnect_at_us, 0, "no reconnect cycle scheduled");
+    }
+
+    #[test]
     fn task_reconnect_timer() {
         let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = setup();
         pt.reconnect_at_us = 5000;

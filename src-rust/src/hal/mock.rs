@@ -46,6 +46,9 @@ pub struct MockHal {
     pub host_set_report_count: Cell<u32>,
     pub host_upstream_vid_pid: Cell<(u16, u16)>,
     pub pt_config_desc_ready: Cell<bool>,
+    /// When true, build_config_desc() reports failure (models the C-side
+    /// HID-budget guard rejecting an over-large composite descriptor).
+    pub pt_build_fails: Cell<bool>,
     /// (instance, report_id, payload) forwarded via send_hid_report.
     pub hid_sent: RefCell<Vec<(u8, u8, Vec<u8>)>>,
 }
@@ -87,6 +90,7 @@ impl MockHal {
             host_set_report_count: Cell::new(0),
             host_upstream_vid_pid: Cell::new((0, 0)),
             pt_config_desc_ready: Cell::new(false),
+            pt_build_fails: Cell::new(false),
             hid_sent: RefCell::new(Vec::new()),
         }
     }
@@ -271,6 +275,9 @@ impl UsbHost for MockHal {
 
 impl PassthroughHal for MockHal {
     fn build_config_desc(&self) -> bool {
+        if self.pt_build_fails.get() {
+            return false;
+        }
         self.pt_config_desc_ready.set(true);
         true
     }

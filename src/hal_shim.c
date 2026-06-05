@@ -369,6 +369,15 @@ void hal_passthrough_build_config_desc(uint8_t *config_desc, uint16_t buf_size,
     num_itf += 2; /* CDC Communication + Data interfaces */
 #endif
 
+    /* The device-side TinyUSB HID class pool has CFG_TUD_HID instances. The
+     * composite declares 2 DeskHop base HID interfaces + iface_count passthrough
+     * HID interfaces (CDC does not consume a HID slot). If that exceeds
+     * CFG_TUD_HID, hidd_open() cannot claim every interface and the host's
+     * SET_CONFIGURATION stalls on re-enumeration — the device never mounts.
+     * Refuse to build such a descriptor so the caller keeps the default DeskHop
+     * identity (recoverable via config-mode hotkey) instead of bricking. */
+    if (2 + iface_count > CFG_TUD_HID) goto overflow;
+
     /* Configuration descriptor header (9 bytes) */
     if (off + 9 > buf_size) goto overflow;
     buf[off++] = 9;
