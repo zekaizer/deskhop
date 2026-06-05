@@ -247,12 +247,13 @@ void initial_setup(void) {
     multicore_launch_core1(core1_main);
     diag_led(5); /* BootRustInit */
 
-    /* Initialize and configure TinyUSB Device + Host */
+    /* Initialize and configure TinyUSB Device + Host.
+     * Note: device side comes up as default DeskHop. The passthrough_task
+     * orchestrates the disconnect→reconnect cycle to switch to the captured
+     * composite descriptor once a vendor interface is captured. Doing the
+     * disconnect at boot directly does not give the host a USB SE0 long
+     * enough to invalidate its cached enumeration on most PCs. */
     tud_init(BOARD_TUD_RHPORT);
-    /* Passthrough: hold device side disconnected until host descriptors are captured */
-    extern bool rust_passthrough_should_delay(void);
-    if (rust_passthrough_should_delay())
-        tud_disconnect();
     pio_usb_host_config(role);
     diag_led(6); /* BootUsb */
 

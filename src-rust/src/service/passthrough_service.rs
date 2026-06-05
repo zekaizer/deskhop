@@ -13,9 +13,6 @@ const fn ms(ms: u64) -> u64 { ms * 1000 }
 /// Delay after last descriptor capture before activation (500ms)
 const CAPTURE_STABILIZE_US: u64 = ms(500);
 
-/// Fallback: connect with default descriptors after 3s if no receiver
-const DEFAULT_CONNECT_US: u64 = ms(3000);
-
 /// Absolute safety timeout. If no vendor interface has appeared upstream
 /// by this point, fall back to default DeskHop descriptors so the user
 /// can still recover via the config-mode hotkey. Once this fires, late
@@ -58,23 +55,10 @@ pub fn passthrough_task(
         dev.led.led_blink_mode = LED_BLINK_PT_WAIT;
     }
 
-    // DEBUG: bring-up fallback — connect after 3s regardless of receiver
-    // presence so we can verify that hal.device_connect() actually re-attaches
-    // the device side after the boot-time tud_disconnect(). Production policy
-    // should require receiver detection (pt.iface_count == 0 && !pt.active).
-    if !dev.cfg.tud_connected && now > DEFAULT_CONNECT_US {
-        hal.device_connect();
-    }
-
     // Absolute safety net (production policy). After ABSOLUTE_TIMEOUT_US
     // without a vendor interface upstream, fall back to default DeskHop
     // descriptors and lock out late captures so the user can recover via
     // config-mode hotkey instead of reflashing.
-    //
-    // During bring-up the DEBUG block above already calls device_connect()
-    // at 3s, so tud_connected becomes true and this branch never fires.
-    // After the DEBUG block is reverted at merge time, this becomes the
-    // active recovery path.
     if !pt.gave_up
         && !dev.cfg.tud_connected
         && now > ABSOLUTE_TIMEOUT_US
@@ -98,8 +82,14 @@ pub fn passthrough_task(
         let desc_ready = hal.build_config_desc();
         if passthrough::activate(pt, desc_ready) {
             dev.cfg.gaming_mode = true;
-            // Device is already disconnected — connect with passthrough descriptors
-            hal.device_connect();
+            // Force re-enumeration: disconnect default DeskHop, then let the
+            // reconnect_at_us branch below bring the device side back up with
+            // the passthrough composite descriptor. Boot-time disconnect was
+            // tried but most PC USB stacks ignore the brief SE0 and keep the
+            // cached enumeration; an explicit cycle from a connected state is
+            // what triggers the host to re-fetch descriptors.
+            hal.device_disconnect();
+            pt.reconnect_at_us = now + RECONNECT_DELAY_US;
         }
     }
 
@@ -484,15 +474,6 @@ mod tests {
     }
 
     #[test]
-    fn task_fallback_connect_after_3s() {
-        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = setup();
-        cfg.tud_connected = false;
-        hal.set_time(DEFAULT_CONNECT_US + 1);
-        passthrough_task(&mut pt, &mut dev!(hid, cfg, fw, led), &hal);
-        assert_eq!(hal.device_connect_count.get(), 1);
-    }
-
-    #[test]
     fn task_safety_timeout_no_vendor() {
         // No vendor iface ever appears — safety net should fire at ABSOLUTE_TIMEOUT_US
         // and lock out passthrough activation (gave_up = true).
@@ -549,11 +530,17 @@ mod tests {
         let desc = [0x05, 0x01];
         passthrough::capture_descriptor(&mut pt, 1, 0, 0, &desc);
         pt.last_capture_us = 1000;
-        hal.set_time(1000 + CAPTURE_STABILIZE_US + 1);
+        let now = 1000 + CAPTURE_STABILIZE_US + 1;
+        hal.set_time(now);
 
         passthrough_task(&mut pt, &mut dev!(hid, cfg, fw, led), &hal);
         assert!(pt.active);
-        assert_eq!(hal.device_connect_count.get(), 1);
+        // Activate triggers the disconnect→reconnect cycle so the host
+        // re-enumerates with the passthrough composite — connect happens
+        // RECONNECT_DELAY_US later, not immediately.
+        assert_eq!(hal.device_disconnect_count.get(), 1);
+        assert_eq!(hal.device_connect_count.get(), 0);
+        assert_eq!(pt.reconnect_at_us, now + RECONNECT_DELAY_US);
     }
 
     #[test]
