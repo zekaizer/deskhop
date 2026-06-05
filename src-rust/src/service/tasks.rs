@@ -49,8 +49,10 @@ pub fn flush_outbox(hal: &(impl Transfer + PeerLink)) {
     hal.transmit(&raw);
 }
 
-/// Size of hid_generic_pkt_t: instance(1) + report_id(1) + type(1) + len(1) + data(12) = 16
-const HID_GENERIC_PKT_SIZE: usize = 16;
+/// Max report data bytes per queued HID packet (mirrors C HID_REPORT_DATA_MAX in packet.h).
+const HID_REPORT_DATA_MAX: usize = 32;
+/// Size of hid_generic_pkt_t: instance(1) + report_id(1) + type(1) + len(1) + data(HID_REPORT_DATA_MAX) = 36
+const HID_GENERIC_PKT_SIZE: usize = 4 + HID_REPORT_DATA_MAX;
 
 /// Send one pending HID report from the output queue via TinyUSB.
 /// Peek → check if TinyUSB endpoint is ready → send → remove on success.
@@ -64,7 +66,7 @@ pub fn process_hid_queue(
     let report_id = buf[1];
     // buf[2] = type (unused in send path)
     let len = buf[3] as usize;
-    let data = &buf[4..4 + len.min(12)];
+    let data = &buf[4..4 + len.min(HID_REPORT_DATA_MAX)];
 
     if !hal.hid_ready(instance) { return; }
 

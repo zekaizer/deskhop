@@ -51,6 +51,8 @@ pub struct MockHal {
     pub pt_build_fails: Cell<bool>,
     /// (instance, report_id, payload) forwarded via send_hid_report.
     pub hid_sent: RefCell<Vec<(u8, u8, Vec<u8>)>>,
+    /// (instance, report_id, payload) routed via queue_hid_report (cross-core queue).
+    pub hid_queued: RefCell<Vec<(u8, u8, Vec<u8>)>>,
 }
 
 impl MockHal {
@@ -92,6 +94,7 @@ impl MockHal {
             pt_config_desc_ready: Cell::new(false),
             pt_build_fails: Cell::new(false),
             hid_sent: RefCell::new(Vec::new()),
+            hid_queued: RefCell::new(Vec::new()),
         }
     }
 
@@ -181,6 +184,9 @@ impl HidQueue for MockHal {
     fn send_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) -> bool {
         self.hid_sent.borrow_mut().push((instance, report_id, data.to_vec()));
         true
+    }
+    fn queue_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) {
+        self.hid_queued.borrow_mut().push((instance, report_id, data.to_vec()));
     }
 }
 

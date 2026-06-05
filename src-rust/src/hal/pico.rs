@@ -172,6 +172,11 @@ impl HidQueue for PicoHal {
     fn send_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) -> bool {
         unsafe { device::hal_tud_hid_n_report(instance, report_id, data.as_ptr(), data.len() as u8) }
     }
+
+    #[inline]
+    fn queue_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) {
+        unsafe { device::hal_queue_hid_report(instance, report_id, data.as_ptr(), data.len() as u8) }
+    }
 }
 
 // ---- PacketQueue ----

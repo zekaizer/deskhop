@@ -72,7 +72,12 @@ pub trait HidQueue {
     fn peek_hid_report(&self, out: &mut [u8]) -> bool;
     fn pop_hid_report(&self, out: &mut [u8]) -> bool;
     /// Send a generic HID report via TinyUSB. Returns true on success.
+    /// DEVICE stack — Core0 only.
     fn send_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) -> bool;
+    /// Queue a passthrough HID report into the cross-core output queue for the
+    /// Core0 process_hid_queue task to send. Cross-core safe — call from Core1
+    /// tuh callbacks instead of send_hid_report (which touches the device stack).
+    fn queue_hid_report(&self, instance: u8, report_id: u8, data: &[u8]);
 }
 
 /// Control packet queues (consumer control, system control, config).

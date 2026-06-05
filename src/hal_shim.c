@@ -186,6 +186,14 @@ void hal_queue_system_packet(const uint8_t *payload) {
     _queue_packet(payload, 2, SYSTEM_CONTROL_LENGTH, REPORT_ID_SYSTEM, ITF_NUM_HID);
 }
 
+/* Queue a passthrough HID output report for the Core0 process_hid_queue task to
+ * send via tud_hid_n_report. Lets Core1 (tuh callbacks) forward host reports to
+ * the device side WITHOUT touching the device stack directly (cross-core race). */
+void hal_queue_hid_report(uint8_t instance, uint8_t report_id, const uint8_t *data, uint8_t len) {
+    if (len > HID_REPORT_DATA_MAX) len = HID_REPORT_DATA_MAX;
+    _queue_packet(data, 0, len, report_id, instance);
+}
+
 
 /* ==================================================== *
  * HID keyboard extraction

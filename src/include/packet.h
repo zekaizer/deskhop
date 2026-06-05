@@ -37,6 +37,11 @@
 #define PACKET_DATA_LENGTH      8 // For simplicity, all packet types are the same length
 #define CHECKSUM_LENGTH         1
 
+/* Max data bytes for one queued HID output report (hid_generic_pkt_t.data).
+ * Sized to hold a full passthrough report incl. HID++ long (20B); decoupled
+ * from RAW_PACKET_LENGTH (which is the UART packet size). */
+#define HID_REPORT_DATA_MAX    32
+
 #define KEYARRAY_BIT_OFFSET     16
 #define KEYS_IN_USB_REPORT      6
 #define KBD_REPORT_LENGTH       8

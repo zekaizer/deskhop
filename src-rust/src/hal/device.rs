@@ -89,6 +89,7 @@ extern "C" {
     pub fn hal_hid_queue_peek(out: *mut u8) -> bool;
     pub fn hal_hid_queue_remove(out: *mut u8) -> bool;
     pub fn hal_tud_hid_n_report(instance: u8, report_id: u8, data: *const u8, len: u8) -> bool;
+    pub fn hal_queue_hid_report(instance: u8, report_id: u8, data: *const u8, len: u8);
 
     // ---- DMA ----
     pub fn hal_dma_channel_is_busy() -> bool;
