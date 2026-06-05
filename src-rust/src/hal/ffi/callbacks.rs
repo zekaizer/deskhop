@@ -352,8 +352,7 @@ pub unsafe extern "C" fn rust_on_hid_umount(
 
     // Passthrough: clean up state for this device
     let pt = super::tasks::get_pt_state();
-    let hal = crate::hal::pico::PicoHal::new();
-    crate::service::passthrough_service::on_device_unmount(pt, dev_addr, &hal);
+    crate::service::passthrough_service::on_device_unmount(pt, dev_addr);
 
     // Zero the interface structure
     let iface = iface_ptr as *mut HidInterface;

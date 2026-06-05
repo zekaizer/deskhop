@@ -137,6 +137,15 @@ pub(crate) unsafe fn passthrough_task() {
     crate::service::passthrough_service::passthrough_task(pt, &mut state, &hal);
 }
 
+/// Core1 task: flush the pending HID++ output report to the upstream device.
+/// Runs on Core1 so the host control transfer is serialized with tuh_task;
+/// see passthrough_service::flush_output_report for why this must not be Core0.
+pub(crate) unsafe fn passthrough_host_tx_task() {
+    let hal = crate::hal::pico::PicoHal::new();
+    let pt = get_pt_state();
+    crate::service::passthrough_service::flush_output_report(pt, &hal);
+}
+
 pub(crate) unsafe fn remap_engine_tick_task() {
     let hal = crate::hal::pico::PicoHal::new();
     let mut state = crate::domain::structs::DeviceState::from_globals();

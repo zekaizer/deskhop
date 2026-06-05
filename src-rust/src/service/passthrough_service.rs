@@ -64,6 +64,7 @@ pub fn passthrough_task(
         && now > ABSOLUTE_TIMEOUT_US
         && !passthrough::has_vendor_interface(pt)
     {
+        crate::service::peer_log::push(b"[pt] safety_net fired\n");
         hal.device_connect();
         pt.gave_up = true;
     }
@@ -80,7 +81,11 @@ pub fn passthrough_task(
         && now.wrapping_sub(pt.last_capture_us) > CAPTURE_STABILIZE_US
     {
         let desc_ready = hal.build_config_desc();
+        if !desc_ready {
+            crate::service::peer_log::push(b"[pt] desc build FAILED (HID budget exceeded?)\n");
+        }
         if passthrough::activate(pt, desc_ready) {
+            crate::service::peer_log::push(b"[pt] activate -> disconnect+reconnect\n");
             dev.cfg.gaming_mode = true;
             // Force re-enumeration: disconnect default DeskHop, then let the
             // reconnect_at_us branch below bring the device side back up with
@@ -98,23 +103,27 @@ pub fn passthrough_task(
         dev.led.led_blink_mode = LED_BLINK_NONE;
     }
 
+    // Deferred device removal: on_device_unmount (Core1) only flags the request;
+    // the tud_disconnect must run here on Core0, which owns the device stack.
+    if pt.disconnect_requested {
+        pt.disconnect_requested = false;
+        crate::service::peer_log::push(b"[pt] unmount -> disconnect\n");
+        hal.clear_config_desc();
+        hal.device_disconnect();
+        pt.reconnect_at_us = now + RECONNECT_DELAY_US;
+    }
+
     // Phase 2 fallback: device removal → reconnect with new descriptors
     if pt.reconnect_at_us > 0 && now >= pt.reconnect_at_us {
+        crate::service::peer_log::push(b"[pt] reconnect -> connect\n");
         hal.device_connect();
         pt.reconnect_at_us = 0;
     }
 
-    // Flush deferred HID++ output report
-    if pt.out_queue.pending {
-        hal.send_set_report(
-            pt.out_queue.dev_addr,
-            pt.out_queue.instance,
-            pt.out_queue.report_id,
-            pt.out_queue.report_type,
-            &pt.out_queue.data[..pt.out_queue.len as usize],
-        );
-        pt.out_queue.pending = false;
-    }
+    // NOTE: the deferred HID++ output report (out_queue) is flushed by
+    // flush_output_report() on Core1, NOT here. The flush issues a host
+    // tuh_control_xfer; doing that from this Core0 task races the Core1 USB
+    // host stack (tuh_task) with no lock and hangs Core1. See flush_output_report.
 
     // HID++ scan step
     if pt.hidpp_scan.state == HidppScanState::QueryIRoot {
@@ -132,6 +141,38 @@ pub fn passthrough_task(
             pt.smartshift_window_us = 0;
         }
     }
+}
+
+/// Flush a pending HID++ output report (queued by on_set_report from the
+/// device-side SET_REPORT callback, or by the HID++ scan) to the upstream
+/// device via a host SET_REPORT control transfer.
+///
+/// MUST run on Core1, where the TinyUSB host stack (tuh_task) lives. The send
+/// issues a blocking tuh_control_xfer; the cooperative Core1 scheduler
+/// serializes it with tuh_task, so there is no concurrent access to the host
+/// stack. Calling this from Core0 instead races tuh_task with no lock and
+/// hangs Core1 (observed: core1_last_loop_pass freezes when Logitech Options+
+/// streams HID++ SET_REPORTs, killing the passed-through mouse).
+///
+/// The out_queue is a single slot: a SET_REPORT arriving while a previous one
+/// is still pending overwrites it. That is a known robustness limitation, not
+/// a correctness hazard here — losing a HID++ config command at worst makes
+/// host software retry; it cannot hang the stack.
+pub fn flush_output_report(pt: &mut PassthroughState, hal: &impl UsbHost) {
+    if !pt.out_queue.pending {
+        return;
+    }
+    let ok = hal.send_set_report(
+        pt.out_queue.dev_addr,
+        pt.out_queue.instance,
+        pt.out_queue.report_id,
+        pt.out_queue.report_type,
+        &pt.out_queue.data[..pt.out_queue.len as usize],
+    );
+    if !ok {
+        crate::service::peer_log::push(b"[pt] host_tx busy/failed (report dropped)\n");
+    }
+    pt.out_queue.pending = false;
 }
 
 // ================================================================
@@ -153,8 +194,13 @@ pub fn on_device_mount(
         return;
     }
 
-    passthrough::capture_descriptor(pt, dev_addr, instance, itf_protocol, desc);
+    let ok = passthrough::capture_descriptor(pt, dev_addr, instance, itf_protocol, desc);
     pt.last_capture_us = hal.now_us_64();
+    if ok {
+        crate::service::peer_log::push(b"[pt] capture ok\n");
+    } else {
+        crate::service::peer_log::push(b"[pt] capture FAIL (full?)\n");
+    }
 
     // Capture upstream VID/PID once per device
     if pt.upstream_vid == 0 {
@@ -166,21 +212,21 @@ pub fn on_device_mount(
 
 /// Called from tuh_hid_umount_cb when a host device interface is removed.
 /// Cleans up passthrough state and triggers reconnection when all interfaces are gone.
-pub fn on_device_unmount(
-    pt: &mut PassthroughState,
-    dev_addr: u8,
-    hal: &(impl PassthroughHal + UsbDevice + Timer),
-) {
+pub fn on_device_unmount(pt: &mut PassthroughState, dev_addr: u8) {
     let was_active = pt.active;
     passthrough::remove_device(pt, dev_addr);
 
     // Re-enumerate as DeskHop when all passthrough interfaces are gone.
     // Note: remove_device() resets active=false when iface_count reaches 0,
     // so we check `was_active` to know if passthrough was engaged before removal.
+    //
+    // This runs on Core1 (tuh umount callback) and must NOT touch the device
+    // stack: calling tud_disconnect here races Core0's tud_task and hangs Core1.
+    // Flag the request; passthrough_task performs clear_config_desc +
+    // device_disconnect + reconnect on Core0.
     if was_active && pt.iface_count == 0 {
-        hal.clear_config_desc();
-        hal.device_disconnect();
-        pt.reconnect_at_us = hal.now_us_64() + RECONNECT_DELAY_US;
+        crate::service::peer_log::push(b"[pt] unmount -> request disconnect\n");
+        pt.disconnect_requested = true;
     }
 }
 
@@ -208,6 +254,20 @@ pub fn on_report_received(
 ) -> ReportAction {
     if !pt.active || dev.cfg.config_mode_active {
         return ReportAction::Fallthrough;
+    }
+
+    // Device side is mid-re-enumeration: activate() disconnected it and tud has
+    // not re-mounted yet (tud_connected goes true again only on rust_on_tud_mount).
+    // The passthrough forward path calls tud_hid_n_report directly from this
+    // Core1 callback; doing that into a device stack Core0 is still bringing up
+    // races tud_task and hangs Core1 (observed: moving the mouse continuously
+    // during boot freezes core1_last_loop_pass and kills the mouse). Drop the
+    // report until the device re-mounts — but still re-arm reception so reports
+    // resume afterwards. Silent on purpose: logging per dropped report would
+    // overflow the peer_log ring under continuous movement.
+    if !dev.cfg.tud_connected {
+        hal.receive_report(dev_addr, instance);
+        return ReportAction::Handled;
     }
 
     let dev_inst = match passthrough::host_to_device_instance(pt, dev_addr, instance) {
@@ -299,8 +359,15 @@ pub fn on_report_received(
         let is_active = dev.is_active_output();
 
         if !is_input || is_active {
-            // Protocol responses always forward; input events only on active output
-            hal.send_hid_report(dev_inst, 0, report);
+            // Log discrete HID++ control events (MX Master special keys etc.);
+            // continuous scroll/thumbwheel streams are suppressed inside.
+            if is_input {
+                log_hidpp_event(pt, report);
+            }
+            // Protocol responses always forward; input events only on active output.
+            // Queue for the Core0 sender — never call the device stack from this
+            // Core1 callback (it races tud_task and hangs Core1).
+            hal.queue_hid_report(dev_inst, 0, report);
         } else {
             // Inactive output: convert HID++ → mouse for peer routing.
             // Always RELATIVE — passthrough activate forces gaming_mode=true,
@@ -332,7 +399,11 @@ pub fn on_report_received(
     // Non-vendor, non-keyboard: raw passthrough on active output only
     let is_active = dev.is_active_output();
     if is_active {
-        hal.send_hid_report(dev_inst, 0, report);
+        // Log mouse button transitions only (pointer movement suppressed).
+        log_button_change(pt, report);
+        // Queue for the Core0 sender (cross-core safe) instead of touching the
+        // device stack from this Core1 callback.
+        hal.queue_hid_report(dev_inst, 0, report);
         hal.receive_report(dev_addr, instance);
         return ReportAction::Handled;
     }
@@ -383,6 +454,55 @@ pub fn on_set_report(
 // Helpers
 // ================================================================
 
+/// Log a mouse button transition (DH_DEBUG observability). Only the button byte
+/// (report[1] of a standard mouse report) is tracked, so continuous pointer
+/// movement does not flood the peer_log ring — we log only on a change.
+fn log_button_change(pt: &mut PassthroughState, report: &[u8]) {
+    if report.len() < 2 {
+        return;
+    }
+    let buttons = report[1];
+    if buttons == pt.dbg_last_buttons {
+        return;
+    }
+    pt.dbg_last_buttons = buttons;
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let buf = [
+        b'[', b'p', b't', b']', b' ', b'b', b't', b'n', b'=', b'0', b'x',
+        HEX[(buttons >> 4) as usize], HEX[(buttons & 0x0F) as usize], b'\n',
+    ];
+    crate::service::peer_log::push(&buf);
+}
+
+/// Log a discrete HID++ control event (DH_DEBUG) — e.g. an MX Master special
+/// key (ReprogControls cid/action). Continuous scroll/thumbwheel streams are
+/// suppressed (feature index matches the learned hi-res-scroll / thumbwheel
+/// feature) so scrolling does not flood the peer_log ring. Logs
+/// `[pt] key fi=XX fn=XX c=XX a=XX` (feature index, fn|sw, cid_lo, action).
+fn log_hidpp_event(pt: &PassthroughState, report: &[u8]) {
+    if report.len() < 7 {
+        return;
+    }
+    let fi = report[2];
+    let d = &pt.hidpp_disc;
+    if (d.fi_hires_scroll != 0 && fi == d.fi_hires_scroll)
+        || (d.fi_thumbwheel != 0 && fi == d.fi_thumbwheel)
+    {
+        return;
+    }
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let hi = |b: u8| HEX[(b >> 4) as usize];
+    let lo = |b: u8| HEX[(b & 0x0F) as usize];
+    let buf = [
+        b'[', b'p', b't', b']', b' ', b'k', b'e', b'y', b' ',
+        b'f', b'i', b'=', hi(report[2]), lo(report[2]), b' ',
+        b'f', b'n', b'=', hi(report[3]), lo(report[3]), b' ',
+        b'c', b'=', hi(report[5]), lo(report[5]), b' ',
+        b'a', b'=', hi(report[6]), lo(report[6]), b'\n',
+    ];
+    crate::service::peer_log::push(&buf);
+}
+
 /// Forward all events buffered by the SmartShift double-click state machine
 /// to the host in capture order, then clear the buffer count. Caller is
 /// responsible for resetting smartshift_window_us.
@@ -391,7 +511,7 @@ fn flush_smartshift_buffer(pt: &mut PassthroughState, hal: &impl HidQueue) {
     for i in 0..count {
         let entry = &pt.smartshift_buf[i];
         let len = entry.len as usize;
-        hal.send_hid_report(entry.dev_inst, 0, &entry.data[..len]);
+        hal.queue_hid_report(entry.dev_inst, 0, &entry.data[..len]);
     }
     pt.smartshift_buf_count = 0;
 }
@@ -574,14 +694,29 @@ mod tests {
     }
 
     #[test]
-    fn task_flushes_output_queue() {
-        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = setup();
+    fn flush_output_report_sends_and_clears() {
+        // flush_output_report runs on Core1 (not passthrough_task on Core0) to
+        // avoid racing the host stack. It must send the pending report and clear
+        // the pending flag.
+        let (mut pt, _hid, _cfg, _fw, _led, hal) = setup();
         pt.out_queue.pending = true;
         pt.out_queue.data[0] = 0xAA;
         pt.out_queue.len = 1;
-        passthrough_task(&mut pt, &mut dev!(hid, cfg, fw, led), &hal);
+        flush_output_report(&mut pt, &hal);
         assert!(!pt.out_queue.pending);
         assert_eq!(hal.host_set_report_count.get(), 1);
+    }
+
+    #[test]
+    fn passthrough_task_does_not_send_set_report() {
+        // The Core0 task must NOT issue the host SET_REPORT — that is the bug
+        // this split fixes (cross-core host-stack access hangs Core1).
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = setup();
+        pt.out_queue.pending = true;
+        pt.out_queue.len = 1;
+        passthrough_task(&mut pt, &mut dev!(hid, cfg, fw, led), &hal);
+        assert_eq!(hal.host_set_report_count.get(), 0, "Core0 task must not send to host");
+        assert!(pt.out_queue.pending, "out_queue stays pending for Core1 to flush");
     }
 
     // -- on_device_mount tests --
@@ -617,31 +752,45 @@ mod tests {
     // -- on_device_unmount tests --
 
     #[test]
-    fn unmount_triggers_reconnect_when_empty() {
-        let (mut pt, _hid, _cfg, _fw, _led, hal) = setup();
+    fn unmount_requests_disconnect_when_empty() {
+        // on_device_unmount runs on Core1 and must NOT touch the device stack:
+        // it only flags disconnect_requested; passthrough_task (Core0) performs
+        // the actual tud_disconnect.
+        let (mut pt, _hid, _cfg, _fw, _led, _hal) = setup();
         let desc = [0x01];
         passthrough::capture_descriptor(&mut pt, 1, 0, 1, &desc);
         pt.active = true;
-        hal.set_time(10000);
 
-        on_device_unmount(&mut pt, 1, &hal);
+        on_device_unmount(&mut pt, 1);
         assert!(!pt.active);
-        assert!(!hal.pt_config_desc_ready.get());
-        assert_eq!(hal.device_disconnect_count.get(), 1);
-        assert_eq!(pt.reconnect_at_us, 10000 + RECONNECT_DELAY_US);
+        assert!(pt.disconnect_requested, "must flag disconnect for Core0");
     }
 
     #[test]
-    fn unmount_partial_no_reconnect() {
-        let (mut pt, _hid, _cfg, _fw, _led, hal) = setup();
+    fn unmount_partial_no_disconnect() {
+        let (mut pt, _hid, _cfg, _fw, _led, _hal) = setup();
         let desc = [0x01];
         passthrough::capture_descriptor(&mut pt, 1, 0, 1, &desc);
         passthrough::capture_descriptor(&mut pt, 2, 0, 1, &desc);
         pt.active = true;
 
-        on_device_unmount(&mut pt, 1, &hal);
+        on_device_unmount(&mut pt, 1);
         assert!(pt.active);
-        assert_eq!(hal.device_disconnect_count.get(), 0);
+        assert!(!pt.disconnect_requested);
+    }
+
+    #[test]
+    fn task_performs_deferred_disconnect_on_core0() {
+        // passthrough_task drains the disconnect_requested flag and performs the
+        // device-stack disconnect + schedules reconnect (all on Core0).
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = setup();
+        pt.disconnect_requested = true;
+        hal.set_time(10000);
+        passthrough_task(&mut pt, &mut dev!(hid, cfg, fw, led), &hal);
+        assert!(!pt.disconnect_requested);
+        assert_eq!(hal.device_disconnect_count.get(), 1);
+        assert!(!hal.pt_config_desc_ready.get());
+        assert_eq!(pt.reconnect_at_us, 10000 + RECONNECT_DELAY_US);
     }
 
     // -- on_set_report tests --
@@ -697,8 +846,27 @@ mod tests {
         // Vendor iface (always_passthrough = true via itf_protocol = 0)
         passthrough::capture_descriptor(&mut t.0, 1, 0, 0, &[0x06, 0x00, 0xFF]);
         t.0.active = true;
+        // Active passthrough operating state: device side has re-mounted, so
+        // the re-enumeration drop-gate in on_report_received is not engaged.
+        t.2.tud_connected = true;
         t.2.config.smartshift_double_click_ms = 350;
         t
+    }
+
+    #[test]
+    fn report_dropped_during_reenumeration() {
+        // pt.active but device side mid-re-enumeration (tud_connected=false):
+        // host reports must be dropped (not forwarded to the device stack) to
+        // avoid the Core1→Core0 device-stack race that hangs Core1.
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = setup();
+        passthrough::capture_descriptor(&mut pt, 1, 0, 0, &[0x06, 0x00, 0xFF]);
+        pt.active = true;
+        cfg.tud_connected = false;
+        let report = [0x10, 0x01, 0x02, 0x00, 0x01, 0x00, 0x00];
+        let action = on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                                        &report, 1, 0, &hal);
+        assert!(matches!(action, ReportAction::Handled), "report must be consumed, not forwarded");
+        assert_eq!(hal.hid_sent.borrow().len(), 0, "nothing forwarded to device while re-enumerating");
     }
 
     #[test]
@@ -756,8 +924,10 @@ mod tests {
         passthrough_task(&mut pt, &mut dev!(hid, cfg, fw, led), &hal);
         assert_eq!(pt.smartshift_window_us, 0);
         assert_eq!(pt.smartshift_buf_count, 0);
-        assert_eq!(hal.hid_sent.borrow().len(), 1, "buffered press must be flushed");
-        assert_eq!(hal.hid_sent.borrow()[0].2, press.to_vec());
+        // Flush routes through the cross-core queue (queue_hid_report), not a
+        // direct device send, so it lands in hid_queued.
+        assert_eq!(hal.hid_queued.borrow().len(), 1, "buffered press must be flushed");
+        assert_eq!(hal.hid_queued.borrow()[0].2, press.to_vec());
     }
 
     #[test]
@@ -775,7 +945,7 @@ mod tests {
         // First press is flushed, new window opened
         assert_eq!(pt.smartshift_window_us, 1_500_000, "new window opened at third press");
         assert_eq!(pt.smartshift_buf_count, 1, "third press buffered as new Down1");
-        assert_eq!(hal.hid_sent.borrow().len(), 1, "first press flushed before new window");
+        assert_eq!(hal.hid_queued.borrow().len(), 1, "first press flushed before new window");
     }
 
     #[test]
@@ -792,5 +962,22 @@ mod tests {
                            &scroll, 1, 0, &hal);
         assert_eq!(pt.smartshift_buf_count, 2, "scroll event buffered alongside press");
         assert_eq!(hal.hid_sent.borrow().len(), 0);
+    }
+
+    #[test]
+    fn active_forward_routes_through_queue_not_device_stack() {
+        // The active-output passthrough forward must route through queue_hid_report
+        // (drained by Core0), NOT call send_hid_report (device stack) from this
+        // Core1 callback — the latter races tud_task and hangs Core1.
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = ss_setup();
+        cfg.tud_connected = true; // not re-enumerating
+        // is_active_output() is true (active_output == board_role == 0).
+        // A non-SmartShift HID++ input event forwards immediately.
+        let report = [HIDPP_REPORT_ID_SHORT, 0x01, 0x06, 0x00, 0x00, 0x05, 0x00];
+        let action = on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                                        &report, 1, 0, &hal);
+        assert!(matches!(action, ReportAction::Handled));
+        assert_eq!(hal.hid_sent.borrow().len(), 0, "must NOT touch the device stack from Core1");
+        assert_eq!(hal.hid_queued.borrow().len(), 1, "must route via the cross-core queue");
     }
 }

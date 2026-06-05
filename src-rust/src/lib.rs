@@ -77,6 +77,7 @@ pub extern "C" fn rust_core1_loop() -> ! {
         scheduler::Task::new(tasks::screensaver_task, scheduler::hz(120)),
         scheduler::Task::new(c_tasks::firmware_upgrade_task, scheduler::hz(4000)),
         scheduler::Task::new(tasks::heartbeat_output_task, scheduler::hz(1)),
+        scheduler::Task::new(tasks::passthrough_host_tx_task, scheduler::hz(1000)),
     ];
 
     loop {

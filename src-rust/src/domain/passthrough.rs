@@ -162,6 +162,15 @@ pub struct PassthroughState {
     /// trigger (so the release of the second press isn't forwarded as an
     /// orphan event).
     pub smartshift_consume: u8,
+
+    /// Set by on_device_unmount (Core1) to request the device-side
+    /// disconnect/reconnect cycle. The actual tud_disconnect is performed by
+    /// passthrough_task on Core0 — Core1 must never touch the device stack.
+    pub disconnect_requested: bool,
+
+    /// Debug: last forwarded mouse button byte, for button-transition logging
+    /// (pointer movement is not logged). DH_DEBUG observability only.
+    pub dbg_last_buttons: u8,
 }
 
 impl Default for PassthroughState {
@@ -182,6 +191,8 @@ impl Default for PassthroughState {
             smartshift_buf_count: 0,
             smartshift_buf: [SmartShiftBufEntry::default(); SMARTSHIFT_BUF_SIZE],
             smartshift_consume: 0,
+            disconnect_requested: false,
+            dbg_last_buttons: 0,
         }
     }
 }
