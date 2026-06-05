@@ -181,6 +181,19 @@ pub fn flush_output_report(pt: &mut PassthroughState, hal: &impl UsbHost) {
 
 /// Called from tuh_hid_mount_cb when a host device is mounted.
 /// Captures descriptor for passthrough if enabled.
+///
+/// KNOWN LIMITATION (cross-core, documented & deferred): this runs on Core1 and
+/// `capture_descriptor` mutates `ifaces[]`/`iface_count`, which the device
+/// descriptor callbacks (rust_get_*_descriptor) read on Core0 during the host's
+/// GET_DESCRIPTOR. In the normal flow these never overlap — captures finish and
+/// stabilize (CAPTURE_STABILIZE_US) before activation triggers the re-enum the
+/// host reads. They could only race in the narrow window where an upstream
+/// mount/unmount lands while the host is mid-enumeration (e.g. a very fast
+/// dongle re-plug). The textbook fix is to serialize mount/umount to Core0 via
+/// a Core1→Core0 event queue (carrying the captured descriptor), but that
+/// re-architects this enumeration path; deferred until a concrete descriptor-
+/// corruption symptom is observed. The device-stack hazards on this path
+/// (device_disconnect / report forwarding) ARE already moved to Core0.
 pub fn on_device_mount(
     pt: &mut PassthroughState,
     dev: &DeviceState<'_>,
