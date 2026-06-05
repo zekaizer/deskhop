@@ -49,28 +49,33 @@ pub fn flush_outbox(hal: &(impl Transfer + PeerLink)) {
     hal.transmit(&raw);
 }
 
-/// Size of hid_generic_pkt_t: instance(1) + report_id(1) + type(1) + len(1) + data(12) = 16
-const HID_GENERIC_PKT_SIZE: usize = 16;
+/// Max report data bytes per queued HID packet (mirrors C HID_REPORT_DATA_MAX in packet.h).
+const HID_REPORT_DATA_MAX: usize = 32;
+/// Size of hid_generic_pkt_t: instance(1) + report_id(1) + type(1) + len(1) + data(HID_REPORT_DATA_MAX) = 36
+const HID_GENERIC_PKT_SIZE: usize = 4 + HID_REPORT_DATA_MAX;
 
 /// Send one pending HID report from the output queue via TinyUSB.
 /// Peek → check if TinyUSB endpoint is ready → send → remove on success.
+/// Returns true if a report was actually sent (marks active-output activity).
 pub fn process_hid_queue(
     hal: &(impl HidQueue + UsbDevice),
-) {
+) -> bool {
     let mut buf = [0u8; HID_GENERIC_PKT_SIZE];
-    if !hal.peek_hid_report(&mut buf) { return; }
+    if !hal.peek_hid_report(&mut buf) { return false; }
 
     let instance = buf[0];
     let report_id = buf[1];
     // buf[2] = type (unused in send path)
     let len = buf[3] as usize;
-    let data = &buf[4..4 + len.min(12)];
+    let data = &buf[4..4 + len.min(HID_REPORT_DATA_MAX)];
 
-    if !hal.hid_ready(instance) { return; }
+    if !hal.hid_ready(instance) { return false; }
 
     if hal.send_hid_report(instance, report_id, data) {
         hal.pop_hid_report(&mut buf);
+        return true;
     }
+    false
 }
 
 
@@ -162,11 +167,59 @@ pub fn led_blink_tick(
     state: &mut DeviceState<'_>,
     hal: &(impl Indicator + OutputControl + Timer),
 ) {
+    use crate::domain::structs::LED_BLINK_PT_WAIT;
+
+    // Drain a deferred upstream keyboard-LED resync requested by a Core0 context.
+    // sync_leds() touches the host stack (tuh_hid_set_report), which is only safe
+    // on this core (Core1) — see send_kbd_leds_xcore.
+    if state.cfg.leds_resync_pending {
+        state.cfg.leds_resync_pending = false;
+        hal.sync_leds();
+    }
+
+    // PT_WAIT mode: slow pulse (50ms on / 450ms off) — independent of blinks_left
+    if state.led.led_blink_mode == LED_BLINK_PT_WAIT {
+        let now = hal.now_us_32();
+        let elapsed = now.wrapping_sub(state.led.last_led_change as u32);
+        let is_on = state.cfg.onboard_led_state;
+        let threshold = if is_on { 50_000u32 } else { 450_000u32 };
+        if elapsed >= threshold {
+            hal.toggle();
+            state.cfg.onboard_led_state = !is_on;
+            state.led.last_led_change = now as i32;
+        }
+        return;
+    }
+
     use crate::domain::blink::{blink_step, BlinkAction};
+
+    // HID activity window: while a HID report was processed within this, the
+    // active board's LED flickers instead of staying solid on.
+    const HID_ACTIVITY_US: u32 = 60_000;
+    // Flicker shape: a short OFF blip within each cycle (mostly-on, fast) so the
+    // LED never sits dark during continuous use. Phase is derived from the timer
+    // so it renders crisply at the task rate (hz120).
+    const FLICKER_PERIOD_US: u32 = 60_000;
+    const FLICKER_OFF_US: u32 = 15_000;
 
     let now = hal.now_us_32();
     match blink_step(state.led.blinks_left, state.led.last_led_change, now) {
-        BlinkAction::Idle | BlinkAction::Wait => {}
+        BlinkAction::Idle => {
+            // Running steady state (sole board-LED authority): active board's LED
+            // is on, inactive board off. While HID input is being processed, blink
+            // the active LED with a short off pulse so the user sees activity — it
+            // never stays solidly off during continuous use.
+            if state.is_active_output() {
+                if now.wrapping_sub(state.cfg.last_hid_activity_us) < HID_ACTIVITY_US {
+                    hal.set_board_led((now % FLICKER_PERIOD_US) >= FLICKER_OFF_US);
+                } else {
+                    hal.set_board_led(true);
+                }
+            } else {
+                hal.set_board_led(false);
+            }
+        }
+        BlinkAction::Wait => {}
         BlinkAction::Toggle => {
             let led_on = hal.toggle();
             if state.cfg.keyboard_connected {
@@ -234,6 +287,74 @@ mod tests {
         state.cfg.core1_last_loop_pass = 900_000; // 100ms ago
         assert!(check_system_health(&state, &hal));
         assert!(hal.watchdog_kicked.get());
+    }
+
+    #[test]
+    fn led_blink_drains_pending_resync() {
+        // A Core0-deferred LED resync is flushed here (on Core1) via sync_leds.
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        cfg.leds_resync_pending = true;
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        led_blink_tick(&mut state, &hal);
+        assert!(!state.cfg.leds_resync_pending, "flag must be cleared");
+        assert_eq!(hal.leds_synced.get(), 1, "sync_leds must run on the drain");
+    }
+
+    #[test]
+    fn led_blink_no_resync_when_not_pending() {
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        led_blink_tick(&mut state, &hal);
+        assert_eq!(hal.leds_synced.get(), 0);
+    }
+
+    #[test]
+    fn led_steady_active_idle_is_on() {
+        // Active board (active_output == board_role == 0), no recent HID activity
+        // → solid on. Also covers restoring the LED after PT_WAIT/blink left it off.
+        let hal = MockHal::new();
+        hal.set_time(1_000_000);
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        hal.board_led.set(false); // pretend left off by a prior pulse
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        led_blink_tick(&mut state, &hal);
+        assert!(hal.board_led.get(), "active idle board LED must be on");
+    }
+
+    #[test]
+    fn led_steady_inactive_is_off() {
+        let hal = MockHal::new();
+        hal.set_time(1_000_000);
+        hal.board_led.set(true);
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        cfg.board_role = 1; // active_output stays 0 → this board is inactive
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        led_blink_tick(&mut state, &hal);
+        assert!(!hal.board_led.get(), "inactive board LED must be off");
+    }
+
+    #[test]
+    fn led_active_flickers_on_hid_activity() {
+        // During HID activity the active LED blinks with a short OFF window and is
+        // mostly ON (never solid-off). Phase = now % 60ms; off for the first 15ms.
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+
+        // OFF phase: now % 60ms < 15ms
+        hal.set_time(5_000);
+        cfg.last_hid_activity_us = 5_000; // recent → busy
+        led_blink_tick(
+            &mut DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led }, &hal);
+        assert!(!hal.board_led.get(), "short off blip during activity");
+
+        // ON phase: now % 60ms >= 15ms
+        hal.set_time(40_000);
+        cfg.last_hid_activity_us = 40_000; // recent → busy
+        led_blink_tick(
+            &mut DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led }, &hal);
+        assert!(hal.board_led.get(), "mostly on during activity");
     }
 
     #[test]

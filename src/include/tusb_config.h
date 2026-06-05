@@ -116,7 +116,11 @@ extern int dh_debug_printf(const char *__restrict __format, ...);
  *==============================================================================*/
 
 // Enable HID (Human Interface Device) class (keyboard, mouse, etc.).
-#define CFG_TUD_HID    3
+// Must cover the passthrough composite: 2 DeskHop base HID interfaces plus up
+// to MAX_PASSTHROUGH_IFACES (6, see src-rust/src/domain/passthrough.rs) captured
+// passthrough HID interfaces. If too small, hidd_open() runs out of _hidd_itf[]
+// slots and SET_CONFIGURATION stalls on re-enumeration (the device never mounts).
+#define CFG_TUD_HID    8
 
 // Enable MSC (Mass Storage Class) class.
 #define CFG_TUD_MSC    1

@@ -238,12 +238,21 @@ void initial_setup(void) {
 
     dh_debug_printf("boot role=%c config=%d\n", role == OUTPUT_A ? 'A' : 'B', config_mode);
 
+    /* Initialize key remap engine + apply gaming_mode_default (Rust-owned globals) */
+    extern void rust_passthrough_init(void);
+    rust_passthrough_init();
+
     /* Setup RP2040 Core 1 */
     multicore_reset_core1();
     multicore_launch_core1(core1_main);
     diag_led(5); /* BootRustInit */
 
-    /* Initialize and configure TinyUSB Device + Host */
+    /* Initialize and configure TinyUSB Device + Host.
+     * Note: device side comes up as default DeskHop. The passthrough_task
+     * orchestrates the disconnect→reconnect cycle to switch to the captured
+     * composite descriptor once a vendor interface is captured. Doing the
+     * disconnect at boot directly does not give the host a USB SE0 long
+     * enough to invalidate its cached enumeration on most PCs. */
     tud_init(BOARD_TUD_RHPORT);
     pio_usb_host_config(role);
     diag_led(6); /* BootUsb */

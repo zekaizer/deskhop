@@ -38,6 +38,8 @@ pub static FIELDS: &[FieldDef] = &[
     FieldDef { idx: 78, readonly: true,  len: 2 }, FieldDef { idx: 79, readonly: true,  len: 4 },
     FieldDef { idx: 80, readonly: true,  len: 1 }, FieldDef { idx: 81, readonly: true,  len: 1 },
     FieldDef { idx: 82, readonly: true,  len: 1 },
+    FieldDef { idx: 83, readonly: false, len: 1 }, FieldDef { idx: 84, readonly: false, len: 1 },
+    FieldDef { idx: 85, readonly: false, len: 4 },
 ];
 
 pub fn find_field(api_idx: u8) -> Option<&'static FieldDef> {
@@ -98,6 +100,9 @@ pub fn read_field(state: &DeviceState<'_>, idx: u8, out: &mut [u8]) {
         80 => w8!(state.cfg.keyboard_connected as u8),
         81 => w8!(state.cfg.switch_lock as u8),
         82 => w8!(state.cfg.relative_mouse as u8),
+        83 => w8!(state.cfg.config.passthrough_enabled),
+        84 => w8!(state.cfg.config.gaming_mode_default),
+        85 => w32!(state.cfg.config.smartshift_double_click_ms),
         _ => {}
     }
 }
@@ -149,6 +154,9 @@ pub fn write_field(state: &mut DeviceState<'_>, idx: u8, data: &[u8]) {
         76 => state.cfg.config.enforce_ports = r8!(),
         77 => state.cfg.config.jump_threshold = r16!(),
         // 78-82 are readonly
+        83 => state.cfg.config.passthrough_enabled = r8!(),
+        84 => state.cfg.config.gaming_mode_default = r8!(),
+        85 => state.cfg.config.smartshift_double_click_ms = r32!(),
         _ => {}
     }
 }

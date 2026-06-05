@@ -50,6 +50,10 @@ pub trait UsbDevice {
         let _ = (instance, report_id, data);
         false
     }
+    /// Disconnect device side (triggers host re-enumeration).
+    fn device_disconnect(&self);
+    /// Connect device side (enroll with current descriptors).
+    fn device_connect(&self);
 }
 
 /// HID report queues (mouse/keyboard) between cores.
@@ -68,7 +72,12 @@ pub trait HidQueue {
     fn peek_hid_report(&self, out: &mut [u8]) -> bool;
     fn pop_hid_report(&self, out: &mut [u8]) -> bool;
     /// Send a generic HID report via TinyUSB. Returns true on success.
+    /// DEVICE stack — Core0 only.
     fn send_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) -> bool;
+    /// Queue a passthrough HID report into the cross-core output queue for the
+    /// Core0 process_hid_queue task to send. Cross-core safe — call from Core1
+    /// tuh callbacks instead of send_hid_report (which touches the device stack).
+    fn queue_hid_report(&self, instance: u8, report_id: u8, data: &[u8]);
 }
 
 /// Control packet queues (consumer control, system control, config).
@@ -127,6 +136,8 @@ pub trait Indicator {
     fn toggle(&self) -> bool;
     /// Set keyboard LEDs (Num/Caps/Scroll) via USB host SET_REPORT.
     fn set_keyboard_leds(&self, leds: u8);
+    /// Drive the on-board LED to a specific state (true = ON).
+    fn set_board_led(&self, on: bool);
 }
 
 /// DMA receive channel — UART packet reception from ring buffer.
@@ -143,6 +154,24 @@ pub trait DmaRx {
     fn fetch_packet(&self);
     /// Pointer to the most recently fetched packet (10 bytes: ptype + data[8] + checksum).
     fn in_packet_ptr(&self) -> *const u8;
+}
+
+/// USB host-side operations (SET_REPORT, VID/PID query, report re-arm).
+pub trait UsbHost {
+    fn send_set_report(
+        &self, dev_addr: u8, itf_num: u8, report_id: u8,
+        report_type: u8, data: &[u8],
+    ) -> bool;
+    fn get_upstream_vid_pid(&self, dev_addr: u8) -> (u16, u16);
+    fn receive_report(&self, dev_addr: u8, instance: u8);
+}
+
+/// Passthrough descriptor management.
+pub trait PassthroughHal {
+    /// Build config descriptor from captured interfaces. Returns true on success.
+    fn build_config_desc(&self) -> bool;
+    /// Clear the config descriptor buffer.
+    fn clear_config_desc(&self);
 }
 
 /// Debug/diagnostic output.

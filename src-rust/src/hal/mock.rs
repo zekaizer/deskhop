@@ -31,6 +31,7 @@ pub struct MockHal {
     pub config_wiped: Cell<u32>,
     pub blink_count: Cell<u32>,
     pub toggle_count: Cell<u32>,
+    pub board_led: Cell<bool>,
     pub output_switched: Cell<Option<u8>>,
     pub leds_synced: Cell<u32>,
     pub dump_count: Cell<u32>,
@@ -40,6 +41,19 @@ pub struct MockHal {
     pub kbd_queue_in: RefCell<Vec<[u8; 8]>>,
     pub mouse_queue_in: RefCell<Vec<[u8; 8]>>,
     pub outbound_queue_in: RefCell<Vec<[u8; 10]>>,
+    // Passthrough tracking
+    pub device_disconnect_count: Cell<u32>,
+    pub device_connect_count: Cell<u32>,
+    pub host_set_report_count: Cell<u32>,
+    pub host_upstream_vid_pid: Cell<(u16, u16)>,
+    pub pt_config_desc_ready: Cell<bool>,
+    /// When true, build_config_desc() reports failure (models the C-side
+    /// HID-budget guard rejecting an over-large composite descriptor).
+    pub pt_build_fails: Cell<bool>,
+    /// (instance, report_id, payload) forwarded via send_hid_report.
+    pub hid_sent: RefCell<Vec<(u8, u8, Vec<u8>)>>,
+    /// (instance, report_id, payload) routed via queue_hid_report (cross-core queue).
+    pub hid_queued: RefCell<Vec<(u8, u8, Vec<u8>)>>,
 }
 
 impl MockHal {
@@ -66,6 +80,7 @@ impl MockHal {
             config_wiped: Cell::new(0),
             blink_count: Cell::new(0),
             toggle_count: Cell::new(0),
+            board_led: Cell::new(false),
             output_switched: Cell::new(None),
             leds_synced: Cell::new(0),
             dump_count: Cell::new(0),
@@ -74,6 +89,14 @@ impl MockHal {
             kbd_queue_in: RefCell::new(Vec::new()),
             mouse_queue_in: RefCell::new(Vec::new()),
             outbound_queue_in: RefCell::new(Vec::new()),
+            device_disconnect_count: Cell::new(0),
+            device_connect_count: Cell::new(0),
+            host_set_report_count: Cell::new(0),
+            host_upstream_vid_pid: Cell::new((0, 0)),
+            pt_config_desc_ready: Cell::new(false),
+            pt_build_fails: Cell::new(false),
+            hid_sent: RefCell::new(Vec::new()),
+            hid_queued: RefCell::new(Vec::new()),
         }
     }
 
@@ -136,6 +159,8 @@ impl UsbDevice for MockHal {
     fn hid_ready(&self, instance: u8) -> bool { self.hid_ready_map.get() & (1 << instance) != 0 }
     fn send_keyboard_report(&self, _report_id: u8, _modifier: u8, _keycode: &[u8]) -> bool { true }
     fn send_mouse_report(&self, _mode: u8, _buttons: u8, _x: i16, _y: i16, _wheel: i8, _pan: i8) -> bool { true }
+    fn device_disconnect(&self) { self.device_disconnect_count.set(self.device_disconnect_count.get() + 1); }
+    fn device_connect(&self) { self.device_connect_count.set(self.device_connect_count.get() + 1); }
 }
 
 // ---- ReportQueue ----
@@ -158,7 +183,13 @@ impl ReportQueue for MockHal {
 impl HidQueue for MockHal {
     fn peek_hid_report(&self, _out: &mut [u8]) -> bool { false }
     fn pop_hid_report(&self, _out: &mut [u8]) -> bool { false }
-    fn send_hid_report(&self, _instance: u8, _report_id: u8, _data: &[u8]) -> bool { true }
+    fn send_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) -> bool {
+        self.hid_sent.borrow_mut().push((instance, report_id, data.to_vec()));
+        true
+    }
+    fn queue_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) {
+        self.hid_queued.borrow_mut().push((instance, report_id, data.to_vec()));
+    }
 }
 
 // ---- PacketQueue ----
@@ -225,10 +256,46 @@ impl Indicator for MockHal {
     fn toggle(&self) -> bool {
         let n = self.toggle_count.get() + 1;
         self.toggle_count.set(n);
-        n % 2 == 1 // alternates: false→true→false→...
+        let on = !self.board_led.get();
+        self.board_led.set(on);
+        on
     }
     fn set_keyboard_leds(&self, _leds: u8) {
         // Tracked via toggle_count for now
+    }
+    fn set_board_led(&self, on: bool) {
+        self.board_led.set(on);
+    }
+}
+
+// ---- UsbHost ----
+
+impl UsbHost for MockHal {
+    fn send_set_report(
+        &self, _dev_addr: u8, _itf_num: u8, _report_id: u8,
+        _report_type: u8, _data: &[u8],
+    ) -> bool {
+        self.host_set_report_count.set(self.host_set_report_count.get() + 1);
+        true
+    }
+    fn get_upstream_vid_pid(&self, _dev_addr: u8) -> (u16, u16) {
+        self.host_upstream_vid_pid.get()
+    }
+    fn receive_report(&self, _dev_addr: u8, _instance: u8) {}
+}
+
+// ---- PassthroughHal ----
+
+impl PassthroughHal for MockHal {
+    fn build_config_desc(&self) -> bool {
+        if self.pt_build_fails.get() {
+            return false;
+        }
+        self.pt_config_desc_ready.set(true);
+        true
+    }
+    fn clear_config_desc(&self) {
+        self.pt_config_desc_ready.set(false);
     }
 }
 

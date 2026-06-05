@@ -9,6 +9,7 @@ pub mod hotkey_dispatch;
 pub mod led;
 pub mod msg_bridge;
 pub mod output;
+pub mod passthrough_service;
 pub mod packet_dispatch;
 pub mod peer_log;
 pub mod router;

@@ -3,14 +3,13 @@
    firmware upgrade (flash-dependent), and reboot remain in C. */
 #include "main.h"
 
-/* USB tasks — TinyUSB inline macros require C */
-void usb_device_task(void) { tud_task(); }
-void usb_host_task(void) { if (tuh_inited()) tuh_task(); }
-
-/* heartbeat_output_task — now fully in Rust (#[export_name]) */
+/* USB tasks — TinyUSB inline macros require C.
+   Suffixed with _c to avoid collision with Rust wrapper names. */
+void usb_device_task_c(void) { tud_task(); }
+void usb_host_task_c(void) { if (tuh_inited()) tuh_task(); }
 
 /* Firmware upgrade (flash + queue) — requires direct flash/SDK access */
-void firmware_upgrade_task(void) {
+void firmware_upgrade_task_c(void) {
     if (!global_fw.fw.upgrade_in_progress || !global_fw.fw.byte_done || queue_is_full(queue_from_opaque(&global_hw.uart_tx_queue))) return;
     if (global_fw.fw.address > STAGING_IMAGE_SIZE) {
         global_fw.fw.upgrade_in_progress = 0; global_fw.fw.checksum = ~global_fw.fw.checksum;

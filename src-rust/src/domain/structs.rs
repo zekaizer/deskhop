@@ -52,6 +52,10 @@ pub struct DeviceConfig {
     pub keyboard_leds: [u8; 2],
     pub last_activity: [u64; 2],
     pub core1_last_loop_pass: u64,
+    /// Core0 loop timestamp, written each main-loop pass. Symmetric to
+    /// core1_last_loop_pass; surfaced as `c0` in the debug heartbeat so Core0
+    /// loop rate / liveness is visible alongside Core1's.
+    pub core0_last_loop_pass: u64,
 
     pub tud_connected: bool,
     pub keyboard_connected: bool,
@@ -64,6 +68,14 @@ pub struct DeviceConfig {
     pub gaming_mode: bool,
     pub config_mode_active: bool,
     pub digitizer_active: bool,
+    pub switch_requested: bool,
+    /// Set by a Core0 context that wants the upstream keyboard-LED report
+    /// re-sent; the actual tuh_hid_set_report runs on Core1 (led_blink_tick)
+    /// since the host stack must not be touched from Core0.
+    pub leds_resync_pending: bool,
+    /// Timestamp (us, 32-bit) of the last HID report processed. The board-LED
+    /// activity flicker reads this; a u32 is single-word/atomic across cores.
+    pub last_hid_activity_us: u32,
 
     pub config_mode_timer: u64,
 }
@@ -158,6 +170,10 @@ pub struct HidInterface {
     pub protocol: u8,
     pub uses_report_id: bool,
 }
+
+// LED blink mode constants (match C #define in structs.h)
+pub const LED_BLINK_NONE: u8 = 0;
+pub const LED_BLINK_PT_WAIT: u8 = 1;
 
 /* ================================================================== *
  * Pico SDK queue_t — opaque, size varies by SDK version.

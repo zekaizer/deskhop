@@ -91,7 +91,7 @@ typedef struct {
     uint8_t report_id;
     uint8_t type;
     uint8_t len;
-    uint8_t data[RAW_PACKET_LENGTH];
+    uint8_t data[HID_REPORT_DATA_MAX];
 } hid_generic_pkt_t;
 
 typedef enum { IDLE, READING_PACKET, PROCESSING_PACKET } receiver_state_t;
@@ -119,7 +119,12 @@ typedef struct {
     uint16_t jump_threshold;
 
     output_t output[NUM_SCREENS];
-    uint32_t _reserved;
+
+    // Semi-DDM passthrough settings
+    uint8_t passthrough_enabled;
+    uint8_t gaming_mode_default;
+    uint16_t _reserved;
+    uint32_t smartshift_double_click_ms;
 
     // Keep checksum at the end of the struct
     uint32_t checksum;
@@ -156,7 +161,11 @@ typedef struct {
 typedef struct {
     int32_t blinks_left;     // Remaining blink transitions
     int32_t last_led_change; // Timestamp of last LED state change
+    uint8_t led_blink_mode;  // 0=none, 1=PT_WAIT slow pulse
 } device_led_t;
+
+#define LED_BLINK_NONE     0
+#define LED_BLINK_PT_WAIT  1
 
 /* Hardware / SDK-dependent state (C-only, not bindgen-able) */
 typedef struct {

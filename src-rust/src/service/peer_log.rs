@@ -19,7 +19,7 @@ const RING_SIZE: usize = 1024;
 const PREFIX_A: &[u8; 4] = b"[A] ";
 #[cfg(any(feature = "dh_debug", test))]
 const PREFIX_B: &[u8; 4] = b"[B] ";
-const OVERFLOW_MSG: &[u8] = b"[peer_log overflow]\n";
+const OVERFLOW_MSG: &[u8] = b"[peer_log overflow]\r\n";
 
 // ============================================================
 // Ring (pure logic — host-testable, no spinlock dependency)
@@ -81,20 +81,28 @@ impl Ring {
         }
     }
 
-    /// Push locally-produced bytes — injects role prefix at each line start.
+    /// Push locally-produced bytes — injects role prefix at each line start and
+    /// translates bare LF to CRLF for serial-terminal display (matches the C
+    /// dh_debug_printf path; the `prev != '\r'` guard avoids doubling CR for
+    /// input that already carries it).
     pub fn push_local(&mut self, bytes: &[u8], prefix: &[u8]) {
         if bytes.is_empty() {
             return;
         }
         self.drain_overflow_sentinel_if_needed();
+        let mut prev = 0u8;
         for &b in bytes {
             if self.last_was_newline {
                 self.write_bytes(prefix);
+            }
+            if b == b'\n' && prev != b'\r' && !self.write_byte(b'\r') {
+                break;
             }
             if !self.write_byte(b) {
                 break;
             }
             self.last_was_newline = b == b'\n';
+            prev = b;
         }
     }
 
@@ -386,7 +394,7 @@ mod tests {
         r.push_local(b"hello\n", PREFIX_A);
         let mut out = [0u8; 32];
         let n = drain(&mut r, &mut out);
-        assert_eq!(&out[..n], b"[A] hello\n");
+        assert_eq!(&out[..n], b"[A] hello\r\n");
     }
 
     #[test]
@@ -395,7 +403,7 @@ mod tests {
         r.push_local(b"one\ntwo\n", PREFIX_B);
         let mut out = [0u8; 32];
         let n = drain(&mut r, &mut out);
-        assert_eq!(&out[..n], b"[B] one\n[B] two\n");
+        assert_eq!(&out[..n], b"[B] one\r\n[B] two\r\n");
     }
 
     #[test]
@@ -406,7 +414,7 @@ mod tests {
         let mut out = [0u8; 32];
         let n = drain(&mut r, &mut out);
         // Second push must NOT add prefix because last byte was not '\n'.
-        assert_eq!(&out[..n], b"[A] part1 part2\n");
+        assert_eq!(&out[..n], b"[A] part1 part2\r\n");
     }
 
     #[test]

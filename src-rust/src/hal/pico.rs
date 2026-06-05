@@ -109,6 +109,16 @@ impl UsbDevice for PicoHal {
     ) -> bool {
         unsafe { device::hal_tud_mouse_report(mode, buttons, x, y, wheel, pan) }
     }
+
+    #[inline]
+    fn device_disconnect(&self) {
+        unsafe { device::hal_tud_disconnect() }
+    }
+
+    #[inline]
+    fn device_connect(&self) {
+        unsafe { device::hal_tud_connect() }
+    }
 }
 
 // ---- ReportQueue ----
@@ -161,6 +171,11 @@ impl HidQueue for PicoHal {
     #[inline]
     fn send_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) -> bool {
         unsafe { device::hal_tud_hid_n_report(instance, report_id, data.as_ptr(), data.len() as u8) }
+    }
+
+    #[inline]
+    fn queue_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) {
+        unsafe { device::hal_queue_hid_report(instance, report_id, data.as_ptr(), data.len() as u8) }
     }
 }
 
@@ -282,6 +297,11 @@ impl Indicator for PicoHal {
     fn set_keyboard_leds(&self, leds: u8) {
         unsafe { device::set_keyboard_leds(leds) }
     }
+
+    #[inline]
+    fn set_board_led(&self, on: bool) {
+        unsafe { device::hal_gpio_put_led(on) }
+    }
 }
 
 // ---- DmaRx ----
@@ -315,6 +335,50 @@ impl DmaRx for PicoHal {
     #[inline]
     fn in_packet_ptr(&self) -> *const u8 {
         unsafe { device::hal_get_in_packet_ptr() }
+    }
+}
+
+// ---- UsbHost ----
+
+impl UsbHost for PicoHal {
+    #[inline]
+    fn send_set_report(
+        &self, dev_addr: u8, itf_num: u8, report_id: u8,
+        report_type: u8, data: &[u8],
+    ) -> bool {
+        unsafe {
+            device::hal_tuh_set_report(
+                dev_addr, itf_num, report_id, report_type,
+                data.as_ptr(), data.len() as u16,
+            )
+        }
+    }
+
+    #[inline]
+    fn get_upstream_vid_pid(&self, dev_addr: u8) -> (u16, u16) {
+        let mut vid: u16 = 0;
+        let mut pid: u16 = 0;
+        unsafe { device::hal_tuh_vid_pid_get(dev_addr, &mut vid, &mut pid) }
+        (vid, pid)
+    }
+
+    #[inline]
+    fn receive_report(&self, dev_addr: u8, instance: u8) {
+        unsafe { device::hal_tuh_hid_receive_report(dev_addr, instance); }
+    }
+}
+
+// ---- PassthroughHal ----
+
+impl PassthroughHal for PicoHal {
+    fn build_config_desc(&self) -> bool {
+        // Implemented in Phase 5 (FFI integration) — needs pt_config_desc_buf
+        // from ffi::tasks which stores the global passthrough state.
+        unsafe { crate::hal::ffi::passthrough_hal_build_config_desc() }
+    }
+
+    fn clear_config_desc(&self) {
+        unsafe { crate::hal::ffi::passthrough_hal_clear_config_desc() }
     }
 }
 

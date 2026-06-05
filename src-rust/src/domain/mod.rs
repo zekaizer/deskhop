@@ -15,6 +15,7 @@ pub mod hotkey_handlers;
 #[cfg(test)]
 mod integration_tests;
 pub mod kbd_state;
+pub mod key_remap;
 pub mod keyboard;
 pub mod blink;
 pub mod led_pattern;
@@ -22,5 +23,7 @@ pub mod mouse;
 pub mod mouse_logic;
 pub mod msg_handlers;
 pub mod packet;
+pub mod passthrough;
+pub mod passthrough_scan;
 pub mod screensaver;
 pub mod structs;

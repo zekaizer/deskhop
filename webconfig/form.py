@@ -37,6 +37,11 @@ CONFIG_ = [
     FormField(73, "KBD LED as Indicator", None, {}, "uint8", "checkbox"),
 
     FormField(76, "Enforce Ports", None, {}, "uint8", "checkbox"),
+
+    FormField(1004, "Passthrough (Semi-DDM)", elem="label"),
+    FormField(83, "Passthrough Enabled", None, {}, "uint8", "checkbox"),
+    FormField(84, "Gaming Mode Default", None, {}, "uint8", "checkbox"),
+    FormField(85, "SmartShift Double-Click (ms)", 500, {"min": 100, "max": 2000}, "uint32", "range"),
 ]
 
 OUTPUT_ = [

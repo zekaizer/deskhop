@@ -321,6 +321,14 @@ pub unsafe extern "C" fn rust_on_hid_mount(
 
     let mut state = structs::DeviceState::from_globals();
     let hal = crate::hal::pico::PicoHal::new();
+
+    // Passthrough: capture descriptor if enabled
+    let pt = super::tasks::get_pt_state();
+    let desc_slice = core::slice::from_raw_parts(desc_report, desc_len as usize);
+    crate::service::passthrough_service::on_device_mount(
+        pt, &state, dev_addr, instance, itf_protocol, desc_slice, &hal,
+    );
+
     let params = crate::service::usb::MountParams { dev_addr, instance, itf_protocol };
 
     if let Some(proto) = crate::service::usb::on_hid_mount(&mut state, &hal, iface, &params) {
@@ -342,6 +350,10 @@ pub unsafe extern "C" fn rust_on_hid_umount(
 
     crate::service::usb::on_hid_umount(state.cfg, itf_protocol);
 
+    // Passthrough: clean up state for this device
+    let pt = super::tasks::get_pt_state();
+    crate::service::passthrough_service::on_device_unmount(pt, dev_addr);
+
     // Zero the interface structure
     let iface = iface_ptr as *mut HidInterface;
     core::ptr::write_bytes(iface, 0, 1);
@@ -359,7 +371,26 @@ pub unsafe extern "C" fn rust_on_hid_report_received(
 ) {
     let itf_protocol = device::hal_tuh_hid_interface_protocol(dev_addr, instance);
     let iface = iface_from_ptr(iface_ptr);
-    let state = structs::DeviceState::from_globals();
+    let mut state = structs::DeviceState::from_globals();
+
+    // Stamp HID activity (mouse/keyboard/HID++) for the board-LED activity
+    // flicker. u32 write is atomic across cores; led_blink_tick (Core1) reads it.
+    state.cfg.last_hid_activity_us = device::hal_time_us_32();
+
+    // Passthrough: forward non-keyboard reports first
+    if itf_protocol != crate::domain::constants::HID_ITF_PROTOCOL_KEYBOARD {
+        let pt = super::tasks::get_pt_state();
+        let hal = crate::hal::pico::PicoHal::new();
+        let report_slice = core::slice::from_raw_parts(report, len as usize);
+        if matches!(
+            crate::service::passthrough_service::on_report_received(
+                pt, &mut state, report_slice, dev_addr, instance, &hal,
+            ),
+            crate::service::passthrough_service::ReportAction::Handled
+        ) {
+            return;
+        }
+    }
 
     let device_idx = hid_routing::calculate_device_idx(
         itf_protocol, dev_addr, instance,
@@ -430,6 +461,18 @@ pub unsafe extern "C" fn rust_on_tud_set_report(
     const HID_REPORT_TYPE_OUTPUT: u8 = 2;
 
     if buffer.is_null() { return; }
+
+    // Passthrough: forward output reports from host to receiver
+    {
+        let pt = super::tasks::get_pt_state();
+        if pt.active && instance >= crate::domain::passthrough::ITF_NUM_PT_BASE {
+            let buf = core::slice::from_raw_parts(buffer, bufsize as usize);
+            crate::service::passthrough_service::on_set_report(
+                pt, instance, report_id, report_type, buf,
+            );
+            return;
+        }
+    }
 
     // Config vendor report (pointer dispatch stays in FFI)
     if instance == ITF_NUM_HID_VENDOR && report_id == REPORT_ID_VENDOR {
@@ -522,6 +565,18 @@ extern "C" {
     fn release_all_keys();
 }
 
+/// Send an upstream keyboard-LED report, but only from Core1 (the host-stack
+/// core). Called on Core0, it defers by flagging leds_resync_pending; the Core1
+/// led_blink_tick drains the flag and re-sends. This keeps tuh_hid_set_report
+/// off Core0, which would otherwise race tuh_task and hang Core1.
+unsafe fn send_kbd_leds_xcore(da: u8, inst: u8, leds: *const u8, len: u8) {
+    if device::hal_is_core1() {
+        device::hal_tuh_hid_set_report(da, inst, leds, len);
+    } else {
+        (*core::ptr::addr_of_mut!(structs::GLOBAL_CFG)).leds_resync_pending = true;
+    }
+}
+
 #[export_name = "set_active_output"]
 pub unsafe extern "C" fn rust_set_active_output(output: u8) {
     let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
@@ -531,7 +586,7 @@ pub unsafe extern "C" fn rust_set_active_output(output: u8) {
         hid,
         output,
         |on| device::hal_gpio_put_led(on),
-        |da, inst, leds, len| device::hal_tuh_hid_set_report(da, inst, leds, len),
+        |da, inst, leds, len| send_kbd_leds_xcore(da, inst, leds, len),
         |val, ptype| device::send_value(val, ptype),
         || release_all_keys(),
     );
@@ -549,12 +604,13 @@ extern "C" {
 pub unsafe extern "C" fn hal_debug_dump_state() {
     let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
     dh_debug_printf(
-        c"tud=%d kbd=%d mse=%d role=%d out=%d c1=%llu\n".as_ptr(),
+        c"tud=%d kbd=%d mse=%d role=%d out=%d c0=%llu c1=%llu\n".as_ptr(),
         cfg.tud_connected as u32,
         cfg.keyboard_connected as u32,
         cfg.mouse_connected as u32,
         cfg.board_role as u32,
         cfg.active_output as u32,
+        cfg.core0_last_loop_pass,
         cfg.core1_last_loop_pass,
     );
 }
@@ -594,7 +650,7 @@ pub unsafe extern "C" fn rust_restore_leds() {
         cfg,
         hid,
         |on| device::hal_gpio_put_led(on),
-        |da, inst, leds, len| device::hal_tuh_hid_set_report(da, inst, leds, len),
+        |da, inst, leds, len| send_kbd_leds_xcore(da, inst, leds, len),
     );
 }
 
@@ -606,7 +662,7 @@ pub unsafe extern "C" fn rust_set_keyboard_leds(leds: u8) {
         cfg,
         hid,
         leds,
-        |da, inst, led_val, len| device::hal_tuh_hid_set_report(da, inst, led_val, len),
+        |da, inst, led_val, len| send_kbd_leds_xcore(da, inst, led_val, len),
     );
 }
 
@@ -633,10 +689,25 @@ const ITF_NUM_HID_REL_M: u8 = 1;
 pub unsafe extern "C" fn rust_get_device_descriptor() -> *const u8 {
     let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
     if crate::service::usb::is_config_mode(cfg) {
-        core::ptr::addr_of!(desc_device_config)
-    } else {
-        core::ptr::addr_of!(desc_device)
+        return core::ptr::addr_of!(desc_device_config);
     }
+
+    // Passthrough: present upstream device identity
+    let pt = super::tasks::get_pt_state();
+    if pt.active && pt.upstream_vid != 0 {
+        // Reuse desc_device as template, patch VID/PID into static buffer
+        static mut PT_DEVICE_DESC: [u8; 18] = [0; 18];
+        let buf = core::ptr::addr_of_mut!(PT_DEVICE_DESC).cast::<u8>();
+        let src = core::ptr::addr_of!(desc_device).cast::<u8>();
+        core::ptr::copy_nonoverlapping(src, buf, 18);
+        *buf.add(8) = (pt.upstream_vid & 0xFF) as u8;
+        *buf.add(9) = (pt.upstream_vid >> 8) as u8;
+        *buf.add(10) = (pt.upstream_pid & 0xFF) as u8;
+        *buf.add(11) = (pt.upstream_pid >> 8) as u8;
+        return buf;
+    }
+
+    core::ptr::addr_of!(desc_device)
 }
 
 #[no_mangle]
@@ -645,6 +716,15 @@ pub unsafe extern "C" fn rust_get_hid_report_descriptor(instance: u8) -> *const 
     if crate::service::usb::is_config_mode(cfg) && instance == ITF_NUM_HID_VENDOR {
         return core::ptr::addr_of!(desc_hid_report_vendor);
     }
+
+    // Passthrough: return captured descriptor for passthrough instances
+    let pt = super::tasks::get_pt_state();
+    if pt.active && instance >= crate::domain::passthrough::ITF_NUM_PT_BASE {
+        if let Some((desc, _len)) = crate::domain::passthrough::get_report_desc(pt, instance) {
+            return desc.as_ptr();
+        }
+    }
+
     match instance {
         ITF_NUM_HID_C => core::ptr::addr_of!(desc_hid_report),
         ITF_NUM_HID_REL_M => core::ptr::addr_of!(desc_hid_report_relmouse),
@@ -656,10 +736,19 @@ pub unsafe extern "C" fn rust_get_hid_report_descriptor(instance: u8) -> *const 
 pub unsafe extern "C" fn rust_get_configuration_descriptor() -> *const u8 {
     let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
     if crate::service::usb::is_config_mode(cfg) {
-        core::ptr::addr_of!(desc_configuration_config)
-    } else {
-        core::ptr::addr_of!(desc_configuration)
+        return core::ptr::addr_of!(desc_configuration_config);
     }
+
+    // Passthrough: return dynamically built descriptor
+    let pt = super::tasks::get_pt_state();
+    if pt.active {
+        let (ptr, len) = super::pt_config_desc_ptr();
+        if len > 0 {
+            return ptr;
+        }
+    }
+
+    core::ptr::addr_of!(desc_configuration)
 }
 
 // ============================================================

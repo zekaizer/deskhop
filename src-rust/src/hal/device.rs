@@ -58,6 +58,7 @@ extern "C" {
     pub fn hal_gpio_put_led(state: bool);
     pub fn hal_gpio_get_led() -> bool;
     pub fn hal_tuh_hid_set_report(dev_addr: u8, instance: u8, data: *const u8, len: u8);
+    pub fn hal_is_core1() -> bool;
 
     // ---- hid_interface_t (remaining C-dependent function) ----
     /// Assigns C function pointers (process_*_report) to report_handler array
@@ -89,6 +90,7 @@ extern "C" {
     pub fn hal_hid_queue_peek(out: *mut u8) -> bool;
     pub fn hal_hid_queue_remove(out: *mut u8) -> bool;
     pub fn hal_tud_hid_n_report(instance: u8, report_id: u8, data: *const u8, len: u8) -> bool;
+    pub fn hal_queue_hid_report(instance: u8, report_id: u8, data: *const u8, len: u8);
 
     // ---- DMA ----
     pub fn hal_dma_channel_is_busy() -> bool;
@@ -99,4 +101,17 @@ extern "C" {
     pub fn hal_get_in_packet_ptr() -> *const u8;
     pub fn hal_is_start_of_packet() -> bool;
     pub fn hal_fetch_packet();
+
+    // ---- Passthrough (Semi-DDM) ----
+    pub fn hal_tud_disconnect();
+    pub fn hal_tud_connect();
+    pub fn hal_tuh_vid_pid_get(dev_addr: u8, vid: *mut u16, pid: *mut u16);
+    pub fn hal_tuh_set_report(
+        dev_addr: u8, itf_num: u8, report_id: u8, report_type: u8,
+        data: *const u8, len: u16,
+    ) -> bool;
+    pub fn hal_passthrough_build_config_desc(
+        config_desc: *mut u8, buf_size: u16,
+        config_desc_len: *mut u16, iface_count: u8,
+    );
 }

@@ -55,7 +55,10 @@ pub static DEFAULT_CONFIG: Config = Config {
             },
         },
     ],
+    passthrough_enabled: 1,
+    gaming_mode_default: 0,
     _reserved: 0,
+    smartshift_double_click_ms: 350,
     checksum: 0,
 };
 

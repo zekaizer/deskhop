@@ -7,37 +7,44 @@ use crate::domain::structs::DeviceState;
 use crate::hal::traits::*;
 
 /// Send one pending keyboard report to the host if the endpoint is ready.
+/// Returns true if a report was actually sent to the host (used to mark
+/// active-output HID activity for the board-LED flicker).
 pub fn send_pending_kbd(
     state: &DeviceState<'_>,
     hal: &(impl ReportQueue + UsbDevice),
-) {
-    if !state.cfg.tud_connected { return; }
+) -> bool {
+    if !state.cfg.tud_connected { return false; }
     let mut report = [0u8; 8];
-    if !hal.peek_kbd_report(&mut report) { return; }
+    if !hal.peek_kbd_report(&mut report) { return false; }
     if hal.is_suspended() { hal.remote_wakeup(); }
-    if !hal.hid_ready(ITF_NUM_HID) { return; }
+    if !hal.hid_ready(ITF_NUM_HID) { return false; }
     if hal.send_keyboard_report(1, report[0], &report[2..]) {
         hal.pop_kbd_report(&mut report);
+        return true;
     }
+    false
 }
 
 /// Send one pending mouse report to the host if the endpoint is ready.
+/// Returns true if a report was actually sent.
 pub fn send_pending_mouse(
     state: &DeviceState<'_>,
     hal: &(impl ReportQueue + UsbDevice),
-) {
-    if !state.cfg.tud_connected { return; }
+) -> bool {
+    if !state.cfg.tud_connected { return false; }
     let mut r = [0u8; 8];
-    if !hal.peek_mouse_report(&mut r) { return; }
+    if !hal.peek_mouse_report(&mut r) { return false; }
     if hal.is_suspended() { hal.remote_wakeup(); }
-    if !hal.hid_ready(ITF_NUM_HID) { return; }
+    if !hal.hid_ready(ITF_NUM_HID) { return false; }
     if hal.send_mouse_report(
         r[7], r[0],
         i16::from_le_bytes([r[1], r[2]]), i16::from_le_bytes([r[3], r[4]]),
         r[5] as i8, r[6] as i8,
     ) {
         hal.pop_mouse_report(&mut r);
+        return true;
     }
+    false
 }
 
 /// Clear all keyboard state and send an empty report to the host.
