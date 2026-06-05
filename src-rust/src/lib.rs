@@ -60,6 +60,12 @@ pub extern "C" fn rust_main_loop() -> ! {
     ];
 
     loop {
+        // Stamp Core0 liveness (mirrors core1_last_loop_pass in rust_core1_loop)
+        // so the debug heartbeat's c0 reflects this core's loop rate.
+        unsafe {
+            let ds = domain::structs::DeviceState::from_globals();
+            ds.cfg.core0_last_loop_pass = hal.now_us_64();
+        }
         scheduler::run_all_tasks(&mut task_list, &hal);
     }
 }

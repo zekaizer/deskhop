@@ -588,12 +588,13 @@ extern "C" {
 pub unsafe extern "C" fn hal_debug_dump_state() {
     let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
     dh_debug_printf(
-        c"tud=%d kbd=%d mse=%d role=%d out=%d c1=%llu\n".as_ptr(),
+        c"tud=%d kbd=%d mse=%d role=%d out=%d c0=%llu c1=%llu\n".as_ptr(),
         cfg.tud_connected as u32,
         cfg.keyboard_connected as u32,
         cfg.mouse_connected as u32,
         cfg.board_role as u32,
         cfg.active_output as u32,
+        cfg.core0_last_loop_pass,
         cfg.core1_last_loop_pass,
     );
 }

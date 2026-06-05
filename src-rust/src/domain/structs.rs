@@ -52,6 +52,10 @@ pub struct DeviceConfig {
     pub keyboard_leds: [u8; 2],
     pub last_activity: [u64; 2],
     pub core1_last_loop_pass: u64,
+    /// Core0 loop timestamp, written each main-loop pass. Symmetric to
+    /// core1_last_loop_pass; surfaced as `c0` in the debug heartbeat so Core0
+    /// loop rate / liveness is visible alongside Core1's.
+    pub core0_last_loop_pass: u64,
 
     pub tud_connected: bool,
     pub keyboard_connected: bool,
