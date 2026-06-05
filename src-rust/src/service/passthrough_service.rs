@@ -40,6 +40,7 @@ pub fn passthrough_task(
     if dev.cfg.switch_requested {
         dev.cfg.switch_requested = false;
         let new_output = if dev.cfg.active_output == 0 { 1 } else { 0 };
+        LogBuf::new().s(b"[pt] switch -> out=").hx(new_output).done();
         hal.switch_output(new_output);
     }
 
@@ -85,7 +86,11 @@ pub fn passthrough_task(
             crate::service::peer_log::push(b"[pt] desc build FAILED (HID budget exceeded?)\n");
         }
         if passthrough::activate(pt, desc_ready) {
-            crate::service::peer_log::push(b"[pt] activate -> disconnect+reconnect\n");
+            LogBuf::new()
+                .s(b"[pt] activate n=").hx(pt.iface_count)
+                .s(b" vid=").hx16(pt.upstream_vid)
+                .s(b" -> disconnect+reconnect")
+                .done();
             dev.cfg.gaming_mode = true;
             // Force re-enumeration: disconnect default DeskHop, then let the
             // reconnect_at_us branch below bring the device side back up with
@@ -209,17 +214,24 @@ pub fn on_device_mount(
 
     let ok = passthrough::capture_descriptor(pt, dev_addr, instance, itf_protocol, desc);
     pt.last_capture_us = hal.now_us_64();
-    if ok {
-        crate::service::peer_log::push(b"[pt] capture ok\n");
-    } else {
-        crate::service::peer_log::push(b"[pt] capture FAIL (full?)\n");
-    }
+    LogBuf::new()
+        .s(b"[pt] cap addr=").hx(dev_addr)
+        .s(b" inst=").hx(instance)
+        .s(b" proto=").hx(itf_protocol)
+        .s(b" len=").hx(desc.len() as u8)
+        .s(b" n=").hx(pt.iface_count)
+        .s(if ok { b" ok" } else { b" FAIL(full?)" })
+        .done();
 
     // Capture upstream VID/PID once per device
     if pt.upstream_vid == 0 {
         let (vid, pid) = hal.get_upstream_vid_pid(dev_addr);
         pt.upstream_vid = vid;
         pt.upstream_pid = pid;
+        LogBuf::new()
+            .s(b"[pt] upstream vid=").hx16(vid)
+            .s(b" pid=").hx16(pid)
+            .done();
     }
 }
 
@@ -327,6 +339,7 @@ pub fn on_report_received(
                     if elapsed <= window_us {
                         // Second press within window — consume buffered + this press,
                         // mark the upcoming release for consumption, trigger switch.
+                        crate::service::peer_log::push(b"[pt] smartshift double-click\n");
                         passthrough::smartshift_reset(pt);
                         pt.smartshift_consume = 1;
                         dev.cfg.switch_requested = true;
@@ -369,14 +382,17 @@ pub fn on_report_received(
             }
         }
 
+        // Log discrete HID++ control events (MX Master special keys etc.) on the
+        // receiver board regardless of active output, so the [pt] key trace shows
+        // up even when this board isn't the active one. Scroll/thumbwheel
+        // streams are suppressed inside.
+        if is_input {
+            log_hidpp_event(pt, report);
+        }
+
         let is_active = dev.is_active_output();
 
         if !is_input || is_active {
-            // Log discrete HID++ control events (MX Master special keys etc.);
-            // continuous scroll/thumbwheel streams are suppressed inside.
-            if is_input {
-                log_hidpp_event(pt, report);
-            }
             // Protocol responses always forward; input events only on active output.
             // Queue for the Core0 sender — never call the device stack from this
             // Core1 callback (it races tud_task and hangs Core1).
@@ -409,11 +425,13 @@ pub fn on_report_received(
         return ReportAction::Handled;
     }
 
-    // Non-vendor, non-keyboard: raw passthrough on active output only
+    // Non-vendor, non-keyboard: raw passthrough on active output only.
+    // Log mouse button transitions on the receiver board regardless of active
+    // output (pointer movement suppressed) so the [pt] btn trace is consistent.
+    log_button_change(pt, report);
+
     let is_active = dev.is_active_output();
     if is_active {
-        // Log mouse button transitions only (pointer movement suppressed).
-        log_button_change(pt, report);
         // Queue for the Core0 sender (cross-core safe) instead of touching the
         // device stack from this Core1 callback.
         hal.queue_hid_report(dev_inst, 0, report);
@@ -467,6 +485,41 @@ pub fn on_set_report(
 // Helpers
 // ================================================================
 
+/// Tiny fixed-size formatter for DH_DEBUG `[pt]` log lines (no_std, no alloc).
+/// `LogBuf::new().s(b"...").hx(v)...done()` appends a trailing newline and pushes.
+struct LogBuf {
+    buf: [u8; 80],
+    len: usize,
+}
+impl LogBuf {
+    fn new() -> Self {
+        Self { buf: [0; 80], len: 0 }
+    }
+    fn s(&mut self, bytes: &[u8]) -> &mut Self {
+        for &b in bytes {
+            if self.len < self.buf.len() {
+                self.buf[self.len] = b;
+                self.len += 1;
+            }
+        }
+        self
+    }
+    /// Append a byte as two hex digits.
+    fn hx(&mut self, v: u8) -> &mut Self {
+        const H: &[u8; 16] = b"0123456789abcdef";
+        self.s(&[H[(v >> 4) as usize], H[(v & 0x0F) as usize]])
+    }
+    /// Append a u16 as four hex digits (big-endian).
+    fn hx16(&mut self, v: u16) -> &mut Self {
+        self.hx((v >> 8) as u8).hx(v as u8)
+    }
+    /// Append a trailing newline and push to the peer log.
+    fn done(&mut self) {
+        self.s(b"\n");
+        crate::service::peer_log::push(&self.buf[..self.len]);
+    }
+}
+
 /// Log a mouse button transition (DH_DEBUG observability). Only the button byte
 /// (report[1] of a standard mouse report) is tracked, so continuous pointer
 /// movement does not flood the peer_log ring — we log only on a change.
@@ -479,12 +532,7 @@ fn log_button_change(pt: &mut PassthroughState, report: &[u8]) {
         return;
     }
     pt.dbg_last_buttons = buttons;
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let buf = [
-        b'[', b'p', b't', b']', b' ', b'b', b't', b'n', b'=', b'0', b'x',
-        HEX[(buttons >> 4) as usize], HEX[(buttons & 0x0F) as usize], b'\n',
-    ];
-    crate::service::peer_log::push(&buf);
+    LogBuf::new().s(b"[pt] btn=0x").hx(buttons).done();
 }
 
 /// Log a discrete HID++ control event (DH_DEBUG) — e.g. an MX Master special
@@ -503,17 +551,12 @@ fn log_hidpp_event(pt: &PassthroughState, report: &[u8]) {
     {
         return;
     }
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let hi = |b: u8| HEX[(b >> 4) as usize];
-    let lo = |b: u8| HEX[(b & 0x0F) as usize];
-    let buf = [
-        b'[', b'p', b't', b']', b' ', b'k', b'e', b'y', b' ',
-        b'f', b'i', b'=', hi(report[2]), lo(report[2]), b' ',
-        b'f', b'n', b'=', hi(report[3]), lo(report[3]), b' ',
-        b'c', b'=', hi(report[5]), lo(report[5]), b' ',
-        b'a', b'=', hi(report[6]), lo(report[6]), b'\n',
-    ];
-    crate::service::peer_log::push(&buf);
+    LogBuf::new()
+        .s(b"[pt] key fi=").hx(report[2])
+        .s(b" fn=").hx(report[3])
+        .s(b" c=").hx(report[5])
+        .s(b" a=").hx(report[6])
+        .done();
 }
 
 /// Forward all events buffered by the SmartShift double-click state machine
