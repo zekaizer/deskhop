@@ -56,11 +56,12 @@ const HID_GENERIC_PKT_SIZE: usize = 4 + HID_REPORT_DATA_MAX;
 
 /// Send one pending HID report from the output queue via TinyUSB.
 /// Peek → check if TinyUSB endpoint is ready → send → remove on success.
+/// Returns true if a report was actually sent (marks active-output activity).
 pub fn process_hid_queue(
     hal: &(impl HidQueue + UsbDevice),
-) {
+) -> bool {
     let mut buf = [0u8; HID_GENERIC_PKT_SIZE];
-    if !hal.peek_hid_report(&mut buf) { return; }
+    if !hal.peek_hid_report(&mut buf) { return false; }
 
     let instance = buf[0];
     let report_id = buf[1];
@@ -68,11 +69,13 @@ pub fn process_hid_queue(
     let len = buf[3] as usize;
     let data = &buf[4..4 + len.min(HID_REPORT_DATA_MAX)];
 
-    if !hal.hid_ready(instance) { return; }
+    if !hal.hid_ready(instance) { return false; }
 
     if hal.send_hid_report(instance, report_id, data) {
         hal.pop_hid_report(&mut buf);
+        return true;
     }
+    false
 }
 
 

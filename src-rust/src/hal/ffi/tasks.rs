@@ -109,16 +109,28 @@ pub(crate) unsafe fn screensaver_task() {
     }
 }
 
+/// Stamp HID activity for the board-LED flicker. Called on the active board when
+/// it actually sends a report to its host — so the ACTIVE board flickers even
+/// when the dongle/receiver is on the other board (reports arrive via UART).
+unsafe fn mark_hid_activity() {
+    let cfg = &mut *core::ptr::addr_of_mut!(crate::domain::structs::GLOBAL_CFG);
+    cfg.last_hid_activity_us = crate::hal::device::hal_time_us_32();
+}
+
 pub(crate) unsafe fn process_kbd_queue_task() {
     let hal = crate::hal::pico::PicoHal::new();
     let state = crate::domain::structs::DeviceState::from_globals();
-    crate::service::backend::host_link::send_pending_kbd(&state, &hal);
+    if crate::service::backend::host_link::send_pending_kbd(&state, &hal) {
+        mark_hid_activity();
+    }
 }
 
 pub(crate) unsafe fn process_mouse_queue_task() {
     let hal = crate::hal::pico::PicoHal::new();
     let state = crate::domain::structs::DeviceState::from_globals();
-    crate::service::backend::host_link::send_pending_mouse(&state, &hal);
+    if crate::service::backend::host_link::send_pending_mouse(&state, &hal) {
+        mark_hid_activity();
+    }
 }
 
 pub(crate) unsafe fn process_uart_tx_task() {
