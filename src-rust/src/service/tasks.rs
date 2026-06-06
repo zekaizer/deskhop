@@ -1,7 +1,7 @@
 // Task logic — extracted from hal/ffi/tasks.rs for testability.
 // All functions are generic over HAL traits, enabling MockHal in tests.
 
-use crate::domain::constants::{PacketType, RAW_PACKET_LENGTH};
+use crate::domain::constants::{PacketType, PACKET_DATA_LENGTH, RAW_PACKET_LENGTH};
 use crate::domain::packet;
 use crate::domain::screensaver::{self, ScreensaverConfig};
 use crate::domain::structs::DeviceState;
@@ -268,11 +268,9 @@ pub fn heartbeat_tick(
     let crc16 = state.fw._running_fw.checksum as u16;
     let mut pkt = [0u8; 10];
     pkt[0] = PacketType::Heartbeat as u8;
-    pkt[1] = (version & 0xFF) as u8;
-    pkt[2] = ((version >> 8) & 0xFF) as u8;
-    pkt[3] = (crc16 & 0xFF) as u8;
-    pkt[4] = ((crc16 >> 8) & 0xFF) as u8;
-    pkt[5] = state.cfg.active_output;
+    pkt[1..1 + PACKET_DATA_LENGTH].copy_from_slice(
+        &crate::domain::packet::build_heartbeat_payload(version, crc16, state.cfg.active_output),
+    );
 
     hal.enqueue(&pkt);
 }

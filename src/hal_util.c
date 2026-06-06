@@ -35,7 +35,8 @@ void write_flash_page(uint32_t addr, uint8_t *buf) {
  * CRITICAL: this overwrites the running image (where normal code lives), so the
  * function AND everything it touches during the copy must execute from SRAM, not
  * flash — hence __not_in_flash_func, an inline word copy (no memcpy, which is in
- * flash), and an inline AIRCR reset at the end (no flash-resident reboot call).
+ * flash), and an inline watchdog reset at the end (no flash-resident reboot call;
+ * see the reboot note below for why a watchdog reset, not SCB AIRCR).
  * flash_range_erase/program are SDK __not_in_flash_func, so they are RAM-safe.
  * Runs under flash_safe_execute(), which parks the other core in its RAM-resident
  * lockout handler. Interrupts are disabled for the whole copy so no flash-resident

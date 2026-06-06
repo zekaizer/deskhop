@@ -104,7 +104,7 @@ echo -n 'flash' > /dev/tty.usbmodem11104
 ```
 This immediately resets the device into bootloader mode where it appears as "RPI-RP2" drive. This feature is intended for development workflows.
 
-> For the full debug/serial command set and other development tooling — debug logging, `logdump`/`ptr`/`cc`/`kb`, and binary/config version management — see [docs/debugging.md](docs/debugging.md).
+> For the full debug/serial command set and other development tooling — debug logging, `logdump`/`ptr`/`pushfw`/`cc`/`kb`, and binary/config version management — see [docs/debugging.md](docs/debugging.md). The board-to-board firmware auto-sync protocol (slots, packet flow, CRC contract, promote, recovery) is documented in [docs/firmware-auto-sync.md](docs/firmware-auto-sync.md).
 
 ## Misc features
 

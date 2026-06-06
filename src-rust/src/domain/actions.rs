@@ -171,6 +171,37 @@ mod tests {
     }
 
     #[test]
+    fn test_fw_upgrade_older_version_crc_diff() {
+        // A strictly-older peer must never trigger a pull, even with a differing
+        // CRC — the crc-diff branch is gated on EQUAL versions, so an older peer
+        // returns None regardless of dh_debug or board_role (no downgrade hole).
+        assert!(should_start_fw_upgrade(50, 100, 0xAA, 0xBB, 1, false).is_none());
+        assert!(should_start_fw_upgrade(50, 100, 0xAA, 0xBB, 0, false).is_none());
+    }
+
+    #[test]
+    fn test_fw_upgrade_crc_equal_board_b_steady_state() {
+        // Two synced boards: same version, EQUAL crc, Board B (role 1) must NOT
+        // upgrade — in debug AND release — or synced boards would ping-pong
+        // upgrades every heartbeat. The crc-mismatch guard prevents this.
+        assert!(should_start_fw_upgrade(100, 100, 0xAA, 0xAA, 1, false).is_none());
+    }
+
+    #[test]
+    fn test_fw_upgrade_pushfw_sentinel() {
+        // The pushfw dev command (callbacks.rs dbg_force_push) fakes ver=0xFFFF.
+        // 0xFFFF (u16 max) strictly exceeds any real version → peer always pulls,
+        // via the plain `>` comparison (no 0xFFFF special-case), independent of
+        // role/crc/feature.
+        assert!(should_start_fw_upgrade(0xFFFF, 1, 0x11, 0x22, 0, false).is_some());
+        assert!(should_start_fw_upgrade(0xFFFF, 65534, 0, 0, 1, false).is_some());
+        // Collision edge: if our version is already 0xFFFF the version clause does
+        // NOT fire (equal, not greater) — in release that is None.
+        let same = should_start_fw_upgrade(0xFFFF, 0xFFFF, 0x11, 0x11, 1, false);
+        assert!(same.is_none());
+    }
+
+    #[test]
     fn test_validate_fw_response() {
         assert!(validate_fw_response(0x1000, 0x1000));
         assert!(!validate_fw_response(0x1004, 0x1000));

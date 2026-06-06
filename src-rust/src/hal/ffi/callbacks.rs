@@ -1153,13 +1153,9 @@ unsafe fn dbg_force_push() {
     let state = structs::DeviceState::from_globals();
     let hal = crate::hal::pico::PicoHal::new();
     let crc16 = state.fw._running_fw.checksum as u16;
-    // Heartbeat data layout: [ver_lo, ver_hi, crc_lo, crc_hi, output, ...].
-    let data = [
-        0xFF, 0xFF,
-        (crc16 & 0xFF) as u8, (crc16 >> 8) as u8,
-        state.cfg.active_output,
-        0, 0, 0,
-    ];
+    // Sentinel version 0xFFFF (always > any real version), real crc16/output.
+    // Same payload builder as heartbeat_tick so the layout can't drift.
+    let data = crate::domain::packet::build_heartbeat_payload(0xFFFF, crc16, state.cfg.active_output);
     hal.send_packet(&data, crate::domain::constants::PacketType::Heartbeat as u8);
     crate::service::dlog::i(b"dbg").s(b"pushfw: faked hb ver=0xFFFF -> peer pulls our image").done();
 }

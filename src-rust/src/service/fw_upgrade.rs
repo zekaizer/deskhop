@@ -319,4 +319,152 @@ mod tests {
             .count() as u32;
         assert_eq!(erases, STAGING_IMAGE_SIZE / FLASH_SECTOR_SIZE);
     }
+
+    #[test]
+    fn step_full_image_invariants() {
+        // write_page fires exactly SIZE/256 == 1024 times across the full sweep:
+        // every 256B boundary except address 0 (incl. the final SIZE boundary).
+        let writes = (0..=STAGING_IMAGE_SIZE)
+            .step_by(4)
+            .filter(|&a| next_step(a).write_page == 1)
+            .count();
+        assert_eq!(writes, (STAGING_IMAGE_SIZE / FLASH_PAGE_SIZE) as usize); // 1024
+        assert_eq!(next_step(0).write_page, 0);
+        // Every in-range word requests itself and does not finalize.
+        for a in (0..STAGING_IMAGE_SIZE).step_by(4) {
+            assert_eq!(next_step(a).finalize, 0);
+            assert_eq!(next_step(a).request_address, a);
+        }
+        // The cap word is the sole finalize and requests nothing further.
+        assert_eq!(next_step(STAGING_IMAGE_SIZE).finalize, 1);
+        assert_eq!(next_step(STAGING_IMAGE_SIZE).request_address, 0);
+    }
+
+    // -- CRC lower-edge + byte-order contract --
+
+    #[test]
+    fn receive_accumulates_last_word_before_metadata() {
+        // 258044 = SIZE - FLASH_SECTOR_SIZE - 4: the LAST word inside the
+        // CRC-protected region (complement of receive_skips_crc_for_last_sector,
+        // which checks the first EXCLUDED word at SIZE - FLASH_SECTOR_SIZE).
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        let addr = STAGING_IMAGE_SIZE - FLASH_SECTOR_SIZE - 4; // 258044
+        state.fw.fw.address = addr;
+        state.fw.fw.checksum = 0xFFFF_FFFF;
+
+        receive_fw_byte(&mut state, &hal, addr, &[0x01, 0x02, 0x03, 0x04]);
+
+        // Must STILL accumulate. Exact running (non-inverted) CRC32 after folding
+        // 01 02 03 04 from the seed — locks crc32_iter byte order + polynomial.
+        assert_eq!(state.fw.fw.checksum, 0x49C3_0432);
+    }
+
+    #[test]
+    fn receive_crc_matches_flat_calc_crc32() {
+        // The source<->receiver byte-order contract: feeding N words via
+        // receive_fw_byte must yield the SAME CRC as calc_crc32 over the flat
+        // byte buffer the source emits (send_fw_byte little-endian words).
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.fw.fw.address = 0;
+        state.fw.fw.upgrade_in_progress = true;
+        state.fw.fw.checksum = 0xFFFF_FFFF;
+
+        let words: [u32; 4] = [0x1122_3344, 0xAABB_CCDD, 0x0000_0001, 0xFFFF_0000];
+        let mut buffer = [0u8; 16];
+        for (i, w) in words.iter().enumerate() {
+            let le = w.to_le_bytes();
+            buffer[i * 4..i * 4 + 4].copy_from_slice(&le);
+            assert!(receive_fw_byte(&mut state, &hal, (i * 4) as u32, &le));
+        }
+        // Receiver keeps the running (non-inverted) CRC; calc_crc32 inverts.
+        assert_eq!(!state.fw.fw.checksum, crc::calc_crc32(&buffer));
+    }
+
+    // -- page_buffer placement + upper-bound guard --
+
+    #[test]
+    fn receive_places_word_at_intra_page_offset() {
+        // 0x1008 is not a 4KB boundary; offset within the 256B page = 0x08.
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.fw.fw.address = 0x1008;
+        receive_fw_byte(&mut state, &hal, 0x1008, &[0xDE, 0xAD, 0xBE, 0xEF]);
+        assert_eq!(&state.fw.page_buffer[8..12], &[0xDE, 0xAD, 0xBE, 0xEF]);
+        assert_eq!(&state.fw.page_buffer[0..8], &[0u8; 8]); // bytes before stay untouched
+    }
+
+    #[test]
+    fn receive_writes_final_word_of_page() {
+        // The last word of a page: offset 252, offset+4 == page_buffer.len() (256).
+        // Pins the `offset + 4 <= len()` guard — a regression to `<` would silently
+        // drop the last word of every page while the over-the-wire CRC still passes.
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.fw.fw.address = 0xFC; // 0xFC = 252
+        receive_fw_byte(&mut state, &hal, 0xFC, &[0xAA, 0xBB, 0xCC, 0xDD]);
+        assert_eq!(&state.fw.page_buffer[252..256], &[0xAA, 0xBB, 0xCC, 0xDD]);
+    }
+
+    // -- send_fw_byte ResponseByte layout (address echo + served word) --
+
+    #[test]
+    fn send_fw_byte_encodes_address_little_endian() {
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+
+        // 0x030201 (< SIZE) — distinct low bytes catch a >>8/>>16 swap.
+        let r = send_fw_byte(&state, &hal, 0x030201).unwrap();
+        assert_eq!(&r[0..4], &[0x01, 0x02, 0x03, 0x00]);
+        // Round-trip with the receiver's reconstruction (packet_dispatch.rs).
+        assert_eq!(u32::from_le_bytes([r[0], r[1], r[2], r[3]]), 0x030201);
+    }
+
+    #[test]
+    fn send_fw_byte_serves_running_word_le() {
+        // response[4..8] must equal read_running_fw(address).to_le_bytes().
+        let hal = MockHal::new();
+        hal.running_fw.set(0xDEAD_BEEF);
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        let r = send_fw_byte(&state, &hal, 0x100).unwrap();
+        assert_eq!(&r[4..8], &[0xEF, 0xBE, 0xAD, 0xDE]);
+        assert_eq!(&r[0..4], &[0x00, 0x01, 0x00, 0x00]); // 0x100 little-endian echo
+    }
+
+    #[test]
+    fn abort_then_restart_reinitializes_crc() {
+        // Abort (sequence mismatch) leaves a stale CRC; a fresh trigger via the
+        // real handler+apply glue must re-seed checksum to 0xFFFFFFFF (no carry-over).
+        use crate::domain::msg_handlers::{handle_simple_msg, apply_action, HandlerAction};
+        use crate::domain::constants::PacketType;
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+
+        state.fw.fw.address = 100;
+        state.fw.fw.checksum = 0x1234_5678;
+        state.fw.fw.upgrade_in_progress = true;
+        state.fw._running_fw.version = 100;
+
+        assert!(!receive_fw_byte(&mut state, &hal, 200, &[0; 4]));
+        assert_eq!(state.fw.fw.address, 0);
+        assert!(!state.fw.fw.upgrade_in_progress);
+        assert_eq!(state.fw.fw.checksum, 0x1234_5678); // abort does NOT clear CRC
+
+        let data = [200u8, 0, 0, 0, 0, 0, 0, 0]; // newer peer version
+        let action = handle_simple_msg(PacketType::Heartbeat as u8, &data, &state);
+        assert!(matches!(action, HandlerAction::StartFwUpgrade(_)));
+        apply_action(&action, &mut state);
+
+        assert_eq!(state.fw.fw.checksum, 0xFFFF_FFFF); // restart re-seeds — no stale carry-over
+        assert_eq!(state.fw.fw.address, 0);
+        assert!(state.fw.fw.upgrade_in_progress);
+    }
 }
