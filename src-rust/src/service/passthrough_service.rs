@@ -391,6 +391,24 @@ pub fn on_report_received(
             log_hidpp_event(pt, report, hal.now_us_64());
         }
 
+        // HID++ -> standard-key remap for the active output. A host without the
+        // Logitech driver (Android) ignores the vendor HID++ interface, so the
+        // gesture button is dead there; translate its press to an OS-appropriate
+        // key. Routed via route_consumer so it reaches the active output whether
+        // this board is active or forwards to the peer. The raw HID++ still
+        // forwards below — a HID++-aware host uses it, Android ignores it.
+        if is_input {
+            let active_os = dev.cfg.config.output[dev.cfg.active_output as usize].os;
+            let fi_reprog = pt.hidpp_disc.fi_reprog_controls;
+            if let Some(usage) = crate::domain::hidpp_keymap::on_hidpp_event(
+                report, fi_reprog, active_os, &mut pt.gesture_pressed,
+            ) {
+                hal.route_consumer(dev, &crate::domain::hidpp_keymap::consumer_report(usage));
+                hal.route_consumer(dev, &crate::domain::hidpp_keymap::consumer_report(0));
+                crate::service::dlog::i(b"pt").s(b"remap gesture->cc 0x").hx16(usage).done();
+            }
+        }
+
         let is_active = dev.is_active_output();
 
         if !is_input || is_active {
