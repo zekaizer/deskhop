@@ -86,6 +86,21 @@ pub fn get_ptr_delta(current: u32, saved: u32, buffer_size: u32) -> u32 {
     delta & 0x3FF
 }
 
+/// Build the 8-byte Heartbeat data payload: the board's firmware identity plus
+/// its active output. Layout: [ver_lo, ver_hi, crc_lo, crc_hi, active_output, 0,0,0]
+/// (little-endian u16 version + crc16). Shared by the periodic sender
+/// (`heartbeat_tick`) and the `pushfw` dev command (`dbg_force_push`) so the two
+/// hand-built copies cannot drift into a version/crc/output slot transposition.
+pub fn build_heartbeat_payload(version: u16, crc16: u16, active_output: u8) -> [u8; PACKET_DATA_LENGTH] {
+    let mut data = [0u8; PACKET_DATA_LENGTH];
+    data[0] = (version & 0xFF) as u8;
+    data[1] = (version >> 8) as u8;
+    data[2] = (crc16 & 0xFF) as u8;
+    data[3] = (crc16 >> 8) as u8;
+    data[4] = active_output;
+    data
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,5 +200,19 @@ mod tests {
         // Pointer wraps exactly at buffer size boundary
         assert_eq!(get_ptr_delta(0, 1023, 1024), 1);
         assert_eq!(get_ptr_delta(1, 1023, 1024), 2);
+    }
+
+    #[test]
+    fn test_heartbeat_payload_layout() {
+        let p = build_heartbeat_payload(0x1234, 0xABCD, 0);
+        assert_eq!(p, [0x34, 0x12, 0xCD, 0xAB, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_heartbeat_payload_pushfw_sentinel_preserves_crc() {
+        // pushfw sends ver=0xFFFF but must keep the real crc16/output intact.
+        let p = build_heartbeat_payload(0xFFFF, 0xBEEF, 1);
+        assert_eq!(p, [0xFF, 0xFF, 0xEF, 0xBE, 1, 0, 0, 0]);
+        assert_eq!(u16::from_le_bytes([p[2], p[3]]), 0xBEEF);
     }
 }
