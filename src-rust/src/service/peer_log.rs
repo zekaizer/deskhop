@@ -1,13 +1,18 @@
 // Peer debug log ring buffer (DH_DEBUG only).
 //
 // Two rings per board:
-//   OUT_RING — local logs + logs received from the peer; drained to this
-//              board's own CDC. Sized at LINK TIME to fill the RAM left after
-//              .bss (linker symbols __log_ring_start/__log_ring_end), so it
-//              retains as much history as the free RAM allows.
-//   TX_RING  — local logs only; drained over UART to the peer board. Small
-//              fixed buffer (drained every tick), never carries received logs
-//              so peer↔peer forwarding can't loop.
+//   OUT_RING — local logs + logs received from the peer; output to this board's
+//              own CDC. A non-destructive SCROLLBACK: reads advance a cursor but
+//              don't free bytes (the oldest are dropped only when the ring is
+//              full), so a terminal that attaches late — or reattaches after the
+//              passthrough re-enumeration — can rewind and replay the boot
+//              history instead of catching the stream mid-line. Sized at LINK
+//              TIME to fill the RAM left after .bss (linker symbols
+//              __log_ring_start/__log_ring_end), so it holds as much history as
+//              free RAM allows.
+//   TX_RING  — local logs only; drained (destructively) over UART to the peer
+//              board. Small fixed buffer (drained every tick), never carries
+//              received logs so peer↔peer forwarding can't loop.
 //
 // push_local writes BOTH rings; push_received writes only OUT_RING. Both boards
 // run the same drain (TX→UART, OUT→CDC), so EITHER board's CDC shows the full
@@ -43,56 +48,84 @@ const TX_RING_SIZE: usize = 16384;
 pub struct Ring {
     buf: *mut u8,
     cap: usize,
-    head: usize,
-    tail: usize,
-    used: usize,
+    tail: usize,    // next write position
+    stored: usize,  // retained bytes; head = tail - stored (mod cap), <= cap
+    unread: usize,  // bytes not yet handed to the reader; read = tail - unread, <= stored
+    /// Full-buffer policy. true = overwrite the oldest byte (scrollback, used by
+    /// OUT_RING so a fresh CDC connection can replay history); false = drop new
+    /// bytes and raise `overflow` (used by TX_RING, where the UART forward must
+    /// not silently rewrite already-queued bytes).
+    overwrite: bool,
     overflow: bool,
     last_was_newline: bool,
 }
 
 impl Default for Ring {
     fn default() -> Self {
-        Self::new()
+        Self::new(false)
     }
 }
 
 impl Ring {
     /// Empty, unbacked ring (cap 0). All pushes are no-ops until `init`.
-    pub const fn new() -> Self {
+    /// `overwrite` selects the full-buffer policy (see the field docs).
+    pub const fn new(overwrite: bool) -> Self {
         Self {
             buf: core::ptr::null_mut(),
             cap: 0,
-            head: 0,
             tail: 0,
-            used: 0,
+            stored: 0,
+            unread: 0,
+            overwrite,
             overflow: false,
             last_was_newline: true,
         }
     }
 
     /// Attach a backing buffer and reset state. `buf` must be valid for `cap`
-    /// bytes for the lifetime of all subsequent ring use.
+    /// bytes for the lifetime of all subsequent ring use. The `overwrite`
+    /// policy chosen at construction is preserved.
     pub fn init(&mut self, buf: *mut u8, cap: usize) {
         self.buf = buf;
         self.cap = cap;
-        self.head = 0;
         self.tail = 0;
-        self.used = 0;
+        self.stored = 0;
+        self.unread = 0;
         self.overflow = false;
         self.last_was_newline = true;
+    }
+
+    /// Index of the oldest retained byte. Only valid when stored > 0.
+    fn head(&self) -> usize {
+        (self.tail + self.cap - self.stored) % self.cap
+    }
+
+    /// Index of the next byte the reader will consume. Only valid when cap > 0.
+    fn read_pos(&self) -> usize {
+        (self.tail + self.cap - self.unread) % self.cap
     }
 
     fn write_byte(&mut self, b: u8) -> bool {
         if self.cap == 0 {
             return false; // unbacked — drop silently (not an overflow)
         }
-        if self.used >= self.cap {
-            self.overflow = true;
-            return false;
+        if self.stored >= self.cap {
+            if !self.overwrite {
+                self.overflow = true;
+                return false;
+            }
+            // Scrollback: overwrite the oldest byte. stored stays at cap (head
+            // advances implicitly with tail); the displaced byte pushes the
+            // read cursor forward (unread clamped to stored).
+            unsafe { *self.buf.add(self.tail) = b };
+            self.tail = (self.tail + 1) % self.cap;
+            self.unread = (self.unread + 1).min(self.stored);
+            return true;
         }
         unsafe { *self.buf.add(self.tail) = b };
         self.tail = (self.tail + 1) % self.cap;
-        self.used += 1;
+        self.stored += 1;
+        self.unread += 1;
         true
     }
 
@@ -105,7 +138,7 @@ impl Ring {
     }
 
     fn drain_overflow_sentinel_if_needed(&mut self) {
-        if self.overflow && self.cap != 0 && self.cap - self.used >= OVERFLOW_MSG.len() {
+        if self.overflow && self.cap != 0 && self.cap - self.stored >= OVERFLOW_MSG.len() {
             for &b in OVERFLOW_MSG {
                 let _ = self.write_byte(b);
             }
@@ -153,39 +186,54 @@ impl Ring {
         }
     }
 
+    /// Destructively remove the oldest retained byte (advances head). Used by
+    /// the UART forward path (TX_RING) where consumed bytes are gone for good.
     pub fn pop_byte(&mut self) -> Option<u8> {
-        if self.used == 0 {
+        if self.stored == 0 {
             return None;
         }
-        let b = unsafe { *self.buf.add(self.head) };
-        self.head = (self.head + 1) % self.cap;
-        self.used -= 1;
+        let b = unsafe { *self.buf.add(self.head()) };
+        self.stored -= 1;
+        // The removed byte was the oldest; if the read cursor was sitting on it
+        // (unread == old stored), it advances too.
+        if self.unread > self.stored {
+            self.unread = self.stored;
+        }
         Some(b)
     }
 
-    /// Pop up to `out.len()` bytes into the slice. Returns count written.
-    pub fn pop_into(&mut self, out: &mut [u8]) -> usize {
+    /// Copy up to `out.len()` unread bytes into the slice WITHOUT removing them
+    /// from the ring — only the read cursor advances. Returns count written.
+    /// Retained bytes stay until overwritten, so `rewind_read` can replay them.
+    pub fn read_into(&mut self, out: &mut [u8]) -> usize {
+        if self.cap == 0 {
+            return 0;
+        }
         let mut n = 0;
-        while n < out.len() {
-            match self.pop_byte() {
-                Some(b) => {
-                    out[n] = b;
-                    n += 1;
-                }
-                None => break,
-            }
+        let mut rp = self.read_pos();
+        while n < out.len() && self.unread > 0 {
+            out[n] = unsafe { *self.buf.add(rp) };
+            rp = (rp + 1) % self.cap;
+            self.unread -= 1;
+            n += 1;
         }
         n
+    }
+
+    /// Rewind the read cursor to the oldest retained byte so the next
+    /// `read_into` replays the full scrollback. Call on a fresh CDC connection.
+    pub fn rewind_read(&mut self) {
+        self.unread = self.stored;
     }
 
     /// Pop up to 8 bytes for a DebugLog packet. If `allow_partial` is false,
     /// returns None when fewer than 8 bytes are queued (waiting for a full
     /// chunk). Partial packets are NUL-padded.
     pub fn pop_chunk_8(&mut self, allow_partial: bool) -> Option<[u8; 8]> {
-        if self.used == 0 {
+        if self.stored == 0 {
             return None;
         }
-        if !allow_partial && self.used < 8 {
+        if !allow_partial && self.stored < 8 {
             return None;
         }
         let mut out = [0u8; 8];
@@ -198,8 +246,9 @@ impl Ring {
         Some(out)
     }
 
+    /// Retained byte count (history depth), not the unread count.
     pub fn used(&self) -> usize {
-        self.used
+        self.stored
     }
 }
 
@@ -237,10 +286,13 @@ fn lock() -> LockGuard {
 // Global rings + push/pop API (DH_DEBUG only)
 // ============================================================
 
+// OUT_RING is a scrollback (overwrite oldest) so a fresh CDC connection can
+// rewind and replay the retained boot history; TX_RING drops on full (the UART
+// forward must not silently rewrite already-queued bytes).
 #[cfg(feature = "dh_debug")]
-static mut OUT_RING: Ring = Ring::new();
+static mut OUT_RING: Ring = Ring::new(true);
 #[cfg(feature = "dh_debug")]
-static mut TX_RING: Ring = Ring::new();
+static mut TX_RING: Ring = Ring::new(false);
 #[cfg(feature = "dh_debug")]
 static mut TX_BUF: [u8; TX_RING_SIZE] = [0; TX_RING_SIZE];
 
@@ -322,10 +374,17 @@ pub fn pop_chunk_8(allow_partial: bool) -> Option<[u8; 8]> {
 }
 
 #[cfg(feature = "dh_debug")]
-pub fn pop_into(out: &mut [u8]) -> usize {
-    // CDC output path drains the OUT ring.
+pub fn read_into(out: &mut [u8]) -> usize {
+    // CDC output path: non-destructive read of the OUT scrollback.
     let _g = lock();
-    unsafe { (*core::ptr::addr_of_mut!(OUT_RING)).pop_into(out) }
+    unsafe { (*core::ptr::addr_of_mut!(OUT_RING)).read_into(out) }
+}
+
+#[cfg(feature = "dh_debug")]
+pub fn rewind_read() {
+    // Replay the full OUT scrollback (call on a fresh CDC connection).
+    let _g = lock();
+    unsafe { (*core::ptr::addr_of_mut!(OUT_RING)).rewind_read() }
 }
 
 #[cfg(not(feature = "dh_debug"))]
@@ -341,14 +400,17 @@ pub fn pop_chunk_8(_allow_partial: bool) -> Option<[u8; 8]> {
     None
 }
 #[cfg(not(feature = "dh_debug"))]
-pub fn pop_into(_out: &mut [u8]) -> usize {
+pub fn read_into(_out: &mut [u8]) -> usize {
     0
 }
+#[cfg(not(feature = "dh_debug"))]
+pub fn rewind_read() {}
 
 // ============================================================
 // Drain task — runs at 1kHz on Core0. Both boards do both:
 //   TX_RING  → packetize 8-byte chunks → UART (queue_packet) → peer
-//   OUT_RING → bulk-pop bytes → own CDC (held while CDC disconnected)
+//   OUT_RING → read cursor → own CDC (held while disconnected; rewound on a
+//              fresh connect to replay the retained scrollback)
 // So either board's CDC shows the full [A]+[B] stream.
 // ============================================================
 
@@ -392,25 +454,41 @@ fn flush_to_uart() {
 #[cfg(all(feature = "dh_debug", not(target_os = "none")))]
 fn flush_to_uart() {}
 
+/// Tracks the CDC connection (DTR) so we can detect a fresh open. Read/written
+/// only from flush_to_cdc on Core0 — single-consumer, no lock needed.
+#[cfg(all(feature = "dh_debug", target_os = "none"))]
+static mut CDC_WAS_CONNECTED: bool = false;
+
 #[cfg(all(feature = "dh_debug", target_os = "none"))]
 fn flush_to_cdc() {
-    if !unsafe { peer_log_cdc_connected() } {
+    let connected = unsafe { peer_log_cdc_connected() };
+    let was = unsafe { core::ptr::read(core::ptr::addr_of!(CDC_WAS_CONNECTED)) };
+    unsafe { core::ptr::write(core::ptr::addr_of_mut!(CDC_WAS_CONNECTED), connected) };
+    if !connected {
+        // Held while disconnected — the scrollback retains history (overwriting
+        // oldest) so it can replay when a terminal finally attaches.
         return;
+    }
+    if !was {
+        // DTR rising edge (a terminal just opened): rewind the read cursor so
+        // the full retained scrollback replays from the oldest byte. This is
+        // why the big buffer matters — a late-attaching terminal still sees the
+        // boot history instead of catching the stream mid-line.
+        rewind_read();
     }
     let mut buf = [0u8; 64];
     let mut wrote = false;
     loop {
-        // Pop only what the CDC TX FIFO can accept this pass — otherwise
-        // tud_cdc_write would write a partial buffer and the un-written bytes
-        // (already popped from OUT_RING) would be lost, garbling the output
-        // when the host reads slowly or during a burst. The remainder stays in
-        // OUT_RING for the next tick.
+        // Read only what the CDC TX FIFO can accept this pass. read_into is
+        // non-destructive (advances only the read cursor), so bytes the FIFO
+        // can't take this tick stay queued for the next one and the scrollback
+        // is preserved for a future reconnect.
         let avail = unsafe { peer_log_cdc_write_avail() } as usize;
         if avail == 0 {
             break;
         }
         let want = avail.min(buf.len());
-        let n = pop_into(&mut buf[..want]);
+        let n = read_into(&mut buf[..want]);
         if n == 0 {
             break;
         }
@@ -474,12 +552,23 @@ mod tests {
 
     const TEST_CAP: usize = 1024;
 
-    /// Build a ring backed by the caller's buffer. `backing` must outlive the
-    /// returned ring (raw-pointer backed).
+    /// Build a drop-on-full ring (TX semantics). `backing` must outlive it.
     fn ring(backing: &mut [u8]) -> Ring {
-        let mut r = Ring::new();
+        let mut r = Ring::new(false);
         r.init(backing.as_mut_ptr(), backing.len());
         r
+    }
+
+    /// Build an overwrite-oldest scrollback ring (OUT semantics).
+    fn ring_ow(backing: &mut [u8]) -> Ring {
+        let mut r = Ring::new(true);
+        r.init(backing.as_mut_ptr(), backing.len());
+        r
+    }
+
+    /// Non-destructively read all currently-unread bytes into `out`.
+    fn read_all(r: &mut Ring, out: &mut [u8]) -> usize {
+        r.read_into(out)
     }
 
     fn drain(r: &mut Ring, out: &mut [u8]) -> usize {
@@ -498,7 +587,7 @@ mod tests {
 
     #[test]
     fn unbacked_ring_is_noop() {
-        let mut r = Ring::new();
+        let mut r = Ring::new(false);
         r.push_local(b"x\n", PREFIX_A);
         r.push_received(b"y");
         assert_eq!(r.used(), 0);
@@ -645,5 +734,76 @@ mod tests {
         let mut t = [0u8; 64];
         let nt = drain(&mut tx, &mut t);
         assert_eq!(&t[..nt], b"[A] local\r\n"); // peer log NOT forwarded
+    }
+
+    // ---- Scrollback (OUT_RING) semantics ----
+
+    #[test]
+    fn scrollback_read_is_non_destructive_and_replays_on_rewind() {
+        let mut b = [0u8; TEST_CAP];
+        let mut r = ring_ow(&mut b);
+        r.push_received(b"[A] one\n");
+
+        // First read drains the unread bytes...
+        let mut o = [0u8; 32];
+        let n = read_all(&mut r, &mut o);
+        assert_eq!(&o[..n], b"[A] one\n");
+        // ...but they are retained (history depth unchanged) and not re-read.
+        assert_eq!(r.used(), 8);
+        assert_eq!(read_all(&mut r, &mut [0u8; 32]), 0);
+
+        // Rewind (fresh CDC connect) replays the full retained history.
+        r.rewind_read();
+        let mut o2 = [0u8; 32];
+        let n2 = read_all(&mut r, &mut o2);
+        assert_eq!(&o2[..n2], b"[A] one\n");
+    }
+
+    #[test]
+    fn scrollback_overwrites_oldest_when_full_no_overflow_flag() {
+        const CAP: usize = 8;
+        let mut b = [0u8; CAP];
+        let mut r = ring_ow(&mut b);
+        // Fill exactly, then push 3 more — oldest 3 are overwritten.
+        r.push_received(b"01234567");
+        r.push_received(b"89A");
+        assert_eq!(r.used(), CAP); // capped at cap
+        assert!(!r.overflow); // scrollback never raises overflow
+        let mut o = [0u8; CAP];
+        let n = read_all(&mut r, &mut o);
+        // Retains the newest CAP bytes: "345678" + "9A" = "3456789A".
+        assert_eq!(&o[..n], b"3456789A");
+    }
+
+    #[test]
+    fn scrollback_rewind_after_overwrite_replays_retained_window() {
+        const CAP: usize = 8;
+        let mut b = [0u8; CAP];
+        let mut r = ring_ow(&mut b);
+        r.push_received(b"01234567"); // fills
+        let mut o = [0u8; CAP];
+        read_all(&mut r, &mut o); // reader caught up
+        r.push_received(b"89"); // overwrites "01", read cursor pushed forward
+        // Rewind replays the whole retained window, not just the 2 new bytes.
+        r.rewind_read();
+        let mut o2 = [0u8; CAP];
+        let n2 = read_all(&mut r, &mut o2);
+        assert_eq!(&o2[..n2], b"23456789");
+    }
+
+    #[test]
+    fn scrollback_writes_while_disconnected_then_replays_in_order() {
+        let mut b = [0u8; TEST_CAP];
+        let mut r = ring_ow(&mut b);
+        // Simulate boot logs accumulating while no terminal is attached
+        // (reader never called). They are all retained.
+        r.push_local(b"boot\n", PREFIX_A);
+        r.push_received(b"[B] peer\n");
+        r.push_local(b"ready\n", PREFIX_A);
+        // Fresh connect: rewind then read everything from the start, in order.
+        r.rewind_read();
+        let mut o = [0u8; 64];
+        let n = read_all(&mut r, &mut o);
+        assert_eq!(&o[..n], b"[A] boot\r\n[B] peer\n[A] ready\r\n");
     }
 }
