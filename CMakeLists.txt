@@ -76,20 +76,31 @@ set(COMMON_INCLUDES
 ## Rust Static Library
 set(RUST_SRC_DIR ${CMAKE_CURRENT_LIST_DIR}/src-rust)
 set(RUST_TARGET "thumbv6m-none-eabi")
-set(RUST_LIB ${RUST_SRC_DIR}/target/${RUST_TARGET}/release/libdeskhop_rust.a)
 
+# The dh_debug and release firmware link DIFFERENT Rust libs (feature `dh_debug`
+# toggles debug_log_flush_task & friends). Cargo's output filename is feature-
+# independent, and CMake does not track the feature dimension, so a single shared
+# target dir lets a debug and a release build clobber each other's `.a` and silently
+# link the wrong one (release would fail: `undefined reference to
+# peer_log_cdc_write_avail`). Give each feature set its own cargo target dir so the
+# two libs never collide and switching configs needs no manual clean. Both live
+# under the already-gitignored src-rust/target/.
 set(RUST_FEATURES "")
 if (DH_DEBUG)
     set(RUST_FEATURES "--features=dh_debug")
+    set(RUST_TARGET_DIR "${RUST_SRC_DIR}/target/cmake-dhdebug")
+else()
+    set(RUST_TARGET_DIR "${RUST_SRC_DIR}/target/cmake-release")
 endif()
+set(RUST_LIB ${RUST_TARGET_DIR}/${RUST_TARGET}/release/libdeskhop_rust.a)
 
 file(GLOB_RECURSE RUST_SOURCES ${RUST_SRC_DIR}/src/*.rs ${RUST_SRC_DIR}/Cargo.toml)
 add_custom_command(
     OUTPUT ${RUST_LIB}
-    COMMAND cargo build --release --target ${RUST_TARGET} ${RUST_FEATURES}
+    COMMAND cargo build --release --target ${RUST_TARGET} ${RUST_FEATURES} --target-dir ${RUST_TARGET_DIR}
     WORKING_DIRECTORY ${RUST_SRC_DIR}
     DEPENDS ${RUST_SOURCES}
-    COMMENT "Building Rust static library"
+    COMMENT "Building Rust static library (${RUST_TARGET_DIR})"
 )
 add_custom_target(deskhop_rust DEPENDS ${RUST_LIB})
 
