@@ -232,6 +232,10 @@ void initial_setup(void) {
     extern void peer_log_lock_init(void);
     peer_log_lock_init();
 
+    /* Attach the link-time-sized OUT ring + fixed TX ring before any logging. */
+    extern void peer_log_init(void);
+    peer_log_init();
+
     /* Store probed values into Rust-owned global_cfg BEFORE launching core1 */
     extern void rust_init_config(bool config_mode_active, uint8_t board_role, uint64_t timestamp);
     rust_init_config(config_mode, role, time_us_64());

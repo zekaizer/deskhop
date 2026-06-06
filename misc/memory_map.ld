@@ -34,6 +34,16 @@ __TOTAL_IMAGE_LENGTH = 256k;
 
 __CONFIG_STORAGE_LEN = 4k;
 
+/* Debug log ring (peer_log history buffer). Sized at LINK TIME to fill the RAM
+ * left after .bss (before .heap), so it is not hardcoded. Gated by
+ * __log_ring_enabled: DH_DEBUG builds pass --defsym=__log_ring_enabled=1 so the
+ * section fills RAM minus __LOG_HEAP_RESERVE; release keeps it 0 (size 0). */
+PROVIDE(__log_ring_enabled = 0);
+/* Heap reserve left below the log ring. Measured peak heap (mallinfo arena) is
+ * ~16k on both boards across boot/USB/passthrough/switch; 32k gives 2x margin.
+ * The debug heartbeat's "[heap] LOW" warning fires if arena nears this. */
+__LOG_HEAP_RESERVE = 32k;
+
 MEMORY
 {
     FLASH(rx) : ORIGIN = 0x10000000, LENGTH = __FLASH_LEN
@@ -227,6 +237,17 @@ SECTIONS
         . = ALIGN(4);
         __bss_end__ = .;
     } > RAM
+
+    /* Link-time-sized debug log history buffer. Placed BEFORE .heap so the heap
+     * base (__end__) lands after the ring → no heap/ring collision. When
+     * __log_ring_enabled=0 (release) the size is 0. */
+    .log_ring (NOLOAD) : {
+        . = ALIGN(8);
+        __log_ring_start = .;
+        . = . + __log_ring_enabled * ((ORIGIN(RAM) + LENGTH(RAM) - __LOG_HEAP_RESERVE) - .);
+        __log_ring_end = .;
+    } > RAM
+    __log_ring_size = __log_ring_end - __log_ring_start;
 
     .heap (NOLOAD):
     {

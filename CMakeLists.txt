@@ -133,7 +133,10 @@ target_compile_definitions(${binary}
 
 ## Support building a debug version
 if (DH_DEBUG)
-  add_definitions(-DDH_DEBUG)  
+  add_definitions(-DDH_DEBUG)
+  # Enable the link-time-sized peer_log history ring (fills free RAM). Release
+  # leaves __log_ring_enabled=0 (PROVIDE in memory_map.ld) → ring size 0.
+  target_link_options(${binary} PRIVATE "LINKER:--defsym=__log_ring_enabled=1")
 endif()
 
 if (DH_DEBUG_CDC_FLASH)
