@@ -1079,6 +1079,81 @@ pub unsafe extern "C" fn rust_on_cdc_line_state(dtr: bool, rts: bool) {
         .done();
 }
 
+/// Parse a single hex token from `s` (skips leading spaces). Returns the value,
+/// or None if no hex digit is present.
+fn parse_hex(s: &[u8]) -> Option<u32> {
+    let mut v = 0u32;
+    let mut any = false;
+    for &b in s {
+        let d = match b {
+            b'0'..=b'9' => b - b'0',
+            b'a'..=b'f' => b - b'a' + 10,
+            b'A'..=b'F' => b - b'A' + 10,
+            b' ' | b'\t' if !any => continue,
+            _ => break,
+        };
+        v = (v << 4) | d as u32;
+        any = true;
+    }
+    if any { Some(v) } else { None }
+}
+
+/// Debug CDC command dispatcher (line-based, DH_DEBUG). Commands:
+///   logdump            — replay the log scrollback
+///   ptr                — toggle pointer-stream logging
+///   cc<hex>            — send a Consumer Control tap (e.g. cc1a3) to the active output
+///   kb<modkey-hex>     — send a keyboard tap; high byte = modifier, low = keycode
+///                        (e.g. kb042b = LeftAlt+Tab) to the active output
+/// The cc/kb commands let us hunt the right Android key without reflashing.
+///
+/// # Safety
+/// Call from the USB task (Core0) only; routes via the active-output queues.
+#[no_mangle]
+pub unsafe extern "C" fn rust_dbg_cmd(buf: *const u8, len: usize) {
+    if buf.is_null() || len == 0 { return; }
+    let line = core::slice::from_raw_parts(buf, len);
+
+    if line.starts_with(b"logdump") {
+        crate::service::peer_log::rewind_read();
+        return;
+    }
+    if line.starts_with(b"ptr") {
+        crate::service::passthrough_service::rust_dbg_toggle_ptr_log();
+        return;
+    }
+    if let Some(rest) = line.strip_prefix(b"cc") {
+        if let Some(usage) = parse_hex(rest) {
+            dbg_send_consumer(usage as u16);
+        }
+        return;
+    }
+    if let Some(rest) = line.strip_prefix(b"kb") {
+        if let Some(v) = parse_hex(rest) {
+            dbg_send_kbd((v >> 8) as u8, (v & 0xFF) as u8);
+        }
+    }
+}
+
+unsafe fn dbg_send_consumer(usage: u16) {
+    use crate::service::router::ReportRouter;
+    let mut state = structs::DeviceState::from_globals();
+    let hal = crate::hal::pico::PicoHal::new();
+    hal.route_consumer(&mut state, &crate::domain::hidpp_keymap::consumer_report(usage));
+    hal.route_consumer(&mut state, &crate::domain::hidpp_keymap::consumer_report(0));
+    crate::service::dlog::i(b"dbg").s(b"cc=0x").hx16(usage).done();
+}
+
+unsafe fn dbg_send_kbd(modifier: u8, key: u8) {
+    use crate::service::router::ReportRouter;
+    let mut state = structs::DeviceState::from_globals();
+    let hal = crate::hal::pico::PicoHal::new();
+    let down = [modifier, 0, key, 0, 0, 0, 0, 0];
+    let up = [0u8; 8];
+    hal.route_kbd(&mut state, &down);
+    hal.route_kbd(&mut state, &up);
+    crate::service::dlog::i(b"dbg").s(b"kb mod=0x").hx(modifier).s(b" key=0x").hx(key).done();
+}
+
 // ============================================================
 // LED diagnostics — blocking pattern playback (boot/halt)
 // ============================================================
