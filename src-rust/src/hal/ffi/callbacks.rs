@@ -971,11 +971,71 @@ pub unsafe extern "C" fn rust_get_configuration_descriptor() -> *const u8 {
 // TinyUSB device mount/unmount — set tud_connected flag
 // ============================================================
 
+/// Dump the composite configuration descriptor WE present to the PC (the tud
+/// side: default DeskHop or the passthrough-rebuilt composite) — interfaces and
+/// endpoints. We own these bytes (no control transfer), so it's synchronous and
+/// safe. DH_DEBUG-only. Lets us verify the re-presented composite at each mount.
+#[cfg(feature = "dh_debug")]
+unsafe fn dump_tud_composite() {
+    use crate::service::dlog;
+    let p = rust_get_configuration_descriptor();
+    if p.is_null() {
+        return;
+    }
+    let total = u16::from_le_bytes([*p.add(2), *p.add(3)]) as usize;
+    if total < 9 {
+        return;
+    }
+    let desc = core::slice::from_raw_parts(p, total);
+    dlog::i(b"usb")
+        .s(b"tud cfg ifaces=").u(desc[4] as u32)
+        .s(b" mA=").u((desc[8] as u32) * 2)
+        .done();
+    let mut i = 0usize;
+    while i + 2 <= total {
+        let blen = desc[i] as usize;
+        if blen < 2 {
+            break;
+        }
+        match desc[i + 1] {
+            0x04 if i + 9 <= total => {
+                dlog::i(b"usb")
+                    .s(b"tud  if #").u(desc[i + 2] as u32)
+                    .s(b" class=").hx(desc[i + 5])
+                    .s(b" sub=").hx(desc[i + 6])
+                    .s(b" proto=").hx(desc[i + 7])
+                    .s(b" eps=").u(desc[i + 4] as u32)
+                    .done();
+            }
+            0x05 if i + 7 <= total => {
+                let addr = desc[i + 2];
+                let dir: &[u8] = if addr & 0x80 != 0 { b"IN" } else { b"OUT" };
+                let ty: &[u8] = match desc[i + 3] & 0x03 {
+                    0 => b"ctrl",
+                    1 => b"iso",
+                    2 => b"bulk",
+                    _ => b"intr",
+                };
+                let mps = u16::from_le_bytes([desc[i + 4], desc[i + 5]]);
+                dlog::i(b"usb")
+                    .s(b"tud   ep ").hx(addr).s(b" ").s(dir).s(b" ").s(ty)
+                    .s(b" mps=").u(mps as u32)
+                    .s(b" iv=").u(desc[i + 6] as u32)
+                    .done();
+            }
+            _ => {}
+        }
+        i += blen;
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_on_tud_mount() {
     let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
     cfg.tud_connected = true;
     crate::service::dlog::i(b"usb").s(b"tud mount").done();
+    #[cfg(feature = "dh_debug")]
+    dump_tud_composite();
 }
 
 #[no_mangle]
