@@ -78,6 +78,13 @@ extern "C" {
     // ---- Debug ----
     pub fn hal_debug_blink(count: i32, delay_ms: i32);
     pub fn hal_debug_dump_state();
+    /// Heap arena (peak bytes sbrk'd) and currently in-use bytes — for sizing
+    /// the log ring reserve.
+    pub fn hal_heap_arena() -> u32;
+    pub fn hal_heap_inuse() -> u32;
+    /// Heap ceiling (bytes available for malloc above the log ring) — the cap
+    /// the ring's reserve leaves. Used to early-warn on heap exhaustion.
+    pub fn hal_heap_limit() -> u32;
 
     // ---- Pico SDK direct ----
     // Unused from Rust (PicoHal::kick() calls hal_watchdog_update instead),

@@ -221,6 +221,21 @@ bool hal_is_bootsel_pressed(void) {
 
 /* hal_debug_dump_state is now Rust #[no_mangle] in callbacks.rs */
 
+/* Heap high-water-mark for sizing the log ring reserve. mallinfo().arena is the
+ * total memory sbrk'd from the system; since the heap never shrinks (sbrk is
+ * one-way here) it equals the peak heap extent. uordblks is currently in-use. */
+#include <malloc.h>
+uint32_t hal_heap_arena(void) { return (uint32_t) mallinfo().arena; }
+uint32_t hal_heap_inuse(void) { return (uint32_t) mallinfo().uordblks; }
+
+/* Heap ceiling: bytes available between the heap base (__end__, which the log
+ * ring pushes up) and __StackLimit (RAM end). This is the hard cap the ring's
+ * __LOG_HEAP_RESERVE leaves for malloc — early-warn when arena nears it. */
+uint32_t hal_heap_limit(void) {
+    extern char __end__, __StackLimit;
+    return (uint32_t)((uintptr_t)&__StackLimit - (uintptr_t)&__end__);
+}
+
 void hal_debug_blink(int count, int delay_ms) {
     for (int i = 0; i < count; i++) {
         gpio_put(GPIO_LED_PIN, 1); sleep_ms(delay_ms);
