@@ -18,20 +18,17 @@ void firmware_upgrade_task_c(void) {
     fw_step_t s;
     rust_fw_next_step(global_fw.fw.address, &s);
     if (s.write_page)
-        write_flash_page((uint32_t)ADDR_FW_RUNNING + s.page_offset - XIP_BASE, global_fw.page_buffer);
+        /* Write to STAGING, never the running image: RUNNING stays intact and
+         * bootable for the whole transfer. */
+        write_flash_page((uint32_t)ADDR_FW_STAGING + s.page_offset - XIP_BASE, global_fw.page_buffer);
     if (s.finalize) {
         global_fw.fw.upgrade_in_progress = 0; global_fw.fw.checksum = ~global_fw.fw.checksum;
-        if (calculate_firmware_crc32() != global_fw.fw.checksum) {
-            flash_range_erase((uint32_t)ADDR_FW_RUNNING - XIP_BASE, FLASH_SECTOR_SIZE);
-            dh_enter_bootloader();
-        } else {
-            global_fw._running_fw = _firmware_metadata; global_fw.reboot_requested = true;
-            /* reboot_requested makes check_system_health stop kicking so a
-             * watchdog timeout resets us into the new image — but DH_DEBUG leaves
-             * the watchdog disabled at boot, so arm it here or the upgrade never
-             * reboots (same gap the config-mode entry path handles). */
-            watchdog_enable(WATCHDOG_TIMEOUT, WATCHDOG_PAUSE_ON_DEBUG);
-        }
+        /* Verify the fully-received STAGING image, then promote it to RUNNING.
+         * Because RUNNING was never touched, a bad/aborted/interrupted transfer
+         * needs no recovery — just clear the upgrade and the peer re-triggers on
+         * the next heartbeat (no in-place corruption, no forced bootloader). */
+        if (calculate_staging_crc32() == global_fw.fw.checksum)
+            promote_staging_to_running(); /* SRAM copy + reset; returns only on lockout failure */
         return;
     }
     request_byte(s.request_address);
