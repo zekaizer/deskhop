@@ -152,16 +152,23 @@ FIRMWARE_VERSION = (MAJOR*1000 + MINOR + 100)*100 + DDM   # 0.77-ddm1 -> 17701
 
 A post-build step (`misc/crc32.py`) computes the image CRC32 and packs
 `firmware_metadata_t { magic=0xf00d, version=FIRMWARE_VERSION, crc32 }`
-(`struct.pack('<IHI', …)`); `objcopy --update-section .section_metadata`
-writes it into the ELF. The `.version = 0x0001` literal in `src/main.c` is only
-a placeholder so the section exists — at runtime it holds the real
-`FIRMWARE_VERSION`.
+(`struct.pack('<IHxxI', …)` — the `xx` is 2 alignment-padding bytes that place
+`checksum` at offset 8 to match the C struct's u32 alignment); `objcopy
+--update-section .section_metadata` writes it into the ELF. The `.version =
+0x0001` literal in `src/main.c` is only a placeholder so the section exists — at
+runtime it holds the real `FIRMWARE_VERSION`.
+
+The `version` field is a **u16**, so the encodable maximum is 65534; `0xFFFF`
+(65535) is reserved as the `pushfw` auto-sync sentinel (above). `CMakeLists.txt`
+fails the configure if `FIRMWARE_VERSION` would exceed 65534.
 
 Used for **board-to-board firmware auto-propagation** (`should_start_fw_upgrade`,
 `src-rust/src/domain/actions.rs`): boards exchange `version` + `crc16` in the
 heartbeat. A board upgrades from its peer when the peer's `version` is higher;
 in `DH_DEBUG` builds, Board B also accepts a same-version-but-different-CRC image
-from Board A, so only Board A needs flashing during development. The firmware
+from Board A, so only Board A needs flashing during development. The full
+protocol — slots, packet flow, CRC contract, promote, and recovery — is
+documented in [firmware-auto-sync.md](firmware-auto-sync.md). The firmware
 version is also readable over the config API (field 78). The USB `bcdDevice`
 (`0x0100`) is hardcoded and unrelated to `FIRMWARE_VERSION`.
 
