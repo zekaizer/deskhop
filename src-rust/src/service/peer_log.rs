@@ -29,10 +29,11 @@ const PREFIX_A: &[u8; 4] = b"[A] ";
 const PREFIX_B: &[u8; 4] = b"[B] ";
 const OVERFLOW_MSG: &[u8] = b"[peer_log overflow]\r\n";
 
-/// Fixed size of the per-board UART forward ring (drained to the peer every
-/// 1kHz tick, so it only needs to absorb a single burst).
+/// Fixed size of the per-board UART forward ring. Must absorb a burst (the boot
+/// HID descriptor dump is a few KB emitted at once) while it drains to the peer
+/// at the UART rate, throttled by the TX queue's free space.
 #[cfg(feature = "dh_debug")]
-const TX_RING_SIZE: usize = 4096;
+const TX_RING_SIZE: usize = 16384;
 
 // ============================================================
 // Ring (pure logic — host-testable). Backed by a caller-provided buffer
@@ -355,21 +356,41 @@ pub fn pop_into(_out: &mut [u8]) -> usize {
 extern "C" {
     fn peer_log_cdc_connected() -> bool;
     fn peer_log_cdc_write(data: *const u8, len: u32) -> u32;
+    fn peer_log_cdc_write_avail() -> u32;
     fn peer_log_cdc_flush();
 }
 
-#[cfg(feature = "dh_debug")]
+/// Max DebugLog chunks forwarded to the peer per 1kHz tick. Kept BELOW the UART
+/// drain rate (921600 baud ≈ 8.4 packets/tick) so the link runs with idle gaps,
+/// giving the peer's 1KB UART RX ring time to drain between bursts. Without this
+/// a boot burst (HID descriptor dump) streams at full UART rate and overruns the
+/// peer's RX ring, garbling the forwarded stream. TX_RING absorbs the backlog.
+#[cfg(all(feature = "dh_debug", target_os = "none"))]
+const FORWARD_CHUNKS_PER_TICK: u32 = 4;
+
+#[cfg(all(feature = "dh_debug", target_os = "none"))]
 fn flush_to_uart() {
-    while let Some(chunk) = pop_chunk_8(true) {
-        unsafe {
-            crate::hal::device::queue_packet(
-                chunk.as_ptr(),
-                crate::domain::constants::PacketType::DebugLog as u8,
-                8,
-            );
+    // Drain at most FORWARD_CHUNKS_PER_TICK, and never more than the UART TX
+    // queue can accept; the rest stays in TX_RING for the next tick.
+    let mut budget = unsafe { crate::hal::device::hal_uart_tx_free() }
+        .min(FORWARD_CHUNKS_PER_TICK);
+    while budget > 0 {
+        match pop_chunk_8(true) {
+            Some(chunk) => unsafe {
+                crate::hal::device::queue_packet(
+                    chunk.as_ptr(),
+                    crate::domain::constants::PacketType::DebugLog as u8,
+                    8,
+                );
+            },
+            None => break,
         }
+        budget -= 1;
     }
 }
+
+#[cfg(all(feature = "dh_debug", not(target_os = "none")))]
+fn flush_to_uart() {}
 
 #[cfg(all(feature = "dh_debug", target_os = "none"))]
 fn flush_to_cdc() {
@@ -379,7 +400,17 @@ fn flush_to_cdc() {
     let mut buf = [0u8; 64];
     let mut wrote = false;
     loop {
-        let n = pop_into(&mut buf);
+        // Pop only what the CDC TX FIFO can accept this pass — otherwise
+        // tud_cdc_write would write a partial buffer and the un-written bytes
+        // (already popped from OUT_RING) would be lost, garbling the output
+        // when the host reads slowly or during a burst. The remainder stays in
+        // OUT_RING for the next tick.
+        let avail = unsafe { peer_log_cdc_write_avail() } as usize;
+        if avail == 0 {
+            break;
+        }
+        let want = avail.min(buf.len());
+        let n = pop_into(&mut buf[..want]);
         if n == 0 {
             break;
         }

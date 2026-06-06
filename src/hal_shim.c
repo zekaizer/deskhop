@@ -39,6 +39,14 @@ bool hal_queue_try_add_uart(const uint8_t *data) {
     return queue_try_add(queue_from_opaque(&global_hw.uart_tx_queue), data);
 }
 
+/* Free slots in the UART TX queue — lets the peer-log forwarder drain only as
+ * much as the queue can accept per tick, so a burst (e.g. the boot HID
+ * descriptor dump) buffers in TX_RING instead of overflowing/garbling. */
+uint32_t hal_uart_tx_free(void) {
+    uint level = queue_get_level(queue_from_opaque(&global_hw.uart_tx_queue));
+    return (level < UART_QUEUE_LENGTH) ? (UART_QUEUE_LENGTH - level) : 0;
+}
+
 /* ==================================================== *
  * UART packet send helpers
  * ==================================================== */
@@ -334,6 +342,10 @@ uint32_t peer_log_cdc_write(const uint8_t *data, uint32_t len) {
     uint32_t avail = (uint32_t)tud_cdc_write_available();
     if (len > avail) len = avail;
     return (uint32_t)tud_cdc_write(data, len);
+}
+
+uint32_t peer_log_cdc_write_avail(void) {
+    return (uint32_t)tud_cdc_write_available();
 }
 
 void peer_log_cdc_flush(void) {

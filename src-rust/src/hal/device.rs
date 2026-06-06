@@ -19,6 +19,8 @@ extern "C" {
     // ---- UART send helpers (direct C functions) ----
     pub fn send_value(value: u8, packet_type: u8);
     pub fn queue_packet(data: *const u8, packet_type: u8, length: i32);
+    /// Free slots in the UART TX queue (for throttling the peer-log forwarder).
+    pub fn hal_uart_tx_free() -> u32;
 
     // ---- Config / Flash (direct C functions) ----
     pub fn save_config();
