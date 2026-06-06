@@ -70,8 +70,16 @@ static void __not_in_flash_func(promote_staging_cb)(void *param) {
         flash_range_program(0, page, FLASH_PAGE_SIZE);
     }
 
-    /* System reset (inline AIRCR write — no flash call) -> bootrom -> new RUNNING. */
-    *(volatile uint32_t *)0xE000ED0Cu = 0x05FA0004u; /* SCB->AIRCR = VECTKEY|SYSRESETREQ */
+    /* Reboot into the new RUNNING image. Use a WATCHDOG reset, not SCB AIRCR
+     * SYSRESETREQ: on RP2040, AIRCR did NOT reboot here — it left the board hung
+     * (frozen until a manual power-cycle) because it does not re-run the bootrom
+     * the way a watchdog reset does. scratch[4]=0 tells the bootrom to do a normal
+     * flash boot; TRIGGER forces an immediate watchdog reset. Inline register
+     * writes only (no flash-resident call) so it stays RAM-safe after RUNNING was
+     * overwritten. (watchdog_reboot() itself lives in flash and could be at a
+     * different address in the just-written image, so it is NOT safe to call here.) */
+    watchdog_hw->scratch[4] = 0;
+    hw_set_bits(&watchdog_hw->ctrl, WATCHDOG_CTRL_TRIGGER_BITS);
     (void)ints;
     for (;;) tight_loop_contents();
 }
