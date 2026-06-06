@@ -5,7 +5,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 ## Define e.g. 0.72 as major 0 and minor 72
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 77)
-set(DDM_VERSION 1)
+set(DDM_VERSION 2)
 
 ## Release Type Selection
 option(DH_DEBUG "Build a debug version" OFF)
