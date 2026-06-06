@@ -90,7 +90,7 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t *
         /* If checksums don't match, overwrite first sector and rely on ROM bootloader for recovery */
         if (global_fw.fw.checksum != calculate_firmware_crc32()) {
             flash_range_erase((uint32_t)ADDR_FW_RUNNING - XIP_BASE, FLASH_SECTOR_SIZE);
-            reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0);
+            dh_enter_bootloader();
         }
         else {
             global_fw.reboot_requested = true;

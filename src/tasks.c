@@ -15,7 +15,7 @@ void firmware_upgrade_task_c(void) {
         global_fw.fw.upgrade_in_progress = 0; global_fw.fw.checksum = ~global_fw.fw.checksum;
         if (calculate_firmware_crc32() != global_fw.fw.checksum) {
             flash_range_erase((uint32_t)ADDR_FW_RUNNING - XIP_BASE, FLASH_SECTOR_SIZE);
-            reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0);
+            dh_enter_bootloader();
         } else { global_fw._running_fw = _firmware_metadata; global_fw.reboot_requested = true; }
     }
     if (TU_U32_BYTE0(global_fw.fw.address) == 0x00)

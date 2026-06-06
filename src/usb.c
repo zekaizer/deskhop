@@ -62,7 +62,7 @@ void tud_cdc_rx_cb(uint8_t itf) {
 
 #ifdef DH_DEBUG_CDC_FLASH
     if (count >= 5 && memcmp(buf, "flash", 5) == 0) {
-        reset_usb_boot(0, 0);
+        dh_enter_bootloader();
     }
 #endif
 
