@@ -393,19 +393,29 @@ pub fn on_report_received(
 
         // HID++ -> standard-key remap for the active output. A host without the
         // Logitech driver (Android) ignores the vendor HID++ interface, so the
-        // gesture button is dead there; translate its press to an OS-appropriate
-        // key. Routed via route_consumer so it reaches the active output whether
-        // this board is active or forwards to the peer. The raw HID++ still
-        // forwards below — a HID++-aware host uses it, Android ignores it.
+        // gesture button is dead there. On Android, map it to Alt+Tab (the
+        // recent-apps switcher) with HOLD semantics: pressing the gesture button
+        // opens the switcher and holds Alt so the overlay stays; releasing the
+        // button releases Alt and commits the selection. Routed via route_kbd so
+        // it reaches the active output whether this board is active or forwards
+        // to the peer. The raw HID++ still forwards below (Android ignores it).
         if is_input {
+            use crate::domain::hidpp_keymap::{self, GestureEdge, MOD_LEFT_ALT, KEY_TAB};
             let active_os = dev.cfg.config.output[dev.cfg.active_output as usize].os;
             let fi_reprog = pt.hidpp_disc.fi_reprog_controls;
-            if let Some(usage) = crate::domain::hidpp_keymap::on_hidpp_event(
-                report, fi_reprog, active_os, &mut pt.gesture_pressed,
-            ) {
-                hal.route_consumer(dev, &crate::domain::hidpp_keymap::consumer_report(usage));
-                hal.route_consumer(dev, &crate::domain::hidpp_keymap::consumer_report(0));
-                crate::service::dlog::i(b"pt").s(b"remap gesture->cc 0x").hx16(usage).done();
+            match hidpp_keymap::on_hidpp_event(report, fi_reprog, active_os, &mut pt.gesture_pressed) {
+                GestureEdge::Pressed => {
+                    // Tab tap while Alt is held opens the switcher; the trailing
+                    // Alt-only report keeps the overlay up (HID is stateful).
+                    hal.route_kbd(dev, &[MOD_LEFT_ALT, 0, KEY_TAB, 0, 0, 0, 0, 0]);
+                    hal.route_kbd(dev, &[MOD_LEFT_ALT, 0, 0, 0, 0, 0, 0, 0]);
+                    crate::service::dlog::i(b"pt").s(b"remap gesture press -> Alt+Tab hold").done();
+                }
+                GestureEdge::Released => {
+                    hal.route_kbd(dev, &[0u8; 8]); // release Alt -> commit selection
+                    crate::service::dlog::i(b"pt").s(b"remap gesture release -> Alt up").done();
+                }
+                GestureEdge::None => {}
             }
         }
 

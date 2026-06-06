@@ -23,12 +23,15 @@ use crate::domain::passthrough;
 /// MX gesture/thumb button — Logitech HID++ Control-ID (low byte).
 pub const GESTURE_CID: u8 = 0xC3;
 
-/// Consumer page "AC Select Task/Application" -> KEY_APPSELECT -> Android
-/// APP_SWITCH (recent-apps overview).
-pub const AC_APP_SWITCH: u16 = 0x01A2;
+/// HID keyboard modifier bit for Left Alt, and the Tab keycode. On Android,
+/// Alt+Tab opens the recent-apps switcher; the overlay stays while Alt is held
+/// (release selects). Verified on hardware (Consumer task codes did nothing).
+pub const MOD_LEFT_ALT: u8 = 0x04;
+pub const KEY_TAB: u8 = 0x2B;
 
 /// Build a Consumer Control report carrying `usage` (16-bit little-endian,
-/// NUL-padded). `usage == 0` is the release report.
+/// NUL-padded). `usage == 0` is the release report. (Used by the debug
+/// consumer-injection command; the gesture remap itself uses the keyboard.)
 pub fn consumer_report(usage: u16) -> [u8; CONSUMER_CONTROL_LENGTH] {
     let mut r = [0u8; CONSUMER_CONTROL_LENGTH];
     r[0] = (usage & 0xFF) as u8;
@@ -36,19 +39,30 @@ pub fn consumer_report(usage: u16) -> [u8; CONSUMER_CONTROL_LENGTH] {
     r
 }
 
-/// Inspect a HID++ input event and, on the gesture button's press edge, return
-/// the Consumer Control usage to tap for the given active-output OS.
+/// Gesture-button edge for the active output, after the OS gate.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GestureEdge {
+    None,
+    /// Button just pressed — open the switcher and hold the modifier.
+    Pressed,
+    /// Button just released — release the modifier (commits the selection).
+    Released,
+}
+
+/// Inspect a HID++ input event and report the gesture button's press/release
+/// edge for the given active-output OS.
 ///
 /// Only the ReprogControls divertedButtonsEvent (fn=0) on the learned feature
 /// index carries the gesture button as a CID bitmap. `prev_pressed` tracks the
-/// button's last state so we tap once per press (not on repeats or release).
-/// Returns `None` until the feature index is learned (a normal click learns it).
+/// button state across calls. Returns `None` (no action) unless the active
+/// output is Android and a real edge occurred; the feature index must be
+/// learned first (a normal click learns it).
 pub fn on_hidpp_event(
     report: &[u8],
     fi_reprog: u8,
     active_os: u8,
     prev_pressed: &mut bool,
-) -> Option<u16> {
+) -> GestureEdge {
     // Require a learned ReprogControls feature + a divertedButtonsEvent (fn=0)
     // on it, so we don't confuse the wheel/thumbwheel fn=0 streams (other fi).
     if report.len() < 6
@@ -56,18 +70,18 @@ pub fn on_hidpp_event(
         || report[2] != fi_reprog
         || (report[3] >> 4) & 0x0F != 0
     {
-        return None;
+        return GestureEdge::None;
     }
 
     let pressed = passthrough::diverted_has_cid(report, GESTURE_CID);
-    let press_edge = pressed && !*prev_pressed;
+    let edge = match (pressed, *prev_pressed) {
+        (true, false) => GestureEdge::Pressed,
+        (false, true) => GestureEdge::Released,
+        _ => GestureEdge::None,
+    };
     *prev_pressed = pressed;
 
-    if press_edge && active_os == OS_ANDROID {
-        Some(AC_APP_SWITCH)
-    } else {
-        None
-    }
+    if active_os == OS_ANDROID { edge } else { GestureEdge::None }
 }
 
 #[cfg(test)]
@@ -88,31 +102,24 @@ mod tests {
     }
 
     #[test]
-    fn gesture_press_on_android_taps_app_switch() {
-        let mut prev = false;
-        let r = diverted(FI, GESTURE_CID);
-        assert_eq!(on_hidpp_event(&r, FI, OS_ANDROID, &mut prev), Some(AC_APP_SWITCH));
-        assert!(prev);
-    }
-
-    #[test]
-    fn only_taps_on_press_edge_not_repeat() {
+    fn gesture_press_then_release_edges_on_android() {
         let mut prev = false;
         let down = diverted(FI, GESTURE_CID);
         let up = diverted(FI, 0x00);
-        assert_eq!(on_hidpp_event(&down, FI, OS_ANDROID, &mut prev), Some(AC_APP_SWITCH));
-        // Repeat of the down report (still pressed) does not re-tap.
-        assert_eq!(on_hidpp_event(&down, FI, OS_ANDROID, &mut prev), None);
-        // Release, then a fresh press taps again.
-        assert_eq!(on_hidpp_event(&up, FI, OS_ANDROID, &mut prev), None);
-        assert_eq!(on_hidpp_event(&down, FI, OS_ANDROID, &mut prev), Some(AC_APP_SWITCH));
+        assert_eq!(on_hidpp_event(&down, FI, OS_ANDROID, &mut prev), GestureEdge::Pressed);
+        assert!(prev);
+        // Repeat of the down report (still pressed) is not a new edge.
+        assert_eq!(on_hidpp_event(&down, FI, OS_ANDROID, &mut prev), GestureEdge::None);
+        // Release edge, then idle.
+        assert_eq!(on_hidpp_event(&up, FI, OS_ANDROID, &mut prev), GestureEdge::Released);
+        assert_eq!(on_hidpp_event(&up, FI, OS_ANDROID, &mut prev), GestureEdge::None);
     }
 
     #[test]
     fn no_remap_on_non_android() {
         let mut prev = false;
         let r = diverted(FI, GESTURE_CID);
-        assert_eq!(on_hidpp_event(&r, FI, OS_LINUX, &mut prev), None);
+        assert_eq!(on_hidpp_event(&r, FI, OS_LINUX, &mut prev), GestureEdge::None);
         // State still tracked so a later OS change behaves correctly.
         assert!(prev);
     }
@@ -122,13 +129,13 @@ mod tests {
         let mut prev = false;
         // Same bitmap but on a different fi (e.g. thumbwheel) — must not match.
         let r = diverted(0x08, GESTURE_CID);
-        assert_eq!(on_hidpp_event(&r, FI, OS_ANDROID, &mut prev), None);
+        assert_eq!(on_hidpp_event(&r, FI, OS_ANDROID, &mut prev), GestureEdge::None);
     }
 
     #[test]
     fn unlearned_feature_does_nothing() {
         let mut prev = false;
         let r = diverted(FI, GESTURE_CID);
-        assert_eq!(on_hidpp_event(&r, 0, OS_ANDROID, &mut prev), None);
+        assert_eq!(on_hidpp_event(&r, 0, OS_ANDROID, &mut prev), GestureEdge::None);
     }
 }
