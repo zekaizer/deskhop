@@ -27,7 +27,7 @@ pub static DEFAULT_CONFIG: Config = Config {
             border: BorderSize { top: 0, bottom: MAX_SCREEN_COORD as i32 },
             screen_count: 1,
             screen_index: 1,
-            os: OS_MACOS, // OUTPUT_A_OS
+            os: OS_WINDOWS, // OUTPUT_A_OS
             pos: 2, // RIGHT
             mouse_park_pos: 0,
             screensaver: Screensaver {
@@ -44,7 +44,7 @@ pub static DEFAULT_CONFIG: Config = Config {
             border: BorderSize { top: 0, bottom: MAX_SCREEN_COORD as i32 },
             screen_count: 1,
             screen_index: 1,
-            os: OS_LINUX, // OUTPUT_B_OS
+            os: OS_ANDROID, // OUTPUT_B_OS
             pos: 1, // LEFT
             mouse_park_pos: 0,
             screensaver: Screensaver {

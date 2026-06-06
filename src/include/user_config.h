@@ -166,15 +166,19 @@
  * Defines OS an output connects to. You will need to worry about this only if you have
  * multiple desktops and one of your outputs is MacOS or Windows.
  *
- * Available options: LINUX, MACOS, WINDOWS, OTHER (check main.h for details)
+ * Available options: LINUX, MACOS, WINDOWS, ANDROID, OTHER (check structs.h
+ * os_type_e for details)
  *
  * OUTPUT_A_OS: OS for output A
  * OUTPUT_B_OS: OS for output B
  *
+ * NOTE: the actual default config now lives in Rust
+ * (src-rust/src/hal/ffi/config.rs DEFAULT_CONFIG); keep these in sync.
+ *
  * */
 
-#define OUTPUT_A_OS MACOS
-#define OUTPUT_B_OS LINUX
+#define OUTPUT_A_OS WINDOWS
+#define OUTPUT_B_OS ANDROID
 
 
 /**================================================== *
