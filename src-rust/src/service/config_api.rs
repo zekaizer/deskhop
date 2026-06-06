@@ -182,9 +182,10 @@ pub fn handle_api_msg<H: Timer + PacketQueue>(
             crate::service::dlog::i(b"cfg").s(b"set idx=").u(api_idx as u32).s(b" READONLY").done();
             return;
         }
-        write_field(state, api_idx, data);
+        // data[0] is the field index; the value bytes follow at data[1..].
+        write_field(state, api_idx, &data[1..]);
         crate::service::dlog::i(b"cfg")
-            .s(b"set idx=").u(api_idx as u32).s(b" v=0x").hx(data[0]).done();
+            .s(b"set idx=").u(api_idx as u32).s(b" v=0x").hx(data[1]).done();
     } else if ptype == GET_VAL {
         let mut response = [0u8; 10];
         response[0] = GET_VAL;
@@ -240,9 +241,11 @@ mod tests {
         let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
         let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
         let hal = MockHal::new();
-        let data = 42u32.to_le_bytes();
+        // Wire-format packet: data[0] = field index, data[1..] = value.
+        let val = 42u32.to_le_bytes();
         let mut buf = [0u8; 8];
-        buf[..4].copy_from_slice(&data);
+        buf[0] = 70; // field index (config.version)
+        buf[1..5].copy_from_slice(&val);
 
         handle_api_msg(
             &mut dev, &hal,
@@ -252,6 +255,27 @@ mod tests {
         );
 
         assert_eq!(dev.cfg.config.version, 42);
+    }
+
+    #[test]
+    fn test_handle_api_msg_set_val_uses_value_not_index() {
+        // Regression: a SET must write the value (data[1..]), not the field
+        // index (data[0]). Picking a value distinct from the index catches the
+        // off-by-one that wrote the index as the value.
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        let hal = MockHal::new();
+        // idx 46 = output[1].os; set it to Android (4), value != index (46).
+        let buf = [46u8, 4, 0, 0, 0, 0, 0, 0];
+
+        handle_api_msg(
+            &mut dev, &hal,
+            constants::PacketType::SetVal as u8,
+            46,
+            &buf,
+        );
+
+        assert_eq!(dev.cfg.config.output[1].os, 4);
     }
 
     #[test]
