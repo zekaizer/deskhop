@@ -18,14 +18,24 @@ pub fn receive_fw_byte(
 ) -> bool {
     // Address must match expected sequence
     if address != state.fw.fw.address {
+        // Out-of-sequence word aborts an in-flight peer flash mid-transfer;
+        // log the gap (expected value still intact) before resetting.
+        crate::service::dlog::e(b"fw")
+            .s(b"rx ABORT addr got=").u(address)
+            .s(b" want=").u(state.fw.fw.address)
+            .done();
         state.fw.fw.upgrade_in_progress = false;
         state.fw.fw.address = 0;
         return false;
     }
 
-    // Blink indicator every 4KB boundary
+    // Blink indicator every 4KB boundary (also a natural progress checkpoint:
+    // 64 lines for a full 256KB image, so the transfer is traceable / stalls
+    // are locatable without flooding the ring per-word).
     if (address & 0xfff) == 0x000 {
         hal.toggle();
+        crate::service::dlog::i(b"fw")
+            .s(b"rx ").u(address).s(b"/").u(STAGING_IMAGE_SIZE).done();
     }
 
     // Accumulate CRC (skip last sector — contains CRC itself)
@@ -52,7 +62,13 @@ pub fn send_fw_byte(
     hal: &(impl ConfigStore + PeerLink),
     address: u32,
 ) -> Option<[u8; 8]> {
-    if address >= STAGING_IMAGE_SIZE { return None; }
+    if address >= STAGING_IMAGE_SIZE {
+        // Peer requested the word past the image end — the normal transfer
+        // terminator, so this doubles as a "source reached end" marker.
+        crate::service::dlog::i(b"fw")
+            .s(b"tx end addr=").u(address).s(b" max=").u(STAGING_IMAGE_SIZE).done();
+        return None;
+    }
     let fw_data = hal.read_running_fw(address);
     let bytes = fw_data.to_le_bytes();
     let mut response = [0u8; 8];
