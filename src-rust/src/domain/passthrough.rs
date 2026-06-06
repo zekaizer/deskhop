@@ -171,6 +171,29 @@ pub struct PassthroughState {
     /// Debug: last forwarded mouse button byte, for button-transition logging
     /// (pointer movement is not logged). DH_DEBUG observability only.
     pub dbg_last_buttons: u8,
+
+    /// Debug: rate-limited accumulators for the high-frequency wheel /
+    /// thumbwheel / pointer streams (logging every event would flood the
+    /// peer_log ring). DH_DEBUG observability only.
+    pub dbg_stream: DbgStreamLog,
+}
+
+/// DH_DEBUG stream-summary accumulators. Each stream sums its delta + event
+/// count and is flushed to the log at most once per interval (see
+/// passthrough_service), so continuous scrolling/movement is summarized rather
+/// than logged per event.
+#[derive(Clone, Copy, Default)]
+pub struct DbgStreamLog {
+    pub wheel_sum: i32,
+    pub wheel_n: u16,
+    pub wheel_last_us: u64,
+    pub thumb_sum: i32,
+    pub thumb_n: u16,
+    pub thumb_last_us: u64,
+    pub ptr_dx: i32,
+    pub ptr_dy: i32,
+    pub ptr_n: u16,
+    pub ptr_last_us: u64,
 }
 
 impl Default for PassthroughState {
@@ -193,6 +216,7 @@ impl Default for PassthroughState {
             smartshift_consume: 0,
             disconnect_requested: false,
             dbg_last_buttons: 0,
+            dbg_stream: DbgStreamLog::default(),
         }
     }
 }

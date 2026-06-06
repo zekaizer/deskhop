@@ -388,7 +388,7 @@ pub fn on_report_received(
         // up even when this board isn't the active one. Scroll/thumbwheel
         // streams are suppressed inside.
         if is_input {
-            log_hidpp_event(pt, report);
+            log_hidpp_event(pt, report, hal.now_us_64());
         }
 
         let is_active = dev.is_active_output();
@@ -505,22 +505,70 @@ fn log_button_change(pt: &mut PassthroughState, report: &[u8]) {
     crate::service::dlog::i(b"pt").s(b"btn=0x").hx(buttons).done();
 }
 
-/// Log a discrete HID++ control event (DH_DEBUG) — e.g. an MX Master special
-/// key (ReprogControls cid/action). Continuous scroll/thumbwheel streams are
-/// suppressed (feature index matches the learned hi-res-scroll / thumbwheel
-/// feature) so scrolling does not flood the peer_log ring. Logs
-/// `[pt] key fi=XX fn=XX c=XX a=XX` (feature index, fn|sw, cid_lo, action).
-fn log_hidpp_event(pt: &PassthroughState, report: &[u8]) {
+/// Flush interval for the rate-limited wheel/thumbwheel summaries (300ms).
+const WHEEL_SUMMARY_US: u64 = 300_000;
+
+/// Emit a `[pt] <tag> n=<count> sum=<signed>` summary line (decimal, signed).
+fn log_stream_summary(tag: &[u8], n: u16, sum: i32) {
+    let mut log = crate::service::dlog::i(b"pt");
+    log.s(tag).s(b" n=").u(n as u32).s(b" sum=");
+    if sum < 0 {
+        log.s(b"-").u((-sum) as u32);
+    } else {
+        log.u(sum as u32);
+    }
+    log.done();
+}
+
+/// Log HID++ control events (DH_DEBUG). Discrete keys (ReprogControls
+/// cid/action) log immediately as `[pt] key fi=XX fn=XX c=XX a=XX`. The
+/// high-frequency vertical (HiResWheel) and horizontal (thumbwheel) streams are
+/// NOT logged per event (that would flood the peer_log ring) — instead their
+/// delta is accumulated and flushed at most once per WHEEL_SUMMARY_US as
+/// `[pt] scroll/thumb n=<count> sum=<delta>`.
+fn log_hidpp_event(pt: &mut PassthroughState, report: &[u8], now_us: u64) {
     if report.len() < 7 {
         return;
     }
     let fi = report[2];
-    let d = &pt.hidpp_disc;
-    if (d.fi_hires_scroll != 0 && fi == d.fi_hires_scroll)
-        || (d.fi_thumbwheel != 0 && fi == d.fi_thumbwheel)
-    {
+    let (hires, thumb) = (pt.hidpp_disc.fi_hires_scroll, pt.hidpp_disc.fi_thumbwheel);
+    // HID++ wheel delta = params[1..3] big-endian = report[5..7].
+    let delta = (((report[5] as i16) << 8) | report[6] as i16) as i32;
+
+    if hires != 0 && fi == hires {
+        let s = &mut pt.dbg_stream;
+        if s.wheel_last_us == 0 {
+            s.wheel_last_us = now_us;
+        }
+        s.wheel_sum += delta;
+        s.wheel_n += 1;
+        if now_us.wrapping_sub(s.wheel_last_us) >= WHEEL_SUMMARY_US {
+            let (n, sum) = (s.wheel_n, s.wheel_sum);
+            s.wheel_n = 0;
+            s.wheel_sum = 0;
+            s.wheel_last_us = now_us;
+            log_stream_summary(b"scroll", n, sum);
+        }
         return;
     }
+
+    if thumb != 0 && fi == thumb {
+        let s = &mut pt.dbg_stream;
+        if s.thumb_last_us == 0 {
+            s.thumb_last_us = now_us;
+        }
+        s.thumb_sum += delta;
+        s.thumb_n += 1;
+        if now_us.wrapping_sub(s.thumb_last_us) >= WHEEL_SUMMARY_US {
+            let (n, sum) = (s.thumb_n, s.thumb_sum);
+            s.thumb_n = 0;
+            s.thumb_sum = 0;
+            s.thumb_last_us = now_us;
+            log_stream_summary(b"thumb", n, sum);
+        }
+        return;
+    }
+
     crate::service::dlog::i(b"pt")
         .s(b"key fi=").hx(report[2])
         .s(b" fn=").hx(report[3])
