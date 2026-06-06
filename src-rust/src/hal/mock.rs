@@ -11,6 +11,7 @@ use alloc::vec::Vec;
 pub struct MockHal {
     pub time_us: Cell<u64>,
     pub watchdog_kicked: Cell<bool>,
+    pub watchdog_enabled: Cell<bool>,
     pub rebooted: Cell<bool>,
     pub boot_flag_set: Cell<bool>,
     pub usb_ready: Cell<bool>,
@@ -61,6 +62,7 @@ impl MockHal {
         Self {
             time_us: Cell::new(0),
             watchdog_kicked: Cell::new(false),
+            watchdog_enabled: Cell::new(false),
             rebooted: Cell::new(false),
             boot_flag_set: Cell::new(false),
             usb_ready: Cell::new(true),
@@ -147,6 +149,7 @@ impl Watchdog for MockHal {
     fn reboot(&self) -> ! { self.rebooted.set(true); panic!("MockHal::reboot"); }
     fn reboot_to_bootloader(&self) -> ! { panic!("MockHal::reboot_to_bootloader"); }
     fn set_boot_flag(&self) { self.boot_flag_set.set(true); }
+    fn enable_watchdog(&self) { self.watchdog_enabled.set(true); }
     fn is_bootsel_pressed(&self) -> bool { false }
 }
 

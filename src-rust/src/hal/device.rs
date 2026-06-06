@@ -34,6 +34,7 @@ extern "C" {
 
     // ---- Hardware ----
     pub fn hal_watchdog_update();
+    pub fn hal_watchdog_enable();
     pub fn blink_led();
     pub fn reboot();
     pub fn hal_reset_usb_boot();

@@ -330,6 +330,14 @@ void hal_set_config_mode_scratch(void) {
     watchdog_hw->scratch[6] = MAGIC_WORD_2;
 }
 
+/* Enable the hardware watchdog. Config-mode entry relies on a watchdog-timeout
+ * reset (it preserves the scratch flag, unlike a bare AIRCR reset); debug builds
+ * leave the watchdog disabled at boot, so entering config mode must arm it here
+ * or the reboot (and thus config mode) never happens. Idempotent in release. */
+void hal_watchdog_enable(void) {
+    watchdog_enable(WATCHDOG_TIMEOUT, WATCHDOG_PAUSE_ON_DEBUG);
+}
+
 /* ==================================================== *
  * Trace output
  * ==================================================== */
