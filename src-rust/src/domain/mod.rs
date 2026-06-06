@@ -7,6 +7,7 @@ pub mod constants;
 pub mod crc;
 pub mod dispatch;
 pub mod hid_classify;
+pub mod hid_descdump;
 pub mod hid_parser;
 pub mod kbd_extract;
 pub mod hid_report;
