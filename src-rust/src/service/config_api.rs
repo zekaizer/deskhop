@@ -178,8 +178,13 @@ pub fn handle_api_msg<H: Timer + PacketQueue>(
     const GET_VAL: u8 = constants::PacketType::GetVal as u8;
 
     if ptype == SET_VAL {
-        if field.readonly { return; }
+        if field.readonly {
+            crate::service::dlog::i(b"cfg").s(b"set idx=").u(api_idx as u32).s(b" READONLY").done();
+            return;
+        }
         write_field(state, api_idx, data);
+        crate::service::dlog::i(b"cfg")
+            .s(b"set idx=").u(api_idx as u32).s(b" v=0x").hx(data[0]).done();
     } else if ptype == GET_VAL {
         let mut response = [0u8; 10];
         response[0] = GET_VAL;

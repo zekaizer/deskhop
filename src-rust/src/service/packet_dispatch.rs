@@ -103,7 +103,10 @@ fn dispatch_simple(
         DispatchAction::WipeConfig => {
             crate::service::hotkey_dispatch::wipe_and_notify(hal);
         }
-        DispatchAction::SaveConfig => { hal.save(); }
+        DispatchAction::SaveConfig => {
+            crate::service::dlog::i(b"cfg").s(b"save").done();
+            hal.save();
+        }
         DispatchAction::Reboot => hal.reboot(),
         DispatchAction::Heartbeat => {} // state already updated by apply_action
         _ => {} // MouseZoom, SwitchLock, GamingMode, Screensaver — state-only
