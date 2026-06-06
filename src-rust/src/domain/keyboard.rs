@@ -18,6 +18,27 @@ pub enum HotkeyAction {
     FwUpgradeB,
 }
 
+impl HotkeyAction {
+    /// Short name for debug logging.
+    pub const fn name(&self) -> &'static [u8] {
+        match self {
+            Self::OutputToggle => b"OutputToggle",
+            Self::MouseZoomToggle => b"MouseZoomToggle",
+            Self::SwitchLockToggle => b"SwitchLockToggle",
+            Self::ScreenLock => b"ScreenLock",
+            Self::GamingModeToggle => b"GamingModeToggle",
+            Self::ScreensaverPong => b"ScreensaverPong",
+            Self::ScreensaverJitter => b"ScreensaverJitter",
+            Self::ScreensaverDisable => b"ScreensaverDisable",
+            Self::WipeConfig => b"WipeConfig",
+            Self::ScreenBorder => b"ScreenBorder",
+            Self::ConfigEnable => b"ConfigEnable",
+            Self::FwUpgradeA => b"FwUpgradeA",
+            Self::FwUpgradeB => b"FwUpgradeB",
+        }
+    }
+}
+
 /// Hotkey definition for matching keyboard combos
 pub struct HotkeyCombo {
     pub modifier: u8,

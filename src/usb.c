@@ -44,7 +44,9 @@ void tud_mount_cb(void) { rust_on_tud_mount(); }
 void tud_umount_cb(void) { rust_on_tud_umount(); }
 
 #if defined(DH_DEBUG) || defined(DH_DEBUG_CDC_FLASH)
-extern void peer_log_request_replay(void);
+#ifdef DH_DEBUG
+extern void rust_dbg_cmd(const uint8_t *buf, uint32_t len);
+#endif
 
 void tud_cdc_rx_cb(uint8_t itf) {
     char buf[64];
@@ -65,22 +67,19 @@ void tud_cdc_rx_cb(uint8_t itf) {
 #endif
 
 #ifdef DH_DEBUG
-    /* "logdump" replays the full log scrollback on demand — re-read the boot
-     * history without reconnecting the terminal. Matched incrementally so it
-     * works whether the terminal sends the line at once or character by
-     * character; a deliberate command (not any keystroke) so stray bytes don't
-     * trigger spurious re-dumps. */
+    /* Accumulate a newline-terminated command line and dispatch it to Rust.
+     * Commands: logdump, ptr, cc<hex>, kb<modkey-hex> (see rust_dbg_cmd). */
     {
-        static const char CMD[] = "logdump";
-        static uint8_t matched = 0;
+        static char line[24];
+        static uint8_t llen = 0;
         for (uint32_t i = 0; i < count; i++) {
-            if (buf[i] == CMD[matched]) {
-                if (++matched == sizeof(CMD) - 1) {
-                    peer_log_request_replay();
-                    matched = 0;
-                }
+            char c = buf[i];
+            if (c == '\r' || c == '\n') {
+                if (llen) { rust_dbg_cmd((const uint8_t *)line, llen); llen = 0; }
+            } else if (llen < sizeof(line)) {
+                line[llen++] = c;
             } else {
-                matched = (buf[i] == CMD[0]) ? 1 : 0;
+                llen = 0; /* overflow — drop the line */
             }
         }
     }

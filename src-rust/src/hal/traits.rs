@@ -21,6 +21,10 @@ pub trait Watchdog {
     fn reboot_to_bootloader(&self) -> !;
     /// Set persistent flag for config-mode boot.
     fn set_boot_flag(&self);
+    /// Arm the hardware watchdog. Config-mode entry needs the watchdog-timeout
+    /// reset (it preserves the scratch flag); debug builds boot with it off, so
+    /// entering config mode must enable it or the reset never fires.
+    fn enable_watchdog(&self);
     /// Check if BOOTSEL button is pressed (debug builds only, always false in release).
     fn is_bootsel_pressed(&self) -> bool;
 }

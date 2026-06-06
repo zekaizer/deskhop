@@ -388,7 +388,54 @@ pub fn on_report_received(
         // up even when this board isn't the active one. Scroll/thumbwheel
         // streams are suppressed inside.
         if is_input {
-            log_hidpp_event(pt, report);
+            log_hidpp_event(pt, report, hal.now_us_64());
+        }
+
+        // HID++ -> standard-key remap for the active output. A host without the
+        // Logitech driver (Android) ignores the vendor HID++ interface, so the
+        // gesture button is dead there. On Android, map it to Alt+Tab (the
+        // recent-apps switcher) with HOLD semantics: pressing the gesture button
+        // opens the switcher and holds Alt so the overlay stays; releasing the
+        // button releases Alt and commits the selection. Routed via route_kbd so
+        // it reaches the active output whether this board is active or forwards
+        // to the peer. The raw HID++ still forwards below (Android ignores it).
+        if is_input {
+            use crate::domain::hidpp_keymap::{self, GestureEdge, GesturePress,
+                MOD_LEFT_ALT, KEY_TAB, APP_DRAWER_USAGE};
+            let active_os = dev.cfg.config.output[dev.cfg.active_output as usize].os;
+            let fi_reprog = pt.hidpp_disc.fi_reprog_controls;
+            match hidpp_keymap::on_hidpp_event(report, fi_reprog, active_os, &mut pt.gesture_pressed) {
+                GestureEdge::Pressed => {
+                    // Defer the action to release: the held duration decides
+                    // tap (Alt+Tab) vs hold (app drawer). Nothing is emitted now,
+                    // so a long press never flashes the switcher.
+                    pt.gesture_press_us = hal.now_us_64();
+                }
+                GestureEdge::Released => {
+                    // Guard against a release with no matching Android press
+                    // (e.g. the press landed before an OS switch).
+                    if pt.gesture_press_us != 0 {
+                        let elapsed = hal.now_us_64().wrapping_sub(pt.gesture_press_us);
+                        pt.gesture_press_us = 0;
+                        match hidpp_keymap::classify_press(elapsed) {
+                            GesturePress::Tap => {
+                                // One-shot Alt+Tab -> toggle to the previous app.
+                                hal.route_kbd(dev, &[MOD_LEFT_ALT, 0, KEY_TAB, 0, 0, 0, 0, 0]);
+                                hal.route_kbd(dev, &[0u8; 8]);
+                                crate::service::dlog::i(b"pt").s(b"remap gesture tap -> Alt+Tab").done();
+                            }
+                            GesturePress::Hold => {
+                                // One-shot consumer 0x1A2 -> open the all-apps drawer
+                                // (persistent overlay, touch-selectable).
+                                hal.route_consumer(dev, &hidpp_keymap::consumer_report(APP_DRAWER_USAGE));
+                                hal.route_consumer(dev, &hidpp_keymap::consumer_report(0));
+                                crate::service::dlog::i(b"pt").s(b"remap gesture hold -> app drawer").done();
+                            }
+                        }
+                    }
+                }
+                GestureEdge::None => {}
+            }
         }
 
         let is_active = dev.is_active_output();
@@ -433,7 +480,7 @@ pub fn on_report_received(
     // Non-vendor, non-keyboard: raw passthrough on active output only.
     // Log mouse button transitions on the receiver board regardless of active
     // output (pointer movement suppressed) so the [pt] btn trace is consistent.
-    log_button_change(pt, report);
+    log_button_change(pt, report, hal.now_us_64());
 
     let is_active = dev.is_active_output();
     if is_active {
@@ -490,37 +537,156 @@ pub fn on_set_report(
 // Helpers
 // ================================================================
 
-/// Log a mouse button transition (DH_DEBUG observability). Only the button byte
-/// (report[1] of a standard mouse report) is tracked, so continuous pointer
-/// movement does not flood the peer_log ring — we log only on a change.
-fn log_button_change(pt: &mut PassthroughState, report: &[u8]) {
+/// Pointer summary flush interval (1s — slower than the wheels, very chatty).
+const PTR_SUMMARY_US: u64 = 1_000_000;
+
+/// Optional pointer-stream logging, toggled at runtime by the `ptr` CDC command
+/// (default off — pointer movement is the noisiest stream). Written from the
+/// Core0 USB command handler, read from the Core1 receiver; a bool load/store is
+/// atomic on the bus.
+static mut DBG_PTR_LOG: bool = false;
+
+fn dbg_ptr_log_enabled() -> bool {
+    unsafe { core::ptr::read(core::ptr::addr_of!(DBG_PTR_LOG)) }
+}
+
+/// Toggle pointer-stream logging. Called from tud_cdc_rx_cb on the `ptr` command.
+///
+/// # Safety
+/// Plain bool store; safe from the USB task.
+#[no_mangle]
+pub unsafe extern "C" fn rust_dbg_toggle_ptr_log() {
+    let new = !dbg_ptr_log_enabled();
+    core::ptr::write(core::ptr::addr_of_mut!(DBG_PTR_LOG), new);
+    crate::service::dlog::i(b"pt")
+        .s(b"ptr log ").s(if new { b"on" } else { b"off" }).done();
+}
+
+/// Sign-extend a 12-bit value (standard packed mouse X/Y field).
+fn sext12(v: u16) -> i32 {
+    let v = (v & 0x0FFF) as i32;
+    if v & 0x0800 != 0 { v - 0x1000 } else { v }
+}
+
+/// Emit `[pt] ptr n=<count> dx=<signed> dy=<signed>` (decimal, signed).
+fn log_ptr_summary(n: u16, dx: i32, dy: i32) {
+    let mut log = crate::service::dlog::i(b"pt");
+    log.s(b"ptr n=").u(n as u32).s(b" dx=");
+    if dx < 0 { log.s(b"-").u((-dx) as u32); } else { log.u(dx as u32); }
+    log.s(b" dy=");
+    if dy < 0 { log.s(b"-").u((-dy) as u32); } else { log.u(dy as u32); }
+    log.done();
+}
+
+/// Log a mouse button transition (DH_DEBUG observability). The button byte is
+/// logged only on change so continuous movement doesn't flood the ring. When the
+/// `ptr` command has enabled pointer logging, also accumulate the (12-bit packed)
+/// X/Y deltas and flush a rate-limited summary at most once per PTR_SUMMARY_US.
+fn log_button_change(pt: &mut PassthroughState, report: &[u8], now_us: u64) {
     if report.len() < 2 {
         return;
     }
     let buttons = report[1];
-    if buttons == pt.dbg_last_buttons {
-        return;
+    if buttons != pt.dbg_last_buttons {
+        pt.dbg_last_buttons = buttons;
+        crate::service::dlog::i(b"pt").s(b"btn=0x").hx(buttons).done();
     }
-    pt.dbg_last_buttons = buttons;
-    crate::service::dlog::i(b"pt").s(b"btn=0x").hx(buttons).done();
+
+    // Optional pointer summary. report[3..6] = packed 12-bit X,Y (standard mouse
+    // layout); for devices with a different layout the count is still correct.
+    if dbg_ptr_log_enabled() && report.len() >= 6 {
+        let x = sext12(report[3] as u16 | ((report[4] as u16 & 0x0F) << 8));
+        let y = sext12(((report[4] as u16) >> 4) | ((report[5] as u16) << 4));
+        let s = &mut pt.dbg_stream;
+        if s.ptr_last_us == 0 {
+            s.ptr_last_us = now_us;
+        }
+        s.ptr_dx += x;
+        s.ptr_dy += y;
+        s.ptr_n += 1;
+        if now_us.wrapping_sub(s.ptr_last_us) >= PTR_SUMMARY_US {
+            let (n, dx, dy) = (s.ptr_n, s.ptr_dx, s.ptr_dy);
+            s.ptr_n = 0;
+            s.ptr_dx = 0;
+            s.ptr_dy = 0;
+            s.ptr_last_us = now_us;
+            log_ptr_summary(n, dx, dy);
+        }
+    }
 }
 
-/// Log a discrete HID++ control event (DH_DEBUG) — e.g. an MX Master special
-/// key (ReprogControls cid/action). Continuous scroll/thumbwheel streams are
-/// suppressed (feature index matches the learned hi-res-scroll / thumbwheel
-/// feature) so scrolling does not flood the peer_log ring. Logs
-/// `[pt] key fi=XX fn=XX c=XX a=XX` (feature index, fn|sw, cid_lo, action).
-fn log_hidpp_event(pt: &PassthroughState, report: &[u8]) {
+/// Flush interval for the rate-limited wheel/thumbwheel summaries (300ms).
+const WHEEL_SUMMARY_US: u64 = 300_000;
+
+/// Emit a `[pt] <tag> n=<count> sum=<signed>` summary line (decimal, signed).
+fn log_stream_summary(tag: &[u8], n: u16, sum: i32) {
+    let mut log = crate::service::dlog::i(b"pt");
+    log.s(tag).s(b" n=").u(n as u32).s(b" sum=");
+    if sum < 0 {
+        log.s(b"-").u((-sum) as u32);
+    } else {
+        log.u(sum as u32);
+    }
+    log.done();
+}
+
+/// Log HID++ control events (DH_DEBUG). Discrete keys (ReprogControls
+/// cid/action) log immediately as `[pt] key fi=XX fn=XX c=XX a=XX`. The
+/// high-frequency vertical (HiResWheel) and horizontal (thumbwheel) streams are
+/// NOT logged per event (that would flood the peer_log ring) — instead their
+/// delta is accumulated and flushed at most once per WHEEL_SUMMARY_US as
+/// `[pt] scroll/thumb n=<count> sum=<delta>`.
+fn log_hidpp_event(pt: &mut PassthroughState, report: &[u8], now_us: u64) {
     if report.len() < 7 {
         return;
     }
     let fi = report[2];
-    let d = &pt.hidpp_disc;
-    if (d.fi_hires_scroll != 0 && fi == d.fi_hires_scroll)
-        || (d.fi_thumbwheel != 0 && fi == d.fi_thumbwheel)
-    {
+    let (hires, thumb) = (pt.hidpp_disc.fi_hires_scroll, pt.hidpp_disc.fi_thumbwheel);
+    // HID++ wheel delta = params[1..3] big-endian = report[5..7].
+    let delta = (((report[5] as i16) << 8) | report[6] as i16) as i32;
+
+    if hires != 0 && fi == hires {
+        let s = &mut pt.dbg_stream;
+        if s.wheel_last_us == 0 {
+            s.wheel_last_us = now_us;
+        }
+        s.wheel_sum += delta;
+        s.wheel_n += 1;
+        if now_us.wrapping_sub(s.wheel_last_us) >= WHEEL_SUMMARY_US {
+            let (n, sum) = (s.wheel_n, s.wheel_sum);
+            s.wheel_n = 0;
+            s.wheel_sum = 0;
+            s.wheel_last_us = now_us;
+            log_stream_summary(b"scroll", n, sum);
+        }
         return;
     }
+
+    if thumb != 0 && fi == thumb {
+        let s = &mut pt.dbg_stream;
+        if s.thumb_last_us == 0 {
+            s.thumb_last_us = now_us;
+        }
+        s.thumb_sum += delta;
+        s.thumb_n += 1;
+        if now_us.wrapping_sub(s.thumb_last_us) >= WHEEL_SUMMARY_US {
+            let (n, sum) = (s.thumb_n, s.thumb_sum);
+            s.thumb_n = 0;
+            s.thumb_sum = 0;
+            s.thumb_last_us = now_us;
+            log_stream_summary(b"thumb", n, sum);
+        }
+        return;
+    }
+
+    // ReprogControls divertedRawXYEvent (fn=1) floods at ~70/s while a diverted
+    // button (e.g. the gesture/thumb button) is held. Its layout is known (long
+    // report, big-endian dx@[4..6], dy@[6..8]) and unused outside the remap, so
+    // suppress the per-event spam to keep the peer_log ring readable.
+    if fi != 0 && fi == pt.hidpp_disc.fi_reprog_controls && (report[3] >> 4) & 0x0F == 1 {
+        return;
+    }
+
     crate::service::dlog::i(b"pt")
         .s(b"key fi=").hx(report[2])
         .s(b" fn=").hx(report[3])

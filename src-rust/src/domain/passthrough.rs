@@ -168,9 +168,43 @@ pub struct PassthroughState {
     /// passthrough_task on Core0 — Core1 must never touch the device stack.
     pub disconnect_requested: bool,
 
+    /// Edge-detect state for the HID++->key remap: whether the gesture button
+    /// (CID 0xC3) was present in the last divertedButtons bitmap. See
+    /// domain::hidpp_keymap.
+    pub gesture_pressed: bool,
+
+    /// Timestamp of the current gesture-button press (us). Set on the press
+    /// edge; on release the held duration classifies the gesture as a tap
+    /// (Alt+Tab) or a hold (app drawer). 0 = no press in progress. See
+    /// domain::hidpp_keymap.
+    pub gesture_press_us: u64,
+
     /// Debug: last forwarded mouse button byte, for button-transition logging
     /// (pointer movement is not logged). DH_DEBUG observability only.
     pub dbg_last_buttons: u8,
+
+    /// Debug: rate-limited accumulators for the high-frequency wheel /
+    /// thumbwheel / pointer streams (logging every event would flood the
+    /// peer_log ring). DH_DEBUG observability only.
+    pub dbg_stream: DbgStreamLog,
+}
+
+/// DH_DEBUG stream-summary accumulators. Each stream sums its delta + event
+/// count and is flushed to the log at most once per interval (see
+/// passthrough_service), so continuous scrolling/movement is summarized rather
+/// than logged per event.
+#[derive(Clone, Copy, Default)]
+pub struct DbgStreamLog {
+    pub wheel_sum: i32,
+    pub wheel_n: u16,
+    pub wheel_last_us: u64,
+    pub thumb_sum: i32,
+    pub thumb_n: u16,
+    pub thumb_last_us: u64,
+    pub ptr_dx: i32,
+    pub ptr_dy: i32,
+    pub ptr_n: u16,
+    pub ptr_last_us: u64,
 }
 
 impl Default for PassthroughState {
@@ -192,7 +226,10 @@ impl Default for PassthroughState {
             smartshift_buf: [SmartShiftBufEntry::default(); SMARTSHIFT_BUF_SIZE],
             smartshift_consume: 0,
             disconnect_requested: false,
+            gesture_pressed: false,
+            gesture_press_us: 0,
             dbg_last_buttons: 0,
+            dbg_stream: DbgStreamLog::default(),
         }
     }
 }
@@ -369,17 +406,23 @@ pub fn is_hidpp_input_event(report: &[u8]) -> bool {
     (report[3] & 0x0F) == 0
 }
 
-/// True if a divertedButtonsEvent (fn=0) bitmap contains the SmartShift CID.
-/// The bitmap is report[4..], laid out as (cid_hi, cid_lo) pairs.
-fn diverted_has_smartshift(report: &[u8]) -> bool {
+/// True if a divertedButtonsEvent (fn=0) bitmap contains the given CID (low
+/// byte, usage page 0x00). The bitmap is report[4..], laid out as (cid_hi,
+/// cid_lo) pairs.
+pub fn diverted_has_cid(report: &[u8], cid_lo: u8) -> bool {
     let mut i = 4;
     while i + 1 < report.len() {
-        if report[i] == 0x00 && report[i + 1] == SMARTSHIFT_CID {
+        if report[i] == 0x00 && report[i + 1] == cid_lo {
             return true;
         }
         i += 2;
     }
     false
+}
+
+/// True if a divertedButtonsEvent (fn=0) bitmap contains the SmartShift CID.
+fn diverted_has_smartshift(report: &[u8]) -> bool {
+    diverted_has_cid(report, SMARTSHIFT_CID)
 }
 
 /// Returns true if the report is a SmartShift button-DOWN event (CID 0xC4).

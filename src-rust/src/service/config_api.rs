@@ -178,8 +178,14 @@ pub fn handle_api_msg<H: Timer + PacketQueue>(
     const GET_VAL: u8 = constants::PacketType::GetVal as u8;
 
     if ptype == SET_VAL {
-        if field.readonly { return; }
-        write_field(state, api_idx, data);
+        if field.readonly {
+            crate::service::dlog::i(b"cfg").s(b"set idx=").u(api_idx as u32).s(b" READONLY").done();
+            return;
+        }
+        // data[0] is the field index; the value bytes follow at data[1..].
+        write_field(state, api_idx, &data[1..]);
+        crate::service::dlog::i(b"cfg")
+            .s(b"set idx=").u(api_idx as u32).s(b" v=0x").hx(data[1]).done();
     } else if ptype == GET_VAL {
         let mut response = [0u8; 10];
         response[0] = GET_VAL;
@@ -235,9 +241,11 @@ mod tests {
         let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
         let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
         let hal = MockHal::new();
-        let data = 42u32.to_le_bytes();
+        // Wire-format packet: data[0] = field index, data[1..] = value.
+        let val = 42u32.to_le_bytes();
         let mut buf = [0u8; 8];
-        buf[..4].copy_from_slice(&data);
+        buf[0] = 70; // field index (config.version)
+        buf[1..5].copy_from_slice(&val);
 
         handle_api_msg(
             &mut dev, &hal,
@@ -247,6 +255,27 @@ mod tests {
         );
 
         assert_eq!(dev.cfg.config.version, 42);
+    }
+
+    #[test]
+    fn test_handle_api_msg_set_val_uses_value_not_index() {
+        // Regression: a SET must write the value (data[1..]), not the field
+        // index (data[0]). Picking a value distinct from the index catches the
+        // off-by-one that wrote the index as the value.
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        let hal = MockHal::new();
+        // idx 46 = output[1].os; set it to Android (4), value != index (46).
+        let buf = [46u8, 4, 0, 0, 0, 0, 0, 0];
+
+        handle_api_msg(
+            &mut dev, &hal,
+            constants::PacketType::SetVal as u8,
+            46,
+            &buf,
+        );
+
+        assert_eq!(dev.cfg.config.output[1].os, 4);
     }
 
     #[test]
@@ -324,5 +353,73 @@ mod tests {
             assert_eq!(packets[i][0], constants::PacketType::GetVal as u8);
             assert_eq!(packets[i][1], field.idx);
         }
+    }
+
+    // ---- Save/load flow (codifies the config-persistence review) ----
+
+    /// Raw byte view over a Config (mirrors what save_config/load do via FFI).
+    fn config_bytes(c: &crate::domain::structs::Config) -> &[u8] {
+        let size = core::mem::size_of::<crate::domain::structs::Config>();
+        unsafe { core::slice::from_raw_parts(c as *const _ as *const u8, size) }
+    }
+
+    #[test]
+    fn config_fits_in_one_flash_page() {
+        // save_config copies the whole Config into a single FLASH_PAGE_SIZE page
+        // (prepare_save_page). If Config outgrows a page, the tail (e.g.
+        // output[1]) silently stops persisting — guard against that.
+        assert!(
+            core::mem::size_of::<crate::domain::structs::Config>()
+                <= crate::domain::structs::FLASH_PAGE_SIZE,
+            "Config must fit in one flash page"
+        );
+    }
+
+    #[test]
+    fn config_set_then_save_validates_and_persists() {
+        use crate::domain::config::{compute_config_checksum, validate_config,
+            MAGIC_HEADER, CURRENT_CONFIG_VERSION};
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        let hal = MockHal::new();
+        dev.cfg.config.magic_header = MAGIC_HEADER;
+        dev.cfg.config.version = CURRENT_CONFIG_VERSION;
+
+        // Wire-format SET: output[1].os = Android(4) (idx at [0], value at [1]).
+        handle_api_msg(
+            &mut dev, &hal,
+            constants::PacketType::SetVal as u8, 46, &[46, 4, 0, 0, 0, 0, 0, 0],
+        );
+        assert_eq!(dev.cfg.config.output[1].os, 4);
+
+        // save_config recomputes the checksum over the (now-modified) bytes.
+        let cs = compute_config_checksum(config_bytes(&dev.cfg.config));
+        dev.cfg.config.checksum = cs;
+
+        // A reload must accept the saved config; otherwise load_config falls back
+        // to the default and the os change is lost — the persistence failure.
+        assert!(validate_config(config_bytes(&dev.cfg.config), &dev.cfg.config));
+        assert_eq!(dev.cfg.config.output[1].os, 4);
+    }
+
+    #[test]
+    fn config_save_without_checksum_recompute_fails_validation() {
+        // If save ever forgets to recompute the checksum, the saved config won't
+        // validate on reload — assert that a stale checksum is rejected, so the
+        // recompute step can't silently regress.
+        use crate::domain::config::{validate_config, MAGIC_HEADER, CURRENT_CONFIG_VERSION};
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        let hal = MockHal::new();
+        dev.cfg.config.magic_header = MAGIC_HEADER;
+        dev.cfg.config.version = CURRENT_CONFIG_VERSION;
+        dev.cfg.config.checksum = 0xDEADBEEF; // stale
+
+        handle_api_msg(
+            &mut dev, &hal,
+            constants::PacketType::SetVal as u8, 46, &[46, 4, 0, 0, 0, 0, 0, 0],
+        );
+
+        assert!(!validate_config(config_bytes(&dev.cfg.config), &dev.cfg.config));
     }
 }

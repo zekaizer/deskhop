@@ -12,6 +12,7 @@ pub mod hid_parser;
 pub mod kbd_extract;
 pub mod hid_report;
 pub mod hid_routing;
+pub mod hidpp_keymap;
 pub mod hotkey_handlers;
 #[cfg(test)]
 mod integration_tests;

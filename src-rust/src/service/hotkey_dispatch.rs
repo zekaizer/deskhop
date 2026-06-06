@@ -14,6 +14,7 @@ pub fn execute_action(
     hal: &(impl OutputControl + ReportQueue + PeerLink + ConfigStore + Watchdog + Indicator + Timer),
     action: HotkeyAction,
 ) {
+    crate::service::dlog::i(b"hk").s(b"action=").s(action.name()).done();
     match action {
         HotkeyAction::OutputToggle => output_toggle(state, hal),
         HotkeyAction::MouseZoomToggle => mouse_zoom_toggle(state, hal),
@@ -98,6 +99,12 @@ pub fn prepare_config_mode(
     if !state.cfg.config_mode_active {
         hal.set_boot_flag();
     }
+    // Arm the watchdog so the reboot actually happens: the reboot is driven by
+    // starving the watchdog (check_system_health stops kicking on
+    // reboot_requested), and a watchdog-timeout reset preserves the scratch
+    // flag. Debug builds boot with the watchdog disabled, so without this the
+    // reboot — and thus config mode — never fires.
+    hal.enable_watchdog();
     crate::service::backend::host_link::release_all_keys(state, hal);
     state.fw.reboot_requested = true;
 }

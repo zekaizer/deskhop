@@ -64,6 +64,11 @@ impl Watchdog for PicoHal {
     }
 
     #[inline]
+    fn enable_watchdog(&self) {
+        unsafe { device::hal_watchdog_enable() }
+    }
+
+    #[inline]
     fn is_bootsel_pressed(&self) -> bool {
         unsafe { device::hal_is_bootsel_pressed() }
     }
