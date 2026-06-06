@@ -39,8 +39,13 @@ void firmware_upgrade_task_c(void) {
 
 void request_byte(uint32_t address) {
     uart_packet_t p = { .data32[0] = address, .type = REQUEST_BYTE_MSG };
-    global_fw.fw.byte_done = false;
-    queue_try_add(queue_from_opaque(&global_hw.uart_tx_queue), &p);
+    /* Only clear byte_done if the REQUEST was actually enqueued. Clearing it
+     * before an enqueue that then fails (transient full tx queue — shared with
+     * the peer-log/passthrough/heartbeat producers on Core1) would wedge the
+     * upgrade: byte_done stuck false, no request out, nothing re-issues it. A
+     * failed enqueue is now a harmless no-op retried on the next tick. */
+    if (queue_try_add(queue_from_opaque(&global_hw.uart_tx_queue), &p))
+        global_fw.fw.byte_done = false;
 }
 
 void reboot(void) { *((volatile uint32_t*)(PPB_BASE + 0x0ED0C)) = 0x5FA0004; }
