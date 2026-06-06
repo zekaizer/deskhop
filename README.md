@@ -104,6 +104,8 @@ echo -n 'flash' > /dev/tty.usbmodem11104
 ```
 This immediately resets the device into bootloader mode where it appears as "RPI-RP2" drive. This feature is intended for development workflows.
 
+> For the full debug/serial command set and other development tooling — debug logging, `logdump`/`ptr`/`cc`/`kb`, and binary/config version management — see [docs/debugging.md](docs/debugging.md).
+
 ## Misc features
 
 ### Mouse slowdown
