@@ -624,43 +624,40 @@ pub unsafe extern "C" fn rust_set_active_output(output: u8) {
 // Debug state dump
 // ============================================================
 
-extern "C" {
-    fn dh_debug_printf(fmt: *const u8, ...);
-}
-
 /// Latches once the heap-low warning has fired (arena is monotonic, so one shot).
 static mut HEAP_WARNED: bool = false;
 
 #[no_mangle]
 pub unsafe extern "C" fn hal_debug_dump_state() {
+    use crate::service::dlog;
+
     let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
     let inuse = device::hal_heap_inuse();
     let arena = device::hal_heap_arena();
     let limit = device::hal_heap_limit();
-    dh_debug_printf(
-        c"tud=%d kbd=%d mse=%d role=%d out=%d c0=%llu c1=%llu heap=%u/%u/%u\n".as_ptr(),
-        cfg.tud_connected as u32,
-        cfg.keyboard_connected as u32,
-        cfg.mouse_connected as u32,
-        cfg.board_role as u32,
-        cfg.active_output as u32,
-        cfg.core0_last_loop_pass,
-        cfg.core1_last_loop_pass,
-        inuse,
-        arena,
-        limit,
-    );
+    dlog::i(b"hb")
+        .s(b"tud=").u(cfg.tud_connected as u32)
+        .s(b" kbd=").u(cfg.keyboard_connected as u32)
+        .s(b" mse=").u(cfg.mouse_connected as u32)
+        .s(b" role=").u(cfg.board_role as u32)
+        .s(b" out=").u(cfg.active_output as u32)
+        .s(b" c0=").u64(cfg.core0_last_loop_pass)
+        .s(b" c1=").u64(cfg.core1_last_loop_pass)
+        .s(b" heap=").u(inuse)
+        .s(b"/").u(arena)
+        .s(b"/").u(limit)
+        .done();
 
     // Early-warn on heap exhaustion: the log ring caps malloc at `limit` bytes,
     // so a runaway arena would crash. Fire once when arena crosses 75% of limit.
     let warned = *core::ptr::addr_of!(HEAP_WARNED);
     if !warned && limit > 0 && arena.saturating_mul(100) >= limit.saturating_mul(75) {
         *core::ptr::addr_of_mut!(HEAP_WARNED) = true;
-        dh_debug_printf(
-            c"[heap] LOW arena=%u limit=%u -- raise __LOG_HEAP_RESERVE\n".as_ptr(),
-            arena,
-            limit,
-        );
+        dlog::w(b"heap")
+            .s(b"low arena=").u(arena)
+            .s(b" limit=").u(limit)
+            .s(b" raise __LOG_HEAP_RESERVE")
+            .done();
     }
 }
 
