@@ -105,6 +105,8 @@ set(COMMON_LINK_LIBRARIES
   tinyusb_device
   tinyusb_host
   pico_multicore
+  pico_flash
+  hardware_exception
   pico_unique_id
   Pico-PIO-USB
   ${RUST_LIB}
