@@ -6,3 +6,4 @@ src-rust/target
 .claude/
 .cache/
 build-test/
+CLAUDE.local.md
