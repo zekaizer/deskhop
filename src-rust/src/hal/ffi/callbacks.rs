@@ -705,6 +705,27 @@ pub unsafe extern "C" fn rust_on_tud_set_report(
 pub unsafe extern "C" fn rust_init_config(config_mode_active: bool, board_role: u8, timestamp: u64) {
     let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
     crate::domain::config::init_config(cfg, config_mode_active, board_role, timestamp);
+
+    // Dump the loaded config at boot so settings (esp. per-output OS, which gates
+    // OS-aware remaps) are visible. Runs after load_config + peer_log_init.
+    // os legend: 1=Linux 2=macOS 3=Windows 4=Android.
+    #[cfg(feature = "dh_debug")]
+    {
+        let c = &cfg.config;
+        crate::service::dlog::i(b"cfg")
+            .s(b"ver=").u(c.version)
+            .s(b" role=").u(board_role as u32)
+            .s(b" active=").u(cfg.active_output as u32)
+            .s(b" pt=").u(c.passthrough_enabled as u32)
+            .s(b" gm=").u(c.gaming_mode_default as u32)
+            .s(b" ss_ms=").u(c.smartshift_double_click_ms)
+            .done();
+        crate::service::dlog::i(b"cfg")
+            .s(b"out0 os=").u(c.output[0].os as u32)
+            .s(b" out1 os=").u(c.output[1].os as u32)
+            .s(b" (1=Lin 2=Mac 3=Win 4=Andr)")
+            .done();
+    }
 }
 
 // ============================================================
