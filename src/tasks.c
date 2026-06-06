@@ -27,8 +27,19 @@ void firmware_upgrade_task_c(void) {
          * Because RUNNING was never touched, a bad/aborted/interrupted transfer
          * needs no recovery — just clear the upgrade and the peer re-triggers on
          * the next heartbeat (no in-place corruption, no forced bootloader). */
-        if (calculate_staging_crc32() == global_fw.fw.checksum)
+        uint32_t calc = calculate_staging_crc32();
+        if (calc == global_fw.fw.checksum) {
+            dh_debug_printf("fw sync crc ok crc=0x%08lx -> promote\n", (unsigned long)global_fw.fw.checksum);
             promote_staging_to_running(); /* SRAM copy + reset; returns only on lockout failure */
+            /* Reached only if the other core could not be parked: RUNNING is
+             * intact, so the peer re-triggers the sync on the next heartbeat. */
+            dh_debug_printf("fw sync promote FAILED (core lockout) -> retry next hb\n");
+        } else {
+            /* Mismatch leaves RUNNING untouched and silently re-downloads forever
+             * without this line — name the bad CRC so the sync loop is visible. */
+            dh_debug_printf("fw sync crc FAIL want=0x%08lx got=0x%08lx -> retry next hb\n",
+                            (unsigned long)global_fw.fw.checksum, (unsigned long)calc);
+        }
         return;
     }
     request_byte(s.request_address);
