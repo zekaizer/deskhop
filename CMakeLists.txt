@@ -160,6 +160,18 @@ pico_add_extra_outputs(${binary})
 # For internal firmware use: 0.77-ddm1 -> 17701
 math(EXPR FIRMWARE_VERSION "(${VERSION_MAJOR} * 1000 + ${VERSION_MINOR} + 100) * 100 + ${DDM_VERSION}")
 
+# The metadata `version` is a u16 (firmware_metadata_t), the heartbeat carries it
+# as u16, and 0xFFFF (65535) is reserved as the pushfw auto-sync sentinel. Fail
+# the configure (instead of an opaque struct.pack error in crc32.py) if the
+# encoded version could overflow or collide with the sentinel.
+if(FIRMWARE_VERSION GREATER 65534)
+    message(FATAL_ERROR
+        "FIRMWARE_VERSION=${FIRMWARE_VERSION} exceeds 65534. The metadata u16 "
+        "version field caps encodable versions and 0xFFFF (65535) is reserved as "
+        "the pushfw auto-sync sentinel. Lower VERSION_MAJOR/VERSION_MINOR/DDM_VERSION "
+        "(base = MAJOR*1000 + MINOR + 100 must be <= 654).")
+endif()
+
 ## Post-Build Commands
 add_custom_command(
     TARGET ${binary} POST_BUILD
