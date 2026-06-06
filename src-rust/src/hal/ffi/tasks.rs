@@ -187,9 +187,25 @@ pub(crate) unsafe fn remap_engine_tick_task() {
     }
 
     if hold_entered {
-        let combined = crate::domain::kbd_state::combine_kbd_states(state);
-        let bytes: [u8; 8] = core::mem::transmute(combined);
+        // Inject the hold-action keys (e.g. CapsLock) of entries that just
+        // entered Held — without this the hold produces nothing on the host.
+        let mut combined = crate::domain::kbd_state::combine_kbd_states(state);
+        let mut hold = crate::domain::structs::HidKeyboardReport::default();
+        key_remap::remap_engine_get_active_output(engine, &mut hold);
+        for &hk in hold.keycode.iter() {
+            if hk == 0 {
+                continue;
+            }
+            for k in combined.keycode.iter_mut() {
+                if *k == 0 {
+                    *k = hk;
+                    break;
+                }
+            }
+        }
+        combined.modifier |= hold.modifier;
         use crate::service::router::ReportRouter;
+        let bytes: [u8; 8] = core::mem::transmute(combined);
         hal.route_kbd(state, &bytes);
     }
 }
