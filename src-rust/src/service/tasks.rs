@@ -169,6 +169,13 @@ pub fn led_blink_tick(
 ) {
     use crate::domain::structs::LED_BLINK_PT_WAIT;
 
+    // Defer while the boot-stage LED still owns the indicator (during
+    // initial_setup, before the main loop hands off) so this Core1 task doesn't
+    // fight the Core0 boot-LED timer over the GPIO.
+    if crate::domain::boot_led::owns_led() {
+        return;
+    }
+
     // Drain a deferred upstream keyboard-LED resync requested by a Core0 context.
     // sync_leds() touches the host stack (tuh_hid_set_report), which is only safe
     // on this core (Core1) — see send_kbd_leds_xcore.

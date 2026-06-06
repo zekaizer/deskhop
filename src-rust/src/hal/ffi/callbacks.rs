@@ -1069,21 +1069,43 @@ unsafe fn busy_wait_ms(ms: u16) {
     }
 }
 
-/// Play a diagnostic LED pattern (blocking).
-/// Always-level patterns play in all builds; DebugOnly patterns require dh_debug.
+/// Diagnostic LED entry point (called from C boot stages + the panic/fault
+/// handlers). Boot/runtime stages drive the non-blocking timer-backed boot LED
+/// (domain/boot_led.rs) so setup isn't stalled; halt patterns keep their
+/// blocking playback since the system is stopped anyway.
 #[no_mangle]
 pub unsafe extern "C" fn diag_led(event: u8) {
-    use crate::domain::led_pattern::{DiagEvent, DiagLevel};
+    use crate::domain::led_pattern::DiagEvent;
 
     if let Some(ev) = DiagEvent::from_u8(event) {
-        let pat = ev.pattern();
+        // Log each boot stage with its name so the timeline is readable and the
+        // last logged stage shows how far boot got. (ev>=5 lands after
+        // peer_log_init, so earlier stages aren't captured.)
+        #[cfg(feature = "dh_debug")]
+        crate::service::dlog::i(b"boot")
+            .s(b"stage=").u(event as u32).s(b" ").s(ev.name())
+            .done();
 
-        // Skip DebugOnly patterns in release builds
-        #[cfg(not(feature = "dh_debug"))]
-        if matches!(pat.level, DiagLevel::DebugOnly) { return; }
+        // Halt patterns block forever — the system is dead, so blocking the
+        // (already-stopped) main thread is correct.
+        if matches!(ev, DiagEvent::Panic | DiagEvent::HardFault) {
+            play_pattern(&ev.pattern());
+            return;
+        }
 
-        play_pattern(&pat);
+        // Boot stages: hand the blink count to the non-blocking boot-LED timer
+        // and ensure it's running. Count == stage number; on a boot hang the
+        // timer keeps blinking the last stage. Works in release too.
+        crate::domain::boot_led::set_stage(event);
+        device::hal_boot_led_start();
     }
+}
+
+/// Boot-LED timer tick — advances the boot blink state machine and drives the
+/// LED. Called from the Core0 hardware timer set up in hal_shim.c.
+#[no_mangle]
+pub unsafe extern "C" fn rust_boot_led_tick() {
+    device::hal_gpio_put_led(crate::domain::boot_led::tick());
 }
 
 unsafe fn play_pattern(pat: &crate::domain::led_pattern::LedPattern) {
