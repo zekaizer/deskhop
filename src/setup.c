@@ -268,6 +268,12 @@ void initial_setup(void) {
     /* Load the current firmware info */
     global_fw._running_fw = _firmware_metadata;
 
+    /* Arm Core0 as a flash lockout victim. The firmware-upgrade receiver writes
+     * flash from Core1 (firmware_upgrade_task); during flash_range_program/erase
+     * the XIP interface is offline, so Core0 must be parked (in RAM) or it faults
+     * while fetching from flash. write_flash_page() uses this to park Core0. */
+    multicore_lockout_victim_init();
+
     /* Setup the watchdog so we reboot and recover from a crash.
        Disabled in debug builds to allow diagnostic LED blinks and CDC output
        without triggering reboot. */

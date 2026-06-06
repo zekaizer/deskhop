@@ -11,10 +11,18 @@ void wipe_config(void) {
 
 void write_flash_page(uint32_t addr, uint8_t *buf) {
     bool is_start = (addr & 0xf00) == 0;
+    /* The fw-upgrade receiver runs this on Core1. During flash_range_*, XIP is
+     * offline, so the OTHER core must not execute from flash or it faults/hangs
+     * (this was the auto-sync freeze). Park Core0 via the lockout it armed at
+     * boot. Config save runs on Core0 (single page) and is left as-is — locking
+     * out the PIO-USB Core1 there risks a deadlock and it has worked in place. */
+    bool park_core0 = (get_core_num() == 1);
+    if (park_core0) multicore_lockout_start_blocking();
     uint32_t ints = save_and_disable_interrupts();
     if (is_start) flash_range_erase(addr, FLASH_SECTOR_SIZE);
     flash_range_program(addr, buf, FLASH_PAGE_SIZE);
     restore_interrupts(ints);
+    if (park_core0) multicore_lockout_end_blocking();
 }
 
 /* load_config, save_config, reset_config_timer are now Rust #[export_name] in callbacks.rs */
