@@ -68,7 +68,7 @@ void tud_cdc_rx_cb(uint8_t itf) {
 
 #ifdef DH_DEBUG
     /* Accumulate a newline-terminated command line and dispatch it to Rust.
-     * Commands: logdump, ptr, cc<hex>, kb<modkey-hex> (see rust_dbg_cmd). */
+     * Commands: logdump, ptr, pushfw, cc<hex>, kb<modkey-hex> (see rust_dbg_cmd). */
     {
         static char line[24];
         static uint8_t llen = 0;
