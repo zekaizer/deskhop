@@ -1076,6 +1076,14 @@ pub unsafe extern "C" fn diag_led(event: u8) {
     use crate::domain::led_pattern::{DiagEvent, DiagLevel};
 
     if let Some(ev) = DiagEvent::from_u8(event) {
+        // Log each boot stage with its name so the timeline is readable and the
+        // last logged stage shows how far boot got. (ev>=5 lands after
+        // peer_log_init, so earlier stages aren't captured.)
+        #[cfg(feature = "dh_debug")]
+        crate::service::dlog::i(b"boot")
+            .s(b"stage=").u(event as u32).s(b" ").s(ev.name())
+            .done();
+
         let pat = ev.pattern();
 
         // Skip DebugOnly patterns in release builds

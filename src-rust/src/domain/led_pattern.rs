@@ -52,6 +52,22 @@ impl DiagEvent {
         }
     }
 
+    /// Short human-readable name for log lines (e.g. `boot: stage=5 RustInit`).
+    pub const fn name(&self) -> &'static [u8] {
+        match self {
+            Self::BootClock => b"Clock",
+            Self::BootConfig => b"Config",
+            Self::BootProbe => b"Probe",
+            Self::BootSerial => b"Serial",
+            Self::BootRustInit => b"RustInit",
+            Self::BootUsb => b"Usb",
+            Self::BootComplete => b"Complete",
+            Self::DeviceConnected => b"DevConnected",
+            Self::Panic => b"Panic",
+            Self::HardFault => b"HardFault",
+        }
+    }
+
     pub const fn pattern(&self) -> LedPattern {
         match self {
             // Boot detail — debug only
