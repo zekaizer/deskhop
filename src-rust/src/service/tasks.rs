@@ -10,6 +10,10 @@ use crate::service::router::ReportRouter;
 
 const CORE1_HANG_TIMEOUT_US: u64 = 500_000;
 
+/// Latch so a detected core1 stall logs once, not on every health tick while it
+/// stays down. Reset when core1 recovers (so a later stall logs again).
+static mut CORE1_STALL_LOGGED: bool = false;
+
 /// Check core1 liveness and refresh system health. Returns true if healthy.
 ///
 /// SAFETY(dual-core): `core1_last_loop_pass` is a u64 written by Core1 and read
@@ -24,9 +28,27 @@ pub fn check_system_health(
         return false;
     }
     let now = hal.now_us_64();
-    if now - state.cfg.core1_last_loop_pass < CORE1_HANG_TIMEOUT_US {
+    let last = state.cfg.core1_last_loop_pass;
+    let gap = now.wrapping_sub(last);
+    if gap < CORE1_HANG_TIMEOUT_US {
         hal.kick();
+        // Core1 alive — clear the latch so a future stall logs again.
+        // SAFETY: single-writer (Core0 health task); plain store.
+        unsafe { core::ptr::write(core::ptr::addr_of_mut!(CORE1_STALL_LOGGED), false); }
         return true;
+    }
+    // gap >= timeout: a real stall OR a torn 64-bit read of `last` (see the
+    // dual-core SAFETY note — a torn read can yield last > now, wrapping `gap`
+    // to a huge value). Only a real stall has `last <= now`; gating the log on
+    // that keeps the torn-read artifact (which fires transiently at boot) off
+    // the error channel. The kick decision above keeps the documented wrapping
+    // behaviour unchanged. In release the unkicked watchdog resets the board; in
+    // debug the watchdog is off, so without this a dead Core1 leaves no trace.
+    if last <= now && !unsafe { core::ptr::read(core::ptr::addr_of!(CORE1_STALL_LOGGED)) } {
+        unsafe { core::ptr::write(core::ptr::addr_of_mut!(CORE1_STALL_LOGGED), true); }
+        crate::service::dlog::e(b"hb")
+            .s(b"core1 STALL ms=").u((gap / 1000) as u32)
+            .done();
     }
     false
 }
@@ -259,6 +281,9 @@ pub fn heartbeat_tick(
 
     if state.cfg.config_mode_active {
         if hal.now_us_64() > state.cfg.config_mode_timer {
+            // Config mode self-exits via reboot after the idle window; otherwise
+            // a board that "won't leave config mode" looks like a hang.
+            crate::service::dlog::w(b"cfg").s(b"mode idle timeout -> reboot").done();
             hal.reboot();
         }
         hal.blink();

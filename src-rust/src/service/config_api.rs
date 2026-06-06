@@ -171,7 +171,12 @@ pub fn handle_api_msg<H: Timer + PacketQueue>(
 ) {
     let field = match find_field(api_idx) {
         Some(f) => f,
-        None => return,
+        None => {
+            // Unmapped index: a malformed request, or a config client newer than
+            // this firmware. Silent otherwise — the client just sees a timeout.
+            crate::service::dlog::w(b"cfg").s(b"idx=").u(api_idx as u32).s(b" unknown field").done();
+            return;
+        }
     };
 
     const SET_VAL: u8 = constants::PacketType::SetVal as u8;

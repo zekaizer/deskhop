@@ -54,7 +54,8 @@ board  time  lvl subsys                  event / key=val pairs
 | `hk` | hotkeys | `[hk] action=<Name>` and config-mode state transitions. |
 | `hb` | heartbeat | `tud= kbd= mse= role= out= c0= c1= heap=used/free/total` — liveness + core loop counters + heap. |
 | `pt` | passthrough | capture/activate/reconnect, SmartShift double-click, gesture remap (`gesture tap -> Alt+Tab`, `gesture hold -> app drawer`), discrete HID++ keys (`key fi= fn= c= a=`), and rate-limited stream summaries. |
-| `dbg` | CDC commands | Echoes of injected `cc`/`kb` taps. |
+| `pkt` | packet_dispatch | dropped inter-board UART packets — `drop badcrc n=` (flaky link, throttled count) and `drop type=0x` (unmapped/garbled type, on change). |
+| `dbg` | CDC commands | Echoes of injected `cc`/`kb` taps; bad-hex / unknown-command feedback. |
 
 ### High-frequency stream summaries
 

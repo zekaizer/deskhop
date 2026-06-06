@@ -528,6 +528,15 @@ pub unsafe extern "C" fn rust_on_hid_mount(
         device::hal_tuh_hid_set_protocol(dev_addr, instance, proto);
     }
 
+    // Mount completion — the open-bracket to the `hid umount` close-bracket, so
+    // an enumeration that mounts but never delivers reports is distinguishable
+    // from one that never mounted. proto: 0=none 1=keyboard 2=mouse.
+    crate::service::dlog::i(b"usb")
+        .s(b"hid mount addr=").hx(dev_addr)
+        .s(b" inst=").hx(instance)
+        .s(b" proto=").hx(itf_protocol)
+        .done();
+
     device::hal_tuh_hid_receive_report(dev_addr, instance);
 }
 
@@ -676,14 +685,20 @@ pub unsafe extern "C" fn rust_on_tud_set_report(
     if instance == ITF_NUM_HID_VENDOR && report_id == REPORT_ID_VENDOR {
         let state = structs::DeviceState::from_globals();
         if !state.cfg.config_mode_active { return; }
-        if bufsize as usize != RAW_PACKET_LENGTH { return; }
+        if bufsize as usize != RAW_PACKET_LENGTH {
+            crate::service::dlog::w(b"cfg").s(b"rx bad len=").u(bufsize as u32).done();
+            return;
+        }
 
         extern "C" {
             fn validate_packet(packet: *const u8) -> bool;
             fn process_packet(packet: *const u8);
         }
         let packet_ptr = buffer.add(START_LENGTH);
-        if !validate_packet(packet_ptr) { return; }
+        if !validate_packet(packet_ptr) {
+            crate::service::dlog::w(b"cfg").s(b"rx bad checksum").done();
+            return;
+        }
         process_packet(packet_ptr);
     }
 
@@ -1130,16 +1145,22 @@ pub unsafe extern "C" fn rust_dbg_cmd(buf: *const u8, len: usize) {
         return;
     }
     if let Some(rest) = line.strip_prefix(b"cc") {
-        if let Some(usage) = parse_hex(rest) {
-            dbg_send_consumer(usage as u16);
+        match parse_hex(rest) {
+            Some(usage) => dbg_send_consumer(usage as u16),
+            None => crate::service::dlog::w(b"dbg").s(b"cc: bad hex").done(),
         }
         return;
     }
     if let Some(rest) = line.strip_prefix(b"kb") {
-        if let Some(v) = parse_hex(rest) {
-            dbg_send_kbd((v >> 8) as u8, (v & 0xFF) as u8);
+        match parse_hex(rest) {
+            Some(v) => dbg_send_kbd((v >> 8) as u8, (v & 0xFF) as u8),
+            None => crate::service::dlog::w(b"dbg").s(b"kb: bad hex").done(),
         }
+        return;
     }
+    // A full line that matched no command — echo it so a typo gets feedback
+    // instead of silence. (Whole-line dispatch; not per keystroke.)
+    crate::service::dlog::w(b"dbg").s(b"unknown cmd").done();
 }
 
 /// Force the peer to pull THIS board's running image, regardless of version/crc

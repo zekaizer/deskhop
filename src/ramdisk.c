@@ -75,6 +75,7 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t *
 
         /* Make sure nobody else touches the flash during this operation, otherwise we get empty pages */
         global_fw.fw.upgrade_in_progress = true;
+        dh_debug_printf("fw msc upload start (USB UF2 -> RUNNING)\n");
     }
 
     /* Update checksum continuously as blocks are being received */
@@ -88,11 +89,17 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t *
         global_fw.fw.checksum = ~global_fw.fw.checksum;
 
         /* If checksums don't match, overwrite first sector and rely on ROM bootloader for recovery */
-        if (global_fw.fw.checksum != calculate_firmware_crc32()) {
+        uint32_t calc = calculate_firmware_crc32();
+        if (global_fw.fw.checksum != calc) {
+            /* The silent killer: a corrupt UF2 erases boot2 and drops to BOOTSEL
+             * with no clue why. Name the mismatch before we wipe + reboot. */
+            dh_debug_printf("fw msc crc FAIL want=0x%08lx got=0x%08lx -> erase+bootloader\n",
+                            (unsigned long)global_fw.fw.checksum, (unsigned long)calc);
             flash_range_erase((uint32_t)ADDR_FW_RUNNING - XIP_BASE, FLASH_SECTOR_SIZE);
             dh_enter_bootloader();
         }
         else {
+            dh_debug_printf("fw msc crc ok crc=0x%08lx -> reboot\n", (unsigned long)global_fw.fw.checksum);
             global_fw.reboot_requested = true;
         }
     }
