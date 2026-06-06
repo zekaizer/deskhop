@@ -55,6 +55,8 @@ pub struct MockHal {
     pub hid_sent: RefCell<Vec<(u8, u8, Vec<u8>)>>,
     /// (instance, report_id, payload) routed via queue_hid_report (cross-core queue).
     pub hid_queued: RefCell<Vec<(u8, u8, Vec<u8>)>>,
+    /// Word returned by read_running_fw (defaults 0); set to verify served data.
+    pub running_fw: Cell<u32>,
 }
 
 impl MockHal {
@@ -99,6 +101,7 @@ impl MockHal {
             pt_build_fails: Cell::new(false),
             hid_sent: RefCell::new(Vec::new()),
             hid_queued: RefCell::new(Vec::new()),
+            running_fw: Cell::new(0),
         }
     }
 
@@ -242,7 +245,7 @@ impl ConfigStore for MockHal {
     fn save(&self) -> bool { self.config_saved.set(self.config_saved.get() + 1); true }
     fn load(&self) { self.config_loaded.set(self.config_loaded.get() + 1); }
     fn wipe(&self) { self.config_wiped.set(self.config_wiped.get() + 1); }
-    fn read_running_fw(&self, _address: u32) -> u32 { 0 }
+    fn read_running_fw(&self, _address: u32) -> u32 { self.running_fw.get() }
 }
 
 // ---- OutputControl ----

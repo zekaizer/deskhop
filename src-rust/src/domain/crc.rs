@@ -120,6 +120,18 @@ mod tests {
     }
 
     #[test]
+    fn test_crc32_matches_python_tool() {
+        // Pins the cross-tool contract with misc/crc32.py (binascii.crc32,
+        // CRC-32/ISO-HDLC). crc32.py computes the firmware-metadata CRC as
+        // binascii.crc32(image[:-4096]); this asserts our calc_crc32 yields the
+        // identical value so the auto-sync metadata CRC stays byte-compatible.
+        //   python3 -c "import binascii; print(hex(binascii.crc32(bytes(range(256)))))"
+        //   => 0x29058c73
+        let buf: [u8; 256] = core::array::from_fn(|i| i as u8);
+        assert_eq!(calc_crc32(&buf), 0x29058C73);
+    }
+
+    #[test]
     fn test_checksum_all_zeros() {
         assert_eq!(calc_checksum(&[0, 0, 0, 0, 0, 0, 0, 0]), 0);
     }
