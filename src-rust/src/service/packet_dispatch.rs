@@ -2,7 +2,7 @@
 // Replaces the C process_packet() switch statement in uart.c.
 
 use crate::domain::constants::PacketType;
-use crate::domain::dispatch::{self, DispatchAction};
+use crate::domain::dispatch::{self, DispatchAction, PacketError};
 use crate::domain::msg_handlers;
 use crate::domain::packet::UartPacket;
 use crate::domain::structs::DeviceState;
@@ -19,7 +19,10 @@ pub fn dispatch_packet(
 ) {
     let action = match dispatch::process_packet(packet) {
         Ok(a) => a,
-        Err(_) => return,
+        Err(e) => {
+            log_dropped_packet(e, packet.ptype);
+            return;
+        }
     };
 
     match action {
@@ -152,6 +155,41 @@ fn log_fw_heartbeat(
         .s(b" role=").u(state.cfg.board_role as u32)
         .s(b" up=").u(up as u32)
         .done();
+}
+
+/// Count of bad-checksum drops since boot; logged on the 1st then every 64th.
+static mut DROP_CHECKSUM_COUNT: u32 = 0;
+/// Last UnknownType ptype logged. 0x100 (out of u8 range) = none logged yet.
+static mut DROP_UNKNOWN_LAST: u16 = 0x100;
+
+/// Surface a dropped inter-board packet — invisible otherwise, and the first
+/// thing to check when the two boards stop agreeing. Throttled so neither a
+/// noisy link nor a stuck bad type can flood the ring:
+///   - BadChecksum: a running count, logged on the 1st drop then every 64th, so
+///     a clean link stays silent and a flaky one shows a climbing count.
+///   - UnknownType: logged only when the offending ptype CHANGES, so a peer
+///     repeatedly sending one bad/unmapped type logs once, not per packet.
+fn log_dropped_packet(err: PacketError, ptype: u8) {
+    match err {
+        PacketError::BadChecksum => {
+            // SAFETY: single-writer (UART RX dispatch path); plain load/store.
+            let n = unsafe { core::ptr::read(core::ptr::addr_of!(DROP_CHECKSUM_COUNT)) }
+                .wrapping_add(1);
+            unsafe { core::ptr::write(core::ptr::addr_of_mut!(DROP_CHECKSUM_COUNT), n); }
+            if n == 1 || n.is_multiple_of(64) {
+                crate::service::dlog::w(b"pkt").s(b"drop badcrc n=").u(n).done();
+            }
+        }
+        PacketError::UnknownType => {
+            let last = unsafe { core::ptr::read(core::ptr::addr_of!(DROP_UNKNOWN_LAST)) };
+            if last != ptype as u16 {
+                unsafe {
+                    core::ptr::write(core::ptr::addr_of_mut!(DROP_UNKNOWN_LAST), ptype as u16);
+                }
+                crate::service::dlog::w(b"pkt").s(b"drop type=0x").hx(ptype).done();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
