@@ -18,8 +18,14 @@
   *==============================================================================*/
 
  uint32_t calculate_firmware_crc32(void);
+ uint32_t calculate_staging_crc32(void);
  void     reboot(void);
  void     write_flash_page(uint32_t, uint8_t *);
+
+ /* Copy the (already CRC-verified) staging image to the running slot and reboot
+  * into it. SRAM-resident copy under flash_safe_execute (writes boot2 last so an
+  * interrupted promote leaves boot2 invalid -> bootrom auto-enters BOOTSEL). */
+ void     promote_staging_to_running(void);
 
  /*==============================================================================
   *  Firmware Upgrade Helpers (tasks.c)

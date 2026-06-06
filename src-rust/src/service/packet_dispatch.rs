@@ -90,6 +90,14 @@ fn dispatch_simple(
     let handler_action = msg_handlers::handle_simple_msg(packet.ptype, &packet.data, state);
     let needs_hal = msg_handlers::apply_action(&handler_action, state);
 
+    // Firmware identity exchange (Heartbeat) — logged on-change only (see
+    // log_fw_heartbeat). Must run before the needs_hal early-return: a
+    // steady-state heartbeat produces no HAL action but still carries the
+    // peer's version/crc we want to watch for changes.
+    if matches!(action, DispatchAction::Heartbeat) {
+        log_fw_heartbeat(state, packet, &handler_action);
+    }
+
     if !needs_hal { return; }
 
     match action {
@@ -111,6 +119,39 @@ fn dispatch_simple(
         DispatchAction::Heartbeat => {} // state already updated by apply_action
         _ => {} // MouseZoom, SwitchLock, GamingMode, Screensaver — state-only
     }
+}
+
+/// Last-logged firmware-heartbeat key (peer_ver<<32 | peer_crc<<16 | up).
+/// `u64::MAX` = nothing logged yet, so the first exchange after boot logs once.
+static mut FW_HB_LAST: u64 = u64::MAX;
+
+/// Log the peer-vs-self firmware version/crc exchange and upgrade decision, but
+/// only when the peer's reported identity OR the decision changes — steady-state
+/// agreement (~1 Hz) stays silent so it does not flood the ring. On a board's
+/// CDC the "peer" fields are the OTHER board's reported values; the merged
+/// [A]/[B] stream therefore shows both sides and `up=1` marks a sync trigger.
+fn log_fw_heartbeat(
+    state: &DeviceState<'_>,
+    packet: &UartPacket,
+    action: &msg_handlers::HandlerAction,
+) {
+    let peer_ver = u16::from_le_bytes([packet.data[0], packet.data[1]]);
+    let peer_crc = u16::from_le_bytes([packet.data[2], packet.data[3]]);
+    let up = matches!(action, msg_handlers::HandlerAction::StartFwUpgrade(_));
+    let key = ((peer_ver as u64) << 32) | ((peer_crc as u64) << 16) | (up as u64);
+    // SAFETY: single-writer (UART RX dispatch path); plain load/store.
+    let last = unsafe { core::ptr::read(core::ptr::addr_of!(FW_HB_LAST)) };
+    if key == last {
+        return;
+    }
+    unsafe { core::ptr::write(core::ptr::addr_of_mut!(FW_HB_LAST), key); }
+    crate::service::dlog::i(b"fw")
+        .s(b"hb peer ver=").u(peer_ver as u32).s(b" crc=").hx16(peer_crc)
+        .s(b" mine ver=").u(state.fw._running_fw.version as u32)
+        .s(b" crc=").hx16(state.fw._running_fw.checksum as u16)
+        .s(b" role=").u(state.cfg.board_role as u32)
+        .s(b" up=").u(up as u32)
+        .done();
 }
 
 #[cfg(test)]

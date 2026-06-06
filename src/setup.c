@@ -14,6 +14,7 @@
  * ================================================== */
 
 #include "main.h"
+#include "pico/flash.h"
 
 /* ================================================== *
  * Perform initial UART setup
@@ -103,9 +104,13 @@ bool is_config_mode_active(void) {
     bool is_active = (watchdog_hw->scratch[5] == MAGIC_WORD_1 &&
                       watchdog_hw->scratch[6] == MAGIC_WORD_2);
 
-    /* Remove, so next reboot it's no longer active */
-    if (is_active)
+    /* Fully consume the flag so it can't spuriously re-arm: clear BOTH magic
+     * words, not just scratch[5] (the check requires both, so a half-cleared
+     * sentinel left a live MAGIC_WORD_2 across resets). */
+    if (is_active) {
         watchdog_hw->scratch[5] = 0;
+        watchdog_hw->scratch[6] = 0;
+    }
 
     reset_config_timer();
 
@@ -267,6 +272,15 @@ void initial_setup(void) {
 
     /* Load the current firmware info */
     global_fw._running_fw = _firmware_metadata;
+
+    /* Arm Core0 as a flash-safe lockout victim. The fw-upgrade receiver writes
+     * flash from Core1; during flash_range_program/erase the XIP interface is
+     * offline, so Core0 must be parked in RAM or it faults fetching from flash.
+     * flash_safe_execute_core_init() registers Core0 as the victim (it calls
+     * multicore_lockout_victim_init internally, so write_flash_page's manual
+     * lockout still works) AND enables flash_safe_execute() for the staging
+     * promote (the RAM-resident STAGING->RUNNING copy). */
+    flash_safe_execute_core_init();
 
     /* Setup the watchdog so we reboot and recover from a crash.
        Disabled in debug builds to allow diagnostic LED blinks and CDC output

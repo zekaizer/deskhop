@@ -19,3 +19,8 @@
 void initial_setup(void);
 void serial_init(uint8_t tx_pin, uint8_t rx_pin);
 void core1_main(void);
+
+/* Programmatic entry into the RP2040 UF2 bootloader (single source of truth for
+ * every reset-to-bootloader path: CDC "flash" command, fw-upgrade ROM recovery,
+ * local UF2 write recovery). Halts Core1 first — see hal_shim.c. */
+void dh_enter_bootloader(void);

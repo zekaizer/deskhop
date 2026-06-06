@@ -5,7 +5,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 ## Define e.g. 0.72 as major 0 and minor 72
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 77)
-set(DDM_VERSION 1)
+set(DDM_VERSION 2)
 
 ## Release Type Selection
 option(DH_DEBUG "Build a debug version" OFF)
@@ -105,6 +105,8 @@ set(COMMON_LINK_LIBRARIES
   tinyusb_device
   tinyusb_host
   pico_multicore
+  pico_flash
+  hardware_exception
   pico_unique_id
   Pico-PIO-USB
   ${RUST_LIB}

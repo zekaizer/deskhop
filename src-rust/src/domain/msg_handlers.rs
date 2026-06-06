@@ -49,6 +49,8 @@ pub fn handle_simple_msg(ptype: u8, data: &[u8; 8], state: &DeviceState<'_>) -> 
             let other_version = u16::from_le_bytes([data[0], data[1]]);
             let other_crc16 = u16::from_le_bytes([data[2], data[3]]);
             let my_crc16 = state.fw._running_fw.checksum as u16;
+            // The peer-vs-self firmware identity exchange is logged (rate-limited)
+            // by the service layer in packet_dispatch, not here — this stays pure.
             match should_start_fw_upgrade(
                 other_version, state.fw._running_fw.version,
                 other_crc16, my_crc16,

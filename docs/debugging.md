@@ -9,7 +9,7 @@ and compiled out of release images.
 
 | Flag | Default | Enables |
 |------|---------|---------|
-| `DH_DEBUG` | `OFF` | Debug log (`dlog`), the `peer_log` scrollback ring, the boot config dump, CDC line-state logging, and the `logdump`/`ptr`/`cc`/`kb` CDC commands. |
+| `DH_DEBUG` | `OFF` | Debug log (`dlog`), the `peer_log` scrollback ring, the boot config dump, CDC line-state logging, and the `logdump`/`ptr`/`pushfw`/`cc`/`kb` CDC commands. |
 | `DH_DEBUG_CDC_FLASH` | `OFF` | The `flash` CDC command (jump to the UF2 bootloader). Independent of `DH_DEBUG`. |
 
 Enable at configure time:
@@ -97,6 +97,7 @@ reflashing.
 |---------|-----------|--------|
 | `logdump` | `DH_DEBUG` | Replay the log scrollback from the oldest retained line. |
 | `ptr` | `DH_DEBUG` | Toggle the pointer-motion summary log (off at boot). |
+| `pushfw` | `DH_DEBUG` | Force the **peer** to pull this board's running image (auto-sync), bypassing the version/crc direction check. See note below. |
 | `cc<hex>` | `DH_DEBUG` | Send a Consumer Control tap (press+release) to the active output. `<hex>` = 16-bit usage. |
 | `kb<hex>` | `DH_DEBUG` | Send a keyboard tap to the active output. `<hex>` = 16-bit, high byte = modifier bitmap, low byte = keycode. |
 | `flash` | `DH_DEBUG_CDC_FLASH` | Reboot into the RP2040 UF2 bootloader (`reset_usb_boot`). |
@@ -106,6 +107,7 @@ reflashing.
 ```text
 logdump        # replay history
 ptr            # start/stop pointer dx/dy summaries
+pushfw         # force the peer to adopt this board's firmware (dev only)
 cc1a2          # Consumer 0x01A2 (AC Desktop Show All Applications) -> app drawer on Android
 kb042b         # modifier 0x04 (LeftAlt) + keycode 0x2B (Tab) = Alt+Tab
 kb0008         # no modifier + keycode 0x08, etc.
@@ -115,6 +117,25 @@ flash          # enter bootloader (DH_DEBUG_CDC_FLASH builds)
 Modifier bits: `0x01` LCtrl, `0x02` LShift, `0x04` LAlt, `0x08` LGUI/Meta
 (shift left by 4 for the right-hand variants). HID is stateful: a `kb`/`cc`
 command sends a press then an immediate release, i.e. a single tap.
+
+### `pushfw` — forced firmware auto-sync
+
+Normal auto-sync only flows from a **newer** board to an older one (a board pulls
+firmware when the peer's heartbeat reports a higher version). When both boards sit
+at the same — or a *higher* — version than a freshly-built image (common in
+development: you bump nothing, or you flashed a test build with a higher version),
+auto-sync never fires.
+
+`pushfw` works around this: the board it is typed on emits a single heartbeat
+reporting a sentinel version of `0xFFFF` (the `u16` maximum, always greater than any
+real version). The peer accepts it as "newer" and starts an auto-sync, pulling this
+board's **real** running image (the byte server streams real flash, not the fake
+version) into its staging slot, verifying the CRC, and promoting it. After the peer
+reboots it runs this board's real image and reports its real version. The fake
+`0xFFFF` lives only inside that one heartbeat packet — it is never written to flash.
+
+Typical flow: flash board A over USB (`flash` + drag the UF2), then type `pushfw` on
+A's CDC to propagate the same image to board B without touching B's USB.
 
 ## Version management
 

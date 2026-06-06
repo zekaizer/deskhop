@@ -47,6 +47,20 @@ pub extern "C" fn rust_main_loop() -> ! {
     // Kick watchdog before scheduler starts (initial_setup enables it)
     hal.kick();
 
+    // One-time boot banner: firmware + config identity. _running_fw is populated
+    // by initial_setup (before this runs), so the values are valid here (unlike
+    // rust_init_config's earlier config dump). crc is the metadata's stored value.
+    unsafe {
+        let ds = domain::structs::DeviceState::from_globals();
+        crate::service::dlog::i(b"boot")
+            .s(b"fw ver=").u(ds.fw._running_fw.version as u32)
+            .s(b" crc=").hx16(ds.fw._running_fw.checksum as u16)
+            .s(b" cfgver=").u(ds.cfg.config.version)
+            .s(b" role=").u(ds.cfg.board_role as u32)
+            .s(if cfg!(feature = "dh_debug") { b" dbg=1" } else { b" dbg=0" })
+            .done();
+    }
+
     let mut task_list = [
         scheduler::Task::new(c_tasks::usb_device_task, scheduler::top()),
         scheduler::Task::new(tasks::kick_watchdog_task, scheduler::hz(30)),

@@ -101,8 +101,18 @@ void send_value(const uint8_t v, enum packet_type_e t) { queue_packet(&v, t, siz
 
 void hal_watchdog_update(void) { watchdog_update(); }
 
-void hal_reset_usb_boot(void) {
+/* Halt Core1 (which runs the PIO-USB host) before the bootrom reset. Without
+ * this, on this dual-core board the reset-to-bootloader is unreliable: Core1
+ * keeps driving USB / executing from XIP while the bootrom tries to bring up the
+ * RPI-RP2 mass-storage device, so the chip resets back into firmware or hangs
+ * without enumerating. Stopping Core1 first makes the entry deterministic. */
+void dh_enter_bootloader(void) {
+    multicore_reset_core1();
     reset_usb_boot(1 << PICO_DEFAULT_LED_PIN, 0);
+}
+
+void hal_reset_usb_boot(void) {
+    dh_enter_bootloader();
 }
 
 /* ==================================================== *

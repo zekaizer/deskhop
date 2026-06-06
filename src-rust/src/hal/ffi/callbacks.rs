@@ -1101,6 +1101,10 @@ fn parse_hex(s: &[u8]) -> Option<u32> {
 /// Debug CDC command dispatcher (line-based, DH_DEBUG). Commands:
 ///   logdump            — replay the log scrollback
 ///   ptr                — toggle pointer-stream logging
+///   pushfw             — force the peer to pull THIS board's running image
+///                        (faked heartbeat ver=0xFFFF), bypassing the version/crc
+///                        direction check — for dev when the peer is at the same
+///                        or a higher version than a freshly-flashed build
 ///   cc<hex>            — send a Consumer Control tap (e.g. cc1a3) to the active output
 ///   kb<modkey-hex>     — send a keyboard tap; high byte = modifier, low = keycode
 ///                        (e.g. kb042b = LeftAlt+Tab) to the active output
@@ -1121,6 +1125,10 @@ pub unsafe extern "C" fn rust_dbg_cmd(buf: *const u8, len: usize) {
         crate::service::passthrough_service::rust_dbg_toggle_ptr_log();
         return;
     }
+    if line.starts_with(b"pushfw") {
+        dbg_force_push();
+        return;
+    }
     if let Some(rest) = line.strip_prefix(b"cc") {
         if let Some(usage) = parse_hex(rest) {
             dbg_send_consumer(usage as u16);
@@ -1132,6 +1140,28 @@ pub unsafe extern "C" fn rust_dbg_cmd(buf: *const u8, len: usize) {
             dbg_send_kbd((v >> 8) as u8, (v & 0xFF) as u8);
         }
     }
+}
+
+/// Force the peer to pull THIS board's running image, regardless of version/crc
+/// direction. Sends one heartbeat reporting a sentinel version of 0xFFFF (u16 max,
+/// always > any real version): the peer's should_start_fw_upgrade sees "peer is
+/// newer" and begins an auto-sync, pulling our REAL image (send_fw_byte serves the
+/// real flash, not the fake version) into STAGING, then verifies + promotes. After
+/// reboot the peer runs our real image and reports our real version. The fake
+/// version exists only in this one heartbeat packet — it is never written anywhere.
+unsafe fn dbg_force_push() {
+    let state = structs::DeviceState::from_globals();
+    let hal = crate::hal::pico::PicoHal::new();
+    let crc16 = state.fw._running_fw.checksum as u16;
+    // Heartbeat data layout: [ver_lo, ver_hi, crc_lo, crc_hi, output, ...].
+    let data = [
+        0xFF, 0xFF,
+        (crc16 & 0xFF) as u8, (crc16 >> 8) as u8,
+        state.cfg.active_output,
+        0, 0, 0,
+    ];
+    hal.send_packet(&data, crate::domain::constants::PacketType::Heartbeat as u8);
+    crate::service::dlog::i(b"dbg").s(b"pushfw: faked hb ver=0xFFFF -> peer pulls our image").done();
 }
 
 unsafe fn dbg_send_consumer(usage: u16) {
