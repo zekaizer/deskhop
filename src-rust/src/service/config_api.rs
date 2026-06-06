@@ -354,4 +354,72 @@ mod tests {
             assert_eq!(packets[i][1], field.idx);
         }
     }
+
+    // ---- Save/load flow (codifies the config-persistence review) ----
+
+    /// Raw byte view over a Config (mirrors what save_config/load do via FFI).
+    fn config_bytes(c: &crate::domain::structs::Config) -> &[u8] {
+        let size = core::mem::size_of::<crate::domain::structs::Config>();
+        unsafe { core::slice::from_raw_parts(c as *const _ as *const u8, size) }
+    }
+
+    #[test]
+    fn config_fits_in_one_flash_page() {
+        // save_config copies the whole Config into a single FLASH_PAGE_SIZE page
+        // (prepare_save_page). If Config outgrows a page, the tail (e.g.
+        // output[1]) silently stops persisting — guard against that.
+        assert!(
+            core::mem::size_of::<crate::domain::structs::Config>()
+                <= crate::domain::structs::FLASH_PAGE_SIZE,
+            "Config must fit in one flash page"
+        );
+    }
+
+    #[test]
+    fn config_set_then_save_validates_and_persists() {
+        use crate::domain::config::{compute_config_checksum, validate_config,
+            MAGIC_HEADER, CURRENT_CONFIG_VERSION};
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        let hal = MockHal::new();
+        dev.cfg.config.magic_header = MAGIC_HEADER;
+        dev.cfg.config.version = CURRENT_CONFIG_VERSION;
+
+        // Wire-format SET: output[1].os = Android(4) (idx at [0], value at [1]).
+        handle_api_msg(
+            &mut dev, &hal,
+            constants::PacketType::SetVal as u8, 46, &[46, 4, 0, 0, 0, 0, 0, 0],
+        );
+        assert_eq!(dev.cfg.config.output[1].os, 4);
+
+        // save_config recomputes the checksum over the (now-modified) bytes.
+        let cs = compute_config_checksum(config_bytes(&dev.cfg.config));
+        dev.cfg.config.checksum = cs;
+
+        // A reload must accept the saved config; otherwise load_config falls back
+        // to the default and the os change is lost — the persistence failure.
+        assert!(validate_config(config_bytes(&dev.cfg.config), &dev.cfg.config));
+        assert_eq!(dev.cfg.config.output[1].os, 4);
+    }
+
+    #[test]
+    fn config_save_without_checksum_recompute_fails_validation() {
+        // If save ever forgets to recompute the checksum, the saved config won't
+        // validate on reload — assert that a stale checksum is rejected, so the
+        // recompute step can't silently regress.
+        use crate::domain::config::{validate_config, MAGIC_HEADER, CURRENT_CONFIG_VERSION};
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut dev = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        let hal = MockHal::new();
+        dev.cfg.config.magic_header = MAGIC_HEADER;
+        dev.cfg.config.version = CURRENT_CONFIG_VERSION;
+        dev.cfg.config.checksum = 0xDEADBEEF; // stale
+
+        handle_api_msg(
+            &mut dev, &hal,
+            constants::PacketType::SetVal as u8, 46, &[46, 4, 0, 0, 0, 0, 0, 0],
+        );
+
+        assert!(!validate_config(config_bytes(&dev.cfg.config), &dev.cfg.config));
+    }
 }

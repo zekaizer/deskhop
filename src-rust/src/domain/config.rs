@@ -31,18 +31,26 @@ pub fn init_config(
 pub fn validate_config(config_bytes: &[u8], config: &Config) -> bool {
     let size = core::mem::size_of::<Config>();
     if config_bytes.len() < size { return false; }
-    let raw = &config_bytes[..size - 4];
-    let cs = crc::calc_crc32(raw);
+    let cs = crc::calc_crc32(&config_bytes[..checksum_offset()]);
     config.magic_header == MAGIC_HEADER
         && config.checksum == cs
         && config.version == CURRENT_CONFIG_VERSION
 }
 
-/// Compute CRC32 checksum for config (excluding the checksum field itself).
+/// Byte offset of the `checksum` field. NOT `size_of - 4`: `Config` is
+/// 8-byte aligned (it has u64 members), so `checksum` (the last declared
+/// field, a u32) is followed by 4 bytes of trailing padding. The CRC must
+/// cover everything BEFORE the checksum field; using `size - 4` would fold the
+/// checksum into its own input, so a freshly saved config could never validate
+/// and every boot fell back to defaults (config never persisted).
+fn checksum_offset() -> usize {
+    core::mem::offset_of!(Config, checksum)
+}
+
+/// Compute CRC32 checksum for config (over the bytes preceding the checksum
+/// field; trailing padding and the checksum itself are excluded).
 pub fn compute_config_checksum(config_bytes: &[u8]) -> u32 {
-    let size = core::mem::size_of::<Config>();
-    let raw = &config_bytes[..size - 4];
-    crc::calc_crc32(raw)
+    crc::calc_crc32(&config_bytes[..checksum_offset()])
 }
 
 /// Reset config mode timer to now + timeout.
