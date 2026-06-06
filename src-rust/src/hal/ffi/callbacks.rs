@@ -35,6 +35,34 @@ pub unsafe extern "C" fn rust_process_keyboard_report(
     let mut new_report = [0u8; 8];
     rust_extract_kbd_data(raw_report, length, itf, iface, new_report.as_mut_ptr());
 
+    // CapsLock remap (hotkey-first): skip the remap when this report is a
+    // consumed hotkey, so combos like LCtrl+CapsLock (OutputToggle) still fire on
+    // the original report. Otherwise drive the remap state machine, which strips
+    // the trigger from the live report; the tap (LANG1 / Shift+Space) and hold
+    // (CapsLock) outputs are emitted separately by remap_engine_tick_task. No-op
+    // when the engine has no entries (e.g. macOS on both outputs).
+    let orig = crate::domain::structs::HidKeyboardReport {
+        modifier: new_report[0],
+        reserved: new_report[1],
+        keycode: [new_report[2], new_report[3], new_report[4],
+                  new_report[5], new_report[6], new_report[7]],
+    };
+    let consumed_hotkey = matches!(
+        crate::domain::keyboard::check_all_hotkeys(&orig),
+        Some(m) if !m.pass_to_os
+    );
+    if !consumed_hotkey {
+        let engine = super::tasks::get_remap_engine();
+        let mut kr = orig;
+        crate::domain::key_remap::remap_engine_process(
+            engine, &mut kr, state.cfg.active_output, hal.now_us_64());
+        new_report = [
+            kr.modifier, kr.reserved,
+            kr.keycode[0], kr.keycode[1], kr.keycode[2],
+            kr.keycode[3], kr.keycode[4], kr.keycode[5],
+        ];
+    }
+
     // Delegate to service
     use crate::service::frontend::kbd_pipeline::{self, KbdAction};
     match kbd_pipeline::process_report(state, &new_report, itf) {

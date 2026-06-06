@@ -6,6 +6,7 @@ use crate::domain::passthrough::{self, PassthroughState, HIDPP_REPORT_ID_SHORT,
 use crate::domain::passthrough_scan;
 use crate::domain::structs::{DeviceState, MouseReportC, LED_BLINK_NONE, LED_BLINK_PT_WAIT};
 use crate::hal::traits::*;
+use crate::service::router::ReportRouter;
 
 /// Milliseconds to microseconds
 const fn ms(ms: u64) -> u64 { ms * 1000 }
@@ -275,7 +276,7 @@ pub fn on_report_received(
     report: &[u8],
     dev_addr: u8,
     instance: u8,
-    hal: &(impl UsbHost + HidQueue + ReportQueue + PeerLink + Timer),
+    hal: &(impl UsbHost + HidQueue + ReportQueue + PacketQueue + PeerLink + Timer),
 ) -> ReportAction {
     if !pt.active || dev.cfg.config_mode_active {
         return ReportAction::Fallthrough;
@@ -398,7 +399,11 @@ pub fn on_report_received(
             // Core1 callback (it races tud_task and hangs Core1).
             hal.queue_hid_report(dev_inst, 0, report);
         } else {
-            // Inactive output: convert HID++ → mouse for peer routing.
+            // Inactive output: convert HID++ → mouse and route to the PEER board
+            // (the active output). route_mouse sends a UART MouseReport packet
+            // when this board is inactive — previously this used push_mouse_report,
+            // which always queues locally, so the wheel / HID++ extra buttons
+            // landed on THIS (inactive) host instead of the active one.
             // Always RELATIVE — passthrough activate forces gaming_mode=true,
             // and a stale ABSOLUTE branch here would inject pointer_x/y from a
             // mouse pipeline that's been bypassed by the vendor interface.
@@ -413,11 +418,11 @@ pub fn on_report_received(
                     ..Default::default()
                 };
                 let report_bytes = mouse_report_to_bytes(&btn_report);
-                hal.push_mouse_report(&report_bytes);
+                hal.route_mouse(dev, &report_bytes);
             } else if converted {
                 mouse.mode = 1; // RELATIVE
                 let report_bytes = mouse_report_to_bytes(&mouse);
-                hal.push_mouse_report(&report_bytes);
+                hal.route_mouse(dev, &report_bytes);
             }
         }
 
@@ -1075,5 +1080,30 @@ mod tests {
         assert!(matches!(action, ReportAction::Handled));
         assert_eq!(hal.hid_sent.borrow().len(), 0, "must NOT touch the device stack from Core1");
         assert_eq!(hal.hid_queued.borrow().len(), 1, "must route via the cross-core queue");
+    }
+
+    #[test]
+    fn inactive_input_routes_converted_mouse_to_peer() {
+        // When the OTHER board is the active output, a converted HID++ input event
+        // (here a diverted Left-button press, CID 0x50 → button bit 0x01) must be
+        // sent to the PEER over UART, NOT pushed to the local mouse queue. This is
+        // the wheel / HID++ extra-button misroute fix: route_mouse replaces the old
+        // push_mouse_report (which always queued locally on the inactive board).
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = ss_setup();
+        pt.hidpp_disc.fi_reprog_controls = 0x05;
+        cfg.tud_connected = true;
+        cfg.board_role = 0;
+        cfg.active_output = 1; // peer is active → is_active_output() == false
+        // divertedButtonsEvent (fn=0) carrying CID 0x50 (Left) in the bitmap.
+        let report = [HIDPP_REPORT_ID_SHORT, 0x01, 0x05, 0x00, 0x00, 0x50, 0x00];
+        let action = on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                                        &report, 1, 0, &hal);
+        assert!(matches!(action, ReportAction::Handled));
+        assert_eq!(hal.mouse_reports.borrow().len(), 0, "must not push locally when inactive");
+        let pkts = hal.sent_packets.borrow();
+        assert_eq!(pkts.len(), 1, "converted input must be sent to the peer board");
+        assert_eq!(pkts[0].1, crate::domain::constants::PacketType::MouseReport as u8,
+            "routed as a mouse report packet");
+        assert_eq!(pkts[0].0[0], 0x01, "Left button bit set in the routed report");
     }
 }

@@ -14,7 +14,7 @@ pub const HID_KEY_LANG1: u8 = 0x90;
 // ================================================================
 
 pub const MAX_REMAP_ENTRIES: usize = 16;
-pub const TAP_HOLD_DEFAULT_US: u64 = 250_000;
+pub const TAP_HOLD_DEFAULT_US: u64 = 350_000;
 
 // ================================================================
 // Types
@@ -165,10 +165,13 @@ pub fn remap_engine_init(engine: &mut RemapEngine, os_a: u8, os_b: u8) {
 
 /// Process a keyboard report through the remap engine.
 /// Modifies the report in-place. Returns Pass if unchanged, Modified if altered.
+/// `now_us` stamps the press time for TAP_HOLD entries so remap_engine_tick can
+/// detect the hold threshold; without it the Waiting→Held transition never fires.
 pub fn remap_engine_process(
     engine: &mut RemapEngine,
     report: &mut HidKeyboardReport,
     active_output: u8,
+    now_us: u64,
 ) -> RemapResult {
     if engine.config.count == 0 {
         return RemapResult::Pass;
@@ -198,9 +201,10 @@ pub fn remap_engine_process(
                 let r = &mut engine.runtime[i];
 
                 if key_pressed && r.state == RemapState::Idle {
-                    // Key just pressed: start waiting
+                    // Key just pressed: start waiting, stamp the press time so
+                    // remap_engine_tick can fire the hold threshold.
                     r.state = RemapState::Waiting;
-                    r.timestamp = 0; // caller must set via tick with real time
+                    r.timestamp = now_us;
                     report_remove_key(report, e.trigger);
                     result = RemapResult::Modified;
                 } else if key_pressed && r.state == RemapState::Waiting {
@@ -411,7 +415,7 @@ mod tests {
         engine.config.count = 1;
 
         let mut report = make_report(&[0x04]);
-        let result = remap_engine_process(&mut engine, &mut report, 0);
+        let result = remap_engine_process(&mut engine, &mut report, 0, 1000);
         assert_eq!(result, RemapResult::Modified);
         assert_eq!(report.keycode[0], 0x05);
     }
@@ -423,7 +427,7 @@ mod tests {
         engine.config.count = 1;
 
         let mut report = make_report(&[0x04]);
-        remap_engine_process(&mut engine, &mut report, 0);
+        remap_engine_process(&mut engine, &mut report, 0, 1000);
         assert_eq!(report.modifier, 0x01);
     }
 
@@ -434,7 +438,7 @@ mod tests {
         engine.config.count = 1;
 
         let mut report = make_report(&[0x06]); // not 0x04
-        let result = remap_engine_process(&mut engine, &mut report, 0);
+        let result = remap_engine_process(&mut engine, &mut report, 0, 1000);
         assert_eq!(result, RemapResult::Pass);
         assert_eq!(report.keycode[0], 0x06);
     }
@@ -448,7 +452,7 @@ mod tests {
         engine.config.count = 1;
 
         let mut report = make_report(&[0x04]);
-        let result = remap_engine_process(&mut engine, &mut report, 1); // Output B
+        let result = remap_engine_process(&mut engine, &mut report, 1, 1000); // Output B
         assert_eq!(result, RemapResult::Pass);
         assert_eq!(report.keycode[0], 0x04); // unchanged
     }
@@ -462,7 +466,7 @@ mod tests {
         engine.config.count = 1;
 
         let mut report = make_report(&[0x04]);
-        let result = remap_engine_process(&mut engine, &mut report, 1);
+        let result = remap_engine_process(&mut engine, &mut report, 1, 1000);
         assert_eq!(result, RemapResult::Modified);
         assert_eq!(report.keycode[0], 0x05);
     }
@@ -471,7 +475,7 @@ mod tests {
     fn empty_config_passthrough() {
         let mut engine = new_engine();
         let mut report = make_report(&[0x04]);
-        let result = remap_engine_process(&mut engine, &mut report, 0);
+        let result = remap_engine_process(&mut engine, &mut report, 0, 1000);
         assert_eq!(result, RemapResult::Pass);
     }
 
@@ -484,7 +488,7 @@ mod tests {
         engine.config.count = 1;
 
         let mut report = make_report(&[0x39]);
-        let result = remap_engine_process(&mut engine, &mut report, 0);
+        let result = remap_engine_process(&mut engine, &mut report, 0, 1000);
         assert_eq!(result, RemapResult::Modified);
         assert_eq!(report.keycode[0], 0); // trigger removed
         assert_eq!(engine.runtime[0].state, RemapState::Waiting);
@@ -498,11 +502,11 @@ mod tests {
 
         // Press
         let mut report = make_report(&[0x39]);
-        remap_engine_process(&mut engine, &mut report, 0);
+        remap_engine_process(&mut engine, &mut report, 0, 1000);
 
         // Release (no key)
         let mut report = make_report(&[]);
-        remap_engine_process(&mut engine, &mut report, 0);
+        remap_engine_process(&mut engine, &mut report, 0, 1000);
         assert_eq!(engine.runtime[0].state, RemapState::Idle);
         assert!(engine.runtime[0].consumed);
 
@@ -521,7 +525,7 @@ mod tests {
 
         // Press
         let mut report = make_report(&[0x39]);
-        remap_engine_process(&mut engine, &mut report, 0);
+        remap_engine_process(&mut engine, &mut report, 0, 1000);
         engine.runtime[0].timestamp = 1000;
 
         // Tick past threshold
@@ -551,7 +555,7 @@ mod tests {
 
         // Release
         let mut report = make_report(&[]);
-        remap_engine_process(&mut engine, &mut report, 0);
+        remap_engine_process(&mut engine, &mut report, 0, 1000);
         assert_eq!(engine.runtime[0].state, RemapState::Idle);
         assert!(!engine.runtime[0].consumed); // no tap pending
     }
@@ -565,7 +569,7 @@ mod tests {
 
         // Key still pressed
         let mut report = make_report(&[0x39]);
-        let result = remap_engine_process(&mut engine, &mut report, 0);
+        let result = remap_engine_process(&mut engine, &mut report, 0, 1000);
         assert_eq!(result, RemapResult::Modified);
         assert_eq!(report.keycode[0], 0); // consumed
     }
@@ -602,7 +606,7 @@ mod tests {
         engine.config.count = 2;
 
         let mut report = make_report(&[0x04, 0x06]);
-        let result = remap_engine_process(&mut engine, &mut report, 0);
+        let result = remap_engine_process(&mut engine, &mut report, 0, 1000);
         assert_eq!(result, RemapResult::Modified);
         assert!(report.keycode.contains(&0x05));
         assert!(report.keycode.contains(&0x07));
