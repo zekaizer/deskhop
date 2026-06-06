@@ -39,6 +39,14 @@ bool hal_queue_try_add_uart(const uint8_t *data) {
     return queue_try_add(queue_from_opaque(&global_hw.uart_tx_queue), data);
 }
 
+/* Free slots in the UART TX queue — lets the peer-log forwarder drain only as
+ * much as the queue can accept per tick, so a burst (e.g. the boot HID
+ * descriptor dump) buffers in TX_RING instead of overflowing/garbling. */
+uint32_t hal_uart_tx_free(void) {
+    uint level = queue_get_level(queue_from_opaque(&global_hw.uart_tx_queue));
+    return (level < UART_QUEUE_LENGTH) ? (UART_QUEUE_LENGTH - level) : 0;
+}
+
 /* ==================================================== *
  * UART packet send helpers
  * ==================================================== */
@@ -221,6 +229,21 @@ bool hal_is_bootsel_pressed(void) {
 
 /* hal_debug_dump_state is now Rust #[no_mangle] in callbacks.rs */
 
+/* Heap high-water-mark for sizing the log ring reserve. mallinfo().arena is the
+ * total memory sbrk'd from the system; since the heap never shrinks (sbrk is
+ * one-way here) it equals the peak heap extent. uordblks is currently in-use. */
+#include <malloc.h>
+uint32_t hal_heap_arena(void) { return (uint32_t) mallinfo().arena; }
+uint32_t hal_heap_inuse(void) { return (uint32_t) mallinfo().uordblks; }
+
+/* Heap ceiling: bytes available between the heap base (__end__, which the log
+ * ring pushes up) and __StackLimit (RAM end). This is the hard cap the ring's
+ * __LOG_HEAP_RESERVE leaves for malloc — early-warn when arena nears it. */
+uint32_t hal_heap_limit(void) {
+    extern char __end__, __StackLimit;
+    return (uint32_t)((uintptr_t)&__StackLimit - (uintptr_t)&__end__);
+}
+
 void hal_debug_blink(int count, int delay_ms) {
     for (int i = 0; i < count; i++) {
         gpio_put(GPIO_LED_PIN, 1); sleep_ms(delay_ms);
@@ -319,6 +342,10 @@ uint32_t peer_log_cdc_write(const uint8_t *data, uint32_t len) {
     uint32_t avail = (uint32_t)tud_cdc_write_available();
     if (len > avail) len = avail;
     return (uint32_t)tud_cdc_write(data, len);
+}
+
+uint32_t peer_log_cdc_write_avail(void) {
+    return (uint32_t)tud_cdc_write_available();
 }
 
 void peer_log_cdc_flush(void) {

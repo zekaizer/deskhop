@@ -19,6 +19,8 @@ extern "C" {
     // ---- UART send helpers (direct C functions) ----
     pub fn send_value(value: u8, packet_type: u8);
     pub fn queue_packet(data: *const u8, packet_type: u8, length: i32);
+    /// Free slots in the UART TX queue (for throttling the peer-log forwarder).
+    pub fn hal_uart_tx_free() -> u32;
 
     // ---- Config / Flash (direct C functions) ----
     pub fn save_config();
@@ -78,6 +80,13 @@ extern "C" {
     // ---- Debug ----
     pub fn hal_debug_blink(count: i32, delay_ms: i32);
     pub fn hal_debug_dump_state();
+    /// Heap arena (peak bytes sbrk'd) and currently in-use bytes — for sizing
+    /// the log ring reserve.
+    pub fn hal_heap_arena() -> u32;
+    pub fn hal_heap_inuse() -> u32;
+    /// Heap ceiling (bytes available for malloc above the log ring) — the cap
+    /// the ring's reserve leaves. Used to early-warn on heap exhaustion.
+    pub fn hal_heap_limit() -> u32;
 
     // ---- Pico SDK direct ----
     // Unused from Rust (PicoHal::kick() calls hal_watchdog_update instead),

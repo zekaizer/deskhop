@@ -41,7 +41,7 @@ pub fn passthrough_task(
     if dev.cfg.switch_requested {
         dev.cfg.switch_requested = false;
         let new_output = if dev.cfg.active_output == 0 { 1 } else { 0 };
-        LogBuf::new().s(b"[pt] switch -> out=").hx(new_output).done();
+        crate::service::dlog::i(b"pt").s(b"switch out=").hx(new_output).done();
         hal.switch_output(new_output);
     }
 
@@ -66,7 +66,7 @@ pub fn passthrough_task(
         && now > ABSOLUTE_TIMEOUT_US
         && !passthrough::has_vendor_interface(pt)
     {
-        crate::service::peer_log::push(b"[pt] safety_net fired\n");
+        crate::service::dlog::w(b"pt").s(b"safety_net fired").done();
         hal.device_connect();
         pt.gave_up = true;
     }
@@ -84,13 +84,13 @@ pub fn passthrough_task(
     {
         let desc_ready = hal.build_config_desc();
         if !desc_ready {
-            crate::service::peer_log::push(b"[pt] desc build FAILED (HID budget exceeded?)\n");
+            crate::service::dlog::w(b"pt").s(b"desc build FAILED (HID budget exceeded?)").done();
         }
         if passthrough::activate(pt, desc_ready) {
-            LogBuf::new()
-                .s(b"[pt] activate n=").hx(pt.iface_count)
+            crate::service::dlog::i(b"pt")
+                .s(b"activate n=").hx(pt.iface_count)
                 .s(b" vid=").hx16(pt.upstream_vid)
-                .s(b" -> disconnect+reconnect")
+                .s(b" disconnect+reconnect")
                 .done();
             dev.cfg.gaming_mode = true;
             // Force re-enumeration: disconnect default DeskHop, then let the
@@ -113,7 +113,7 @@ pub fn passthrough_task(
     // the tud_disconnect must run here on Core0, which owns the device stack.
     if pt.disconnect_requested {
         pt.disconnect_requested = false;
-        crate::service::peer_log::push(b"[pt] unmount -> disconnect\n");
+        crate::service::dlog::i(b"pt").s(b"unmount disconnect").done();
         hal.clear_config_desc();
         hal.device_disconnect();
         pt.reconnect_at_us = now + RECONNECT_DELAY_US;
@@ -121,7 +121,7 @@ pub fn passthrough_task(
 
     // Phase 2 fallback: device removal → reconnect with new descriptors
     if pt.reconnect_at_us > 0 && now >= pt.reconnect_at_us {
-        crate::service::peer_log::push(b"[pt] reconnect -> connect\n");
+        crate::service::dlog::i(b"pt").s(b"reconnect connect").done();
         hal.device_connect();
         pt.reconnect_at_us = 0;
     }
@@ -176,7 +176,7 @@ pub fn flush_output_report(pt: &mut PassthroughState, hal: &impl UsbHost) {
         &pt.out_queue.data[..pt.out_queue.len as usize],
     );
     if !ok {
-        crate::service::peer_log::push(b"[pt] host_tx busy/failed (report dropped)\n");
+        crate::service::dlog::w(b"pt").s(b"host_tx busy/failed (report dropped)").done();
     }
     pt.out_queue.pending = false;
 }
@@ -215,8 +215,8 @@ pub fn on_device_mount(
 
     let ok = passthrough::capture_descriptor(pt, dev_addr, instance, itf_protocol, desc);
     pt.last_capture_us = hal.now_us_64();
-    LogBuf::new()
-        .s(b"[pt] cap addr=").hx(dev_addr)
+    crate::service::dlog::i(b"pt")
+        .s(b"cap addr=").hx(dev_addr)
         .s(b" inst=").hx(instance)
         .s(b" proto=").hx(itf_protocol)
         .s(b" len=").hx(desc.len() as u8)
@@ -229,8 +229,8 @@ pub fn on_device_mount(
         let (vid, pid) = hal.get_upstream_vid_pid(dev_addr);
         pt.upstream_vid = vid;
         pt.upstream_pid = pid;
-        LogBuf::new()
-            .s(b"[pt] upstream vid=").hx16(vid)
+        crate::service::dlog::i(b"pt")
+            .s(b"upstream vid=").hx16(vid)
             .s(b" pid=").hx16(pid)
             .done();
     }
@@ -251,7 +251,7 @@ pub fn on_device_unmount(pt: &mut PassthroughState, dev_addr: u8) {
     // Flag the request; passthrough_task performs clear_config_desc +
     // device_disconnect + reconnect on Core0.
     if was_active && pt.iface_count == 0 {
-        crate::service::peer_log::push(b"[pt] unmount -> request disconnect\n");
+        crate::service::dlog::i(b"pt").s(b"unmount request disconnect").done();
         pt.disconnect_requested = true;
     }
 }
@@ -340,7 +340,7 @@ pub fn on_report_received(
                     if elapsed <= window_us {
                         // Second press within window — consume buffered + this press,
                         // mark the upcoming release for consumption, trigger switch.
-                        crate::service::peer_log::push(b"[pt] smartshift double-click\n");
+                        crate::service::dlog::i(b"pt").s(b"smartshift double-click").done();
                         passthrough::smartshift_reset(pt);
                         pt.smartshift_consume = 1;
                         dev.cfg.switch_requested = true;
@@ -490,41 +490,6 @@ pub fn on_set_report(
 // Helpers
 // ================================================================
 
-/// Tiny fixed-size formatter for DH_DEBUG `[pt]` log lines (no_std, no alloc).
-/// `LogBuf::new().s(b"...").hx(v)...done()` appends a trailing newline and pushes.
-struct LogBuf {
-    buf: [u8; 80],
-    len: usize,
-}
-impl LogBuf {
-    fn new() -> Self {
-        Self { buf: [0; 80], len: 0 }
-    }
-    fn s(&mut self, bytes: &[u8]) -> &mut Self {
-        for &b in bytes {
-            if self.len < self.buf.len() {
-                self.buf[self.len] = b;
-                self.len += 1;
-            }
-        }
-        self
-    }
-    /// Append a byte as two hex digits.
-    fn hx(&mut self, v: u8) -> &mut Self {
-        const H: &[u8; 16] = b"0123456789abcdef";
-        self.s(&[H[(v >> 4) as usize], H[(v & 0x0F) as usize]])
-    }
-    /// Append a u16 as four hex digits (big-endian).
-    fn hx16(&mut self, v: u16) -> &mut Self {
-        self.hx((v >> 8) as u8).hx(v as u8)
-    }
-    /// Append a trailing newline and push to the peer log.
-    fn done(&mut self) {
-        self.s(b"\n");
-        crate::service::peer_log::push(&self.buf[..self.len]);
-    }
-}
-
 /// Log a mouse button transition (DH_DEBUG observability). Only the button byte
 /// (report[1] of a standard mouse report) is tracked, so continuous pointer
 /// movement does not flood the peer_log ring — we log only on a change.
@@ -537,7 +502,7 @@ fn log_button_change(pt: &mut PassthroughState, report: &[u8]) {
         return;
     }
     pt.dbg_last_buttons = buttons;
-    LogBuf::new().s(b"[pt] btn=0x").hx(buttons).done();
+    crate::service::dlog::i(b"pt").s(b"btn=0x").hx(buttons).done();
 }
 
 /// Log a discrete HID++ control event (DH_DEBUG) — e.g. an MX Master special
@@ -556,8 +521,8 @@ fn log_hidpp_event(pt: &PassthroughState, report: &[u8]) {
     {
         return;
     }
-    LogBuf::new()
-        .s(b"[pt] key fi=").hx(report[2])
+    crate::service::dlog::i(b"pt")
+        .s(b"key fi=").hx(report[2])
         .s(b" fn=").hx(report[3])
         .s(b" c=").hx(report[5])
         .s(b" a=").hx(report[6])

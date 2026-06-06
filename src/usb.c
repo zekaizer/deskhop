@@ -43,7 +43,9 @@ extern void rust_on_tud_umount(void);
 void tud_mount_cb(void) { rust_on_tud_mount(); }
 void tud_umount_cb(void) { rust_on_tud_umount(); }
 
-#ifdef DH_DEBUG_CDC_FLASH
+#if defined(DH_DEBUG) || defined(DH_DEBUG_CDC_FLASH)
+extern void peer_log_request_replay(void);
+
 void tud_cdc_rx_cb(uint8_t itf) {
     char buf[64];
     uint32_t count = tud_cdc_n_available(itf);
@@ -56,9 +58,44 @@ void tud_cdc_rx_cb(uint8_t itf) {
 
     tud_cdc_n_read(itf, buf, count);
 
+#ifdef DH_DEBUG_CDC_FLASH
     if (count >= 5 && memcmp(buf, "flash", 5) == 0) {
         reset_usb_boot(0, 0);
     }
+#endif
+
+#ifdef DH_DEBUG
+    /* "logdump" replays the full log scrollback on demand — re-read the boot
+     * history without reconnecting the terminal. Matched incrementally so it
+     * works whether the terminal sends the line at once or character by
+     * character; a deliberate command (not any keystroke) so stray bytes don't
+     * trigger spurious re-dumps. */
+    {
+        static const char CMD[] = "logdump";
+        static uint8_t matched = 0;
+        for (uint32_t i = 0; i < count; i++) {
+            if (buf[i] == CMD[matched]) {
+                if (++matched == sizeof(CMD) - 1) {
+                    peer_log_request_replay();
+                    matched = 0;
+                }
+            } else {
+                matched = (buf[i] == CMD[0]) ? 1 : 0;
+            }
+        }
+    }
+#endif
+}
+#endif
+
+#ifdef DH_DEBUG
+extern void rust_on_cdc_line_state(bool dtr, bool rts);
+
+/* Logs DTR/RTS transitions so we can see whether a host terminal toggles DTR on
+ * open — the edge the scrollback replay depends on. */
+void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
+    (void)itf;
+    rust_on_cdc_line_state(dtr, rts);
 }
 #endif
 

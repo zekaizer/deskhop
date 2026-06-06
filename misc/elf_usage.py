@@ -32,6 +32,23 @@ RAM_SIZE = 256 * 1024
 def fmt(b):
     return f"{b/1024:.1f} KB" if b >= 1024 else f"{b} B"
 
-print(f"\n{'Region':<10} {'Used':>10} {'Total':>10} {'%':>8}")
-print(f"{'FLASH':<10} {fmt(flash_used):>10} {fmt(FLASH_SIZE):>10} {flash_used*100/FLASH_SIZE:>7.1f}%")
-print(f"{'RAM':<10} {fmt(ram_used):>10} {fmt(RAM_SIZE):>10} {ram_used*100/RAM_SIZE:>7.1f}%")
+# Debug-only peer_log history ring, sized at link time to fill free RAM.
+# Use linker symbols (authoritative, matches --print-memory-usage) rather than
+# `size`, whose Berkeley data+bss over-counts under this copy-to-RAM layout.
+RAM_ORIGIN = 0x20000000
+ring_start = syms.get("__log_ring_start")
+ring_end = syms.get("__log_ring_end")
+ring = (ring_end - ring_start) if (ring_start is not None and ring_end is not None) else 0
+if ring:
+    static_ram = ring_start - RAM_ORIGIN  # vector table + .data + .bss span
+    ram_total = ring_end - RAM_ORIGIN     # committed RAM (heap reserve excluded)
+else:
+    static_ram = ram_used
+    ram_total = ram_used
+
+print(f"\n{'Region':<12} {'Used':>10} {'Total':>10} {'%':>8}")
+print(f"{'FLASH':<12} {fmt(flash_used):>10} {fmt(FLASH_SIZE):>10} {flash_used*100/FLASH_SIZE:>7.1f}%")
+print(f"{'RAM static':<12} {fmt(static_ram):>10} {fmt(RAM_SIZE):>10} {static_ram*100/RAM_SIZE:>7.1f}%")
+if ring:
+    print(f"{'log_ring':<12} {fmt(ring):>10}   (debug history; link-time fill of free RAM)")
+    print(f"{'RAM total':<12} {fmt(ram_total):>10} {fmt(RAM_SIZE):>10} {ram_total*100/RAM_SIZE:>7.1f}%")

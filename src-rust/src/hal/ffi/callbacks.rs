@@ -331,6 +331,164 @@ pub unsafe extern "C" fn rust_extract_data(iface_ptr: *mut c_void, val_ptr: *con
 // TinyUSB host callbacks — thin FFI wrappers delegating to service::usb
 // ============================================================
 
+/// Write a usage page name (or 0xHEX) to a dlog line.
+#[cfg(feature = "dh_debug")]
+fn dlog_put_page(line: &mut crate::service::dlog::DLog, page: u16) {
+    let n = crate::domain::hid_descdump::page_name(page);
+    if n.is_empty() {
+        line.s(b"0x").hx16(page);
+    } else {
+        line.s(n);
+    }
+}
+
+/// Write a usage name within a page (or 0xHEX) to a dlog line.
+#[cfg(feature = "dh_debug")]
+fn dlog_put_usage(line: &mut crate::service::dlog::DLog, page: u16, usage: u32) {
+    let n = crate::domain::hid_descdump::usage_name(page, usage);
+    if n.is_empty() {
+        line.s(b"0x").hx16(usage as u16);
+    } else {
+        line.s(n);
+    }
+}
+
+/// System-level readable dump of a HID report descriptor at mount time. Decodes
+/// report-oriented: globals (page, size, count, logical) persist while locals
+/// (usages, usage min/max) reset after each Main item, so each Input/Output/
+/// Feature collapses to ONE line summarizing its fields. Collection nesting is
+/// shown via 2-space indentation. Applies to every HID interface (not just
+/// passthrough-captured ones). DH_DEBUG-only: compiled out of release builds
+/// (no CDC, no logging) so it costs nothing there.
+#[cfg(feature = "dh_debug")]
+unsafe fn dump_hid_descriptor(dev_addr: u8, instance: u8, proto: u8, desc: &[u8]) {
+    use crate::domain::hid_descdump::{self, Item, Kind};
+    use crate::service::dlog;
+
+    let proto_name: &[u8] = match proto {
+        1 => b"keyboard",
+        2 => b"mouse",
+        _ => b"none",
+    };
+    dlog::i(b"hid")
+        .s(b"mount addr=").hx(dev_addr)
+        .s(b" inst=").hx(instance)
+        .s(b" proto=").s(proto_name)
+        .s(b" len=").u(desc.len() as u32)
+        .done();
+
+    let mut page: u16 = 0;
+    let mut usages = [0u32; 8];
+    let mut nusages = 0usize;
+    let mut umin: i64 = -1; // -1 == unset
+    let mut umax: i64 = -1;
+    let mut rsize = 0u32;
+    let mut rcount = 0u32;
+    let mut lmin = 0u32;
+    let mut lmax = 0u32;
+    let mut have_log = false;
+
+    hid_descdump::decode(desc, |it: Item| {
+        match it.kind {
+            // Globals (persist) + locals (reset after each Main item)
+            Kind::UsagePage => page = it.value as u16,
+            Kind::Usage => {
+                if nusages < usages.len() {
+                    usages[nusages] = it.value;
+                    nusages += 1;
+                }
+            }
+            Kind::UsageMin => umin = it.value as i64,
+            Kind::UsageMax => umax = it.value as i64,
+            Kind::ReportSize => rsize = it.value,
+            Kind::ReportCount => rcount = it.value,
+            Kind::LogicalMin => {
+                lmin = it.value;
+                have_log = true;
+            }
+            Kind::LogicalMax => {
+                lmax = it.value;
+                have_log = true;
+            }
+            Kind::ReportId => {
+                let mut line = dlog::i(b"hid");
+                for _ in 0..it.depth {
+                    line.s(b"  ");
+                }
+                line.s(b"ReportID ").u(it.value).done();
+            }
+            Kind::Collection => {
+                let mut line = dlog::i(b"hid");
+                for _ in 0..it.depth {
+                    line.s(b"  ");
+                }
+                line.s(b"Collection ");
+                let cn = hid_descdump::collection_name(it.value);
+                if cn.is_empty() {
+                    line.s(b"0x").hx(it.value as u8);
+                } else {
+                    line.s(cn);
+                }
+                if nusages > 0 {
+                    line.s(b" [");
+                    dlog_put_page(&mut line, page);
+                    line.s(b"/");
+                    dlog_put_usage(&mut line, page, usages[0]);
+                    line.s(b"]");
+                }
+                line.done();
+                nusages = 0;
+                umin = -1;
+                umax = -1;
+            }
+            Kind::EndCollection => {
+                let mut line = dlog::i(b"hid");
+                for _ in 0..it.depth {
+                    line.s(b"  ");
+                }
+                line.s(b"EndCollection").done();
+            }
+            Kind::Input | Kind::Output | Kind::Feature => {
+                let label: &[u8] = match it.kind {
+                    Kind::Input => b"Input ",
+                    Kind::Output => b"Output ",
+                    _ => b"Feature ",
+                };
+                let mut line = dlog::i(b"hid");
+                for _ in 0..it.depth {
+                    line.s(b"  ");
+                }
+                line.s(label);
+                dlog_put_page(&mut line, page);
+                line.s(b" ");
+                if umin >= 0 && umax >= 0 {
+                    line.u(umin as u32).s(b"..").u(umax as u32);
+                } else {
+                    for (k, &u) in usages[..nusages].iter().enumerate() {
+                        if k > 0 {
+                            line.s(b",");
+                        }
+                        dlog_put_usage(&mut line, page, u);
+                    }
+                }
+                line.s(b" cnt=").u(rcount).s(b" sz=").u(rsize);
+                if have_log {
+                    line.s(b" log=").u(lmin).s(b"..").u(lmax);
+                }
+                line.s(b" ")
+                    .s(if it.value & 0x01 != 0 { b"Const" } else { b"Data" })
+                    .s(if it.value & 0x02 != 0 { b",Var" } else { b",Array" })
+                    .s(if it.value & 0x04 != 0 { b",Rel" } else { b",Abs" });
+                line.done();
+                nusages = 0;
+                umin = -1;
+                umax = -1;
+            }
+            Kind::Other => {}
+        }
+    });
+}
+
 /// HID device mounted — configure protocol and start receiving reports.
 #[export_name = "rust_on_hid_mount"]
 pub unsafe extern "C" fn rust_on_hid_mount(
@@ -350,9 +508,16 @@ pub unsafe extern "C" fn rust_on_hid_mount(
     let mut state = structs::DeviceState::from_globals();
     let hal = crate::hal::pico::PicoHal::new();
 
+    let desc_slice = core::slice::from_raw_parts(desc_report, desc_len as usize);
+
+    // System-level readable dump of the device's HID report descriptor (all HID
+    // interfaces, not just passthrough) so the exact presentation is captured.
+    // DH_DEBUG-only — no cost in release.
+    #[cfg(feature = "dh_debug")]
+    dump_hid_descriptor(dev_addr, instance, itf_protocol, desc_slice);
+
     // Passthrough: capture descriptor if enabled
     let pt = super::tasks::get_pt_state();
-    let desc_slice = core::slice::from_raw_parts(desc_report, desc_len as usize);
     crate::service::passthrough_service::on_device_mount(
         pt, &state, dev_addr, instance, itf_protocol, desc_slice, &hal,
     );
@@ -375,6 +540,11 @@ pub unsafe extern "C" fn rust_on_hid_umount(
 ) {
     let itf_protocol = device::hal_tuh_hid_interface_protocol(dev_addr, instance);
     let state = structs::DeviceState::from_globals();
+
+    crate::service::dlog::i(b"usb")
+        .s(b"hid umount addr=").hx(dev_addr)
+        .s(b" inst=").hx(instance)
+        .done();
 
     crate::service::usb::on_hid_umount(state.cfg, itf_protocol);
 
@@ -624,23 +794,41 @@ pub unsafe extern "C" fn rust_set_active_output(output: u8) {
 // Debug state dump
 // ============================================================
 
-extern "C" {
-    fn dh_debug_printf(fmt: *const u8, ...);
-}
+/// Latches once the heap-low warning has fired (arena is monotonic, so one shot).
+static mut HEAP_WARNED: bool = false;
 
 #[no_mangle]
 pub unsafe extern "C" fn hal_debug_dump_state() {
+    use crate::service::dlog;
+
     let cfg = &*core::ptr::addr_of!(structs::GLOBAL_CFG);
-    dh_debug_printf(
-        c"tud=%d kbd=%d mse=%d role=%d out=%d c0=%llu c1=%llu\n".as_ptr(),
-        cfg.tud_connected as u32,
-        cfg.keyboard_connected as u32,
-        cfg.mouse_connected as u32,
-        cfg.board_role as u32,
-        cfg.active_output as u32,
-        cfg.core0_last_loop_pass,
-        cfg.core1_last_loop_pass,
-    );
+    let inuse = device::hal_heap_inuse();
+    let arena = device::hal_heap_arena();
+    let limit = device::hal_heap_limit();
+    dlog::i(b"hb")
+        .s(b"tud=").u(cfg.tud_connected as u32)
+        .s(b" kbd=").u(cfg.keyboard_connected as u32)
+        .s(b" mse=").u(cfg.mouse_connected as u32)
+        .s(b" role=").u(cfg.board_role as u32)
+        .s(b" out=").u(cfg.active_output as u32)
+        .s(b" c0=").u64(cfg.core0_last_loop_pass)
+        .s(b" c1=").u64(cfg.core1_last_loop_pass)
+        .s(b" heap=").u(inuse)
+        .s(b"/").u(arena)
+        .s(b"/").u(limit)
+        .done();
+
+    // Early-warn on heap exhaustion: the log ring caps malloc at `limit` bytes,
+    // so a runaway arena would crash. Fire once when arena crosses 75% of limit.
+    let warned = *core::ptr::addr_of!(HEAP_WARNED);
+    if !warned && limit > 0 && arena.saturating_mul(100) >= limit.saturating_mul(75) {
+        *core::ptr::addr_of_mut!(HEAP_WARNED) = true;
+        dlog::w(b"heap")
+            .s(b"low arena=").u(arena)
+            .s(b" limit=").u(limit)
+            .s(b" raise __LOG_HEAP_RESERVE")
+            .done();
+    }
 }
 
 // ============================================================
@@ -783,16 +971,90 @@ pub unsafe extern "C" fn rust_get_configuration_descriptor() -> *const u8 {
 // TinyUSB device mount/unmount — set tud_connected flag
 // ============================================================
 
+/// Dump the composite configuration descriptor WE present to the PC (the tud
+/// side: default DeskHop or the passthrough-rebuilt composite) — interfaces and
+/// endpoints. We own these bytes (no control transfer), so it's synchronous and
+/// safe. DH_DEBUG-only. Lets us verify the re-presented composite at each mount.
+#[cfg(feature = "dh_debug")]
+unsafe fn dump_tud_composite() {
+    use crate::service::dlog;
+    let p = rust_get_configuration_descriptor();
+    if p.is_null() {
+        return;
+    }
+    let total = u16::from_le_bytes([*p.add(2), *p.add(3)]) as usize;
+    if total < 9 {
+        return;
+    }
+    let desc = core::slice::from_raw_parts(p, total);
+    dlog::i(b"usb")
+        .s(b"tud cfg ifaces=").u(desc[4] as u32)
+        .s(b" mA=").u((desc[8] as u32) * 2)
+        .done();
+    let mut i = 0usize;
+    while i + 2 <= total {
+        let blen = desc[i] as usize;
+        if blen < 2 {
+            break;
+        }
+        match desc[i + 1] {
+            0x04 if i + 9 <= total => {
+                dlog::i(b"usb")
+                    .s(b"tud  if #").u(desc[i + 2] as u32)
+                    .s(b" class=").hx(desc[i + 5])
+                    .s(b" sub=").hx(desc[i + 6])
+                    .s(b" proto=").hx(desc[i + 7])
+                    .s(b" eps=").u(desc[i + 4] as u32)
+                    .done();
+            }
+            0x05 if i + 7 <= total => {
+                let addr = desc[i + 2];
+                let dir: &[u8] = if addr & 0x80 != 0 { b"IN" } else { b"OUT" };
+                let ty: &[u8] = match desc[i + 3] & 0x03 {
+                    0 => b"ctrl",
+                    1 => b"iso",
+                    2 => b"bulk",
+                    _ => b"intr",
+                };
+                let mps = u16::from_le_bytes([desc[i + 4], desc[i + 5]]);
+                dlog::i(b"usb")
+                    .s(b"tud   ep ").hx(addr).s(b" ").s(dir).s(b" ").s(ty)
+                    .s(b" mps=").u(mps as u32)
+                    .s(b" iv=").u(desc[i + 6] as u32)
+                    .done();
+            }
+            _ => {}
+        }
+        i += blen;
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn rust_on_tud_mount() {
     let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
     cfg.tud_connected = true;
+    crate::service::dlog::i(b"usb").s(b"tud mount").done();
+    #[cfg(feature = "dh_debug")]
+    dump_tud_composite();
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_on_tud_umount() {
     let cfg = &mut *core::ptr::addr_of_mut!(structs::GLOBAL_CFG);
     cfg.tud_connected = false;
+    crate::service::dlog::i(b"usb").s(b"tud umount").done();
+}
+
+/// CDC control-line state change (SET_CONTROL_LINE_STATE). Logs DTR/RTS so we
+/// can see empirically whether a host terminal toggles DTR on open — the signal
+/// the scrollback replay latches onto. RTS is logged too (it does NOT gate our
+/// connection check, which is DTR-only). Diagnostic; dh_debug only.
+#[no_mangle]
+pub unsafe extern "C" fn rust_on_cdc_line_state(dtr: bool, rts: bool) {
+    crate::service::dlog::i(b"cdc")
+        .s(b"line dtr=").u(dtr as u32)
+        .s(b" rts=").u(rts as u32)
+        .done();
 }
 
 // ============================================================

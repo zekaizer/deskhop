@@ -3,6 +3,7 @@
 
 pub mod backend;
 pub mod config_api;
+pub mod dlog;
 pub mod frontend;
 pub mod fw_upgrade;
 pub mod hotkey_dispatch;
