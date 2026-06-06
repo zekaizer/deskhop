@@ -433,7 +433,7 @@ pub fn on_report_received(
     // Non-vendor, non-keyboard: raw passthrough on active output only.
     // Log mouse button transitions on the receiver board regardless of active
     // output (pointer movement suppressed) so the [pt] btn trace is consistent.
-    log_button_change(pt, report);
+    log_button_change(pt, report, hal.now_us_64());
 
     let is_active = dev.is_active_output();
     if is_active {
@@ -490,19 +490,82 @@ pub fn on_set_report(
 // Helpers
 // ================================================================
 
-/// Log a mouse button transition (DH_DEBUG observability). Only the button byte
-/// (report[1] of a standard mouse report) is tracked, so continuous pointer
-/// movement does not flood the peer_log ring — we log only on a change.
-fn log_button_change(pt: &mut PassthroughState, report: &[u8]) {
+/// Pointer summary flush interval (1s — slower than the wheels, very chatty).
+const PTR_SUMMARY_US: u64 = 1_000_000;
+
+/// Optional pointer-stream logging, toggled at runtime by the `ptr` CDC command
+/// (default off — pointer movement is the noisiest stream). Written from the
+/// Core0 USB command handler, read from the Core1 receiver; a bool load/store is
+/// atomic on the bus.
+static mut DBG_PTR_LOG: bool = false;
+
+fn dbg_ptr_log_enabled() -> bool {
+    unsafe { core::ptr::read(core::ptr::addr_of!(DBG_PTR_LOG)) }
+}
+
+/// Toggle pointer-stream logging. Called from tud_cdc_rx_cb on the `ptr` command.
+///
+/// # Safety
+/// Plain bool store; safe from the USB task.
+#[no_mangle]
+pub unsafe extern "C" fn rust_dbg_toggle_ptr_log() {
+    let new = !dbg_ptr_log_enabled();
+    core::ptr::write(core::ptr::addr_of_mut!(DBG_PTR_LOG), new);
+    crate::service::dlog::i(b"pt")
+        .s(b"ptr log ").s(if new { b"on" } else { b"off" }).done();
+}
+
+/// Sign-extend a 12-bit value (standard packed mouse X/Y field).
+fn sext12(v: u16) -> i32 {
+    let v = (v & 0x0FFF) as i32;
+    if v & 0x0800 != 0 { v - 0x1000 } else { v }
+}
+
+/// Emit `[pt] ptr n=<count> dx=<signed> dy=<signed>` (decimal, signed).
+fn log_ptr_summary(n: u16, dx: i32, dy: i32) {
+    let mut log = crate::service::dlog::i(b"pt");
+    log.s(b"ptr n=").u(n as u32).s(b" dx=");
+    if dx < 0 { log.s(b"-").u((-dx) as u32); } else { log.u(dx as u32); }
+    log.s(b" dy=");
+    if dy < 0 { log.s(b"-").u((-dy) as u32); } else { log.u(dy as u32); }
+    log.done();
+}
+
+/// Log a mouse button transition (DH_DEBUG observability). The button byte is
+/// logged only on change so continuous movement doesn't flood the ring. When the
+/// `ptr` command has enabled pointer logging, also accumulate the (12-bit packed)
+/// X/Y deltas and flush a rate-limited summary at most once per PTR_SUMMARY_US.
+fn log_button_change(pt: &mut PassthroughState, report: &[u8], now_us: u64) {
     if report.len() < 2 {
         return;
     }
     let buttons = report[1];
-    if buttons == pt.dbg_last_buttons {
-        return;
+    if buttons != pt.dbg_last_buttons {
+        pt.dbg_last_buttons = buttons;
+        crate::service::dlog::i(b"pt").s(b"btn=0x").hx(buttons).done();
     }
-    pt.dbg_last_buttons = buttons;
-    crate::service::dlog::i(b"pt").s(b"btn=0x").hx(buttons).done();
+
+    // Optional pointer summary. report[3..6] = packed 12-bit X,Y (standard mouse
+    // layout); for devices with a different layout the count is still correct.
+    if dbg_ptr_log_enabled() && report.len() >= 6 {
+        let x = sext12(report[3] as u16 | ((report[4] as u16 & 0x0F) << 8));
+        let y = sext12(((report[4] as u16) >> 4) | ((report[5] as u16) << 4));
+        let s = &mut pt.dbg_stream;
+        if s.ptr_last_us == 0 {
+            s.ptr_last_us = now_us;
+        }
+        s.ptr_dx += x;
+        s.ptr_dy += y;
+        s.ptr_n += 1;
+        if now_us.wrapping_sub(s.ptr_last_us) >= PTR_SUMMARY_US {
+            let (n, dx, dy) = (s.ptr_n, s.ptr_dx, s.ptr_dy);
+            s.ptr_n = 0;
+            s.ptr_dx = 0;
+            s.ptr_dy = 0;
+            s.ptr_last_us = now_us;
+            log_ptr_summary(n, dx, dy);
+        }
+    }
 }
 
 /// Flush interval for the rate-limited wheel/thumbwheel summaries (300ms).

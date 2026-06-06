@@ -45,6 +45,22 @@ void tud_umount_cb(void) { rust_on_tud_umount(); }
 
 #if defined(DH_DEBUG) || defined(DH_DEBUG_CDC_FLASH)
 extern void peer_log_request_replay(void);
+extern void rust_dbg_toggle_ptr_log(void);
+
+/* Incrementally match a literal command in a byte stream (works whether the
+ * terminal sends it at once or char by char). On full match, *matched resets
+ * and the function returns true. */
+static bool cdc_cmd_match(const char *cmd, uint8_t cmd_len, char c, uint8_t *matched) {
+    if (c == cmd[*matched]) {
+        if (++(*matched) == cmd_len) {
+            *matched = 0;
+            return true;
+        }
+    } else {
+        *matched = (c == cmd[0]) ? 1 : 0;
+    }
+    return false;
+}
 
 void tud_cdc_rx_cb(uint8_t itf) {
     char buf[64];
@@ -65,23 +81,18 @@ void tud_cdc_rx_cb(uint8_t itf) {
 #endif
 
 #ifdef DH_DEBUG
-    /* "logdump" replays the full log scrollback on demand — re-read the boot
-     * history without reconnecting the terminal. Matched incrementally so it
-     * works whether the terminal sends the line at once or character by
-     * character; a deliberate command (not any keystroke) so stray bytes don't
-     * trigger spurious re-dumps. */
+    /* Deliberate CDC commands (matched incrementally so a stray byte can't
+     * trigger them): "logdump" re-dumps the log scrollback; "ptr" toggles the
+     * noisy pointer-stream summary. */
     {
-        static const char CMD[] = "logdump";
-        static uint8_t matched = 0;
+        static const char LOGDUMP[] = "logdump";
+        static const char PTR[] = "ptr";
+        static uint8_t m_logdump = 0, m_ptr = 0;
         for (uint32_t i = 0; i < count; i++) {
-            if (buf[i] == CMD[matched]) {
-                if (++matched == sizeof(CMD) - 1) {
-                    peer_log_request_replay();
-                    matched = 0;
-                }
-            } else {
-                matched = (buf[i] == CMD[0]) ? 1 : 0;
-            }
+            if (cdc_cmd_match(LOGDUMP, sizeof(LOGDUMP) - 1, buf[i], &m_logdump))
+                peer_log_request_replay();
+            if (cdc_cmd_match(PTR, sizeof(PTR) - 1, buf[i], &m_ptr))
+                rust_dbg_toggle_ptr_log();
         }
     }
 #endif
