@@ -11,16 +11,30 @@ void usb_host_task_c(void) { if (tuh_inited()) tuh_task(); }
 /* Firmware upgrade (flash + queue) — requires direct flash/SDK access */
 void firmware_upgrade_task_c(void) {
     if (!global_fw.fw.upgrade_in_progress || !global_fw.fw.byte_done || queue_is_full(queue_from_opaque(&global_hw.uart_tx_queue))) return;
-    if (global_fw.fw.address > STAGING_IMAGE_SIZE) {
+    /* The page-write / terminal / next-request decision is the unit-tested Rust
+     * step machine (service::fw_upgrade::next_step) — keeps the off-by-one-prone
+     * page/sector/terminal arithmetic out of untestable C. The C side only does
+     * the flash/SDK side-effects. */
+    fw_step_t s;
+    rust_fw_next_step(global_fw.fw.address, &s);
+    if (s.write_page)
+        write_flash_page((uint32_t)ADDR_FW_RUNNING + s.page_offset - XIP_BASE, global_fw.page_buffer);
+    if (s.finalize) {
         global_fw.fw.upgrade_in_progress = 0; global_fw.fw.checksum = ~global_fw.fw.checksum;
         if (calculate_firmware_crc32() != global_fw.fw.checksum) {
             flash_range_erase((uint32_t)ADDR_FW_RUNNING - XIP_BASE, FLASH_SECTOR_SIZE);
             dh_enter_bootloader();
-        } else { global_fw._running_fw = _firmware_metadata; global_fw.reboot_requested = true; }
+        } else {
+            global_fw._running_fw = _firmware_metadata; global_fw.reboot_requested = true;
+            /* reboot_requested makes check_system_health stop kicking so a
+             * watchdog timeout resets us into the new image — but DH_DEBUG leaves
+             * the watchdog disabled at boot, so arm it here or the upgrade never
+             * reboots (same gap the config-mode entry path handles). */
+            watchdog_enable(WATCHDOG_TIMEOUT, WATCHDOG_PAUSE_ON_DEBUG);
+        }
+        return;
     }
-    if (TU_U32_BYTE0(global_fw.fw.address) == 0x00)
-        write_flash_page((uint32_t)ADDR_FW_RUNNING + ((global_fw.fw.address-1) & 0xFFFFFF00) - XIP_BASE, global_fw.page_buffer);
-    request_byte(global_fw.fw.address);
+    request_byte(s.request_address);
 }
 
 void request_byte(uint32_t address) {
