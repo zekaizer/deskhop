@@ -1045,6 +1045,18 @@ pub unsafe extern "C" fn rust_on_tud_umount() {
     crate::service::dlog::i(b"usb").s(b"tud umount").done();
 }
 
+/// CDC control-line state change (SET_CONTROL_LINE_STATE). Logs DTR/RTS so we
+/// can see empirically whether a host terminal toggles DTR on open — the signal
+/// the scrollback replay latches onto. RTS is logged too (it does NOT gate our
+/// connection check, which is DTR-only). Diagnostic; dh_debug only.
+#[no_mangle]
+pub unsafe extern "C" fn rust_on_cdc_line_state(dtr: bool, rts: bool) {
+    crate::service::dlog::i(b"cdc")
+        .s(b"line dtr=").u(dtr as u32)
+        .s(b" rts=").u(rts as u32)
+        .done();
+}
+
 // ============================================================
 // LED diagnostics — blocking pattern playback (boot/halt)
 // ============================================================

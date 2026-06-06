@@ -458,6 +458,18 @@ fn flush_to_uart() {}
 /// only from flush_to_cdc on Core0 — single-consumer, no lock needed.
 #[cfg(all(feature = "dh_debug", target_os = "none"))]
 static mut CDC_WAS_CONNECTED: bool = false;
+/// Timestamp at which a scheduled post-connect replay should fire (0 = none).
+#[cfg(all(feature = "dh_debug", target_os = "none"))]
+static mut REPLAY_AT_US: u64 = 0;
+
+/// Settle delay after a fresh CDC connection (DTR rising edge) before replaying
+/// the scrollback. Output is held until this elapses, giving a terminal that
+/// toggles DTR on open a moment to start reading before the boot history
+/// streams. Tunable — start small. NOTE: this only helps terminals that produce
+/// a DTR edge on open; a terminal that holds DTR high continuously gives no edge
+/// (use the keypress replay trigger for those).
+#[cfg(all(feature = "dh_debug", target_os = "none"))]
+const REPLAY_AFTER_CONNECT_US: u64 = 500_000;
 
 #[cfg(all(feature = "dh_debug", target_os = "none"))]
 fn flush_to_cdc() {
@@ -466,15 +478,33 @@ fn flush_to_cdc() {
     unsafe { core::ptr::write(core::ptr::addr_of_mut!(CDC_WAS_CONNECTED), connected) };
     if !connected {
         // Held while disconnected — the scrollback retains history (overwriting
-        // oldest) so it can replay when a terminal finally attaches.
+        // oldest) so it can replay when a terminal finally attaches. Cancel any
+        // pending replay.
+        unsafe { core::ptr::write(core::ptr::addr_of_mut!(REPLAY_AT_US), 0) };
         return;
     }
+    let now = unsafe { crate::hal::device::hal_time_us_64() };
     if !was {
-        // DTR rising edge (a terminal just opened): rewind the read cursor so
-        // the full retained scrollback replays from the oldest byte. This is
-        // why the big buffer matters — a late-attaching terminal still sees the
-        // boot history instead of catching the stream mid-line.
+        // DTR rising edge (a terminal just opened): schedule a delayed replay so
+        // the full retained scrollback replays from the oldest byte once the
+        // terminal has had a moment to start reading. This is why the big buffer
+        // matters — a late-attaching terminal sees the boot history instead of
+        // catching the stream mid-line.
+        unsafe {
+            core::ptr::write(
+                core::ptr::addr_of_mut!(REPLAY_AT_US),
+                now + REPLAY_AFTER_CONNECT_US,
+            )
+        };
+    }
+    let replay_at = unsafe { core::ptr::read(core::ptr::addr_of!(REPLAY_AT_US)) };
+    if replay_at != 0 {
+        if now < replay_at {
+            // Hold output until the settle delay elapses, then dump from boot.
+            return;
+        }
         rewind_read();
+        unsafe { core::ptr::write(core::ptr::addr_of_mut!(REPLAY_AT_US), 0) };
     }
     let mut buf = [0u8; 64];
     let mut wrote = false;
@@ -540,6 +570,20 @@ pub unsafe extern "C" fn peer_log_push(data: *const u8, len: usize) {
     }
     let slice = core::slice::from_raw_parts(data, len);
     push(slice);
+}
+
+/// Request a full scrollback replay on the next CDC drain. Called from
+/// tud_cdc_rx_cb on any byte received on the debug CDC, so pressing a key in
+/// the terminal replays the boot history. This is the terminal-independent
+/// trigger: some hosts/terminals assert DTR at enumeration and hold it, so the
+/// human's "open" produces no rising edge for the auto-replay to latch onto.
+/// No-op in release (rewind_read compiles to nothing).
+///
+/// # Safety
+/// Takes the peer_log spinlock; call from the USB task (Core0) only.
+#[no_mangle]
+pub unsafe extern "C" fn peer_log_request_replay() {
+    rewind_read();
 }
 
 // ============================================================
