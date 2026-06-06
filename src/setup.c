@@ -104,9 +104,13 @@ bool is_config_mode_active(void) {
     bool is_active = (watchdog_hw->scratch[5] == MAGIC_WORD_1 &&
                       watchdog_hw->scratch[6] == MAGIC_WORD_2);
 
-    /* Remove, so next reboot it's no longer active */
-    if (is_active)
+    /* Fully consume the flag so it can't spuriously re-arm: clear BOTH magic
+     * words, not just scratch[5] (the check requires both, so a half-cleared
+     * sentinel left a live MAGIC_WORD_2 across resets). */
+    if (is_active) {
         watchdog_hw->scratch[5] = 0;
+        watchdog_hw->scratch[6] = 0;
+    }
 
     reset_config_timer();
 
