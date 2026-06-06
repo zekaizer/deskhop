@@ -400,20 +400,39 @@ pub fn on_report_received(
         // it reaches the active output whether this board is active or forwards
         // to the peer. The raw HID++ still forwards below (Android ignores it).
         if is_input {
-            use crate::domain::hidpp_keymap::{self, GestureEdge, MOD_LEFT_ALT, KEY_TAB};
+            use crate::domain::hidpp_keymap::{self, GestureEdge, GesturePress,
+                MOD_LEFT_ALT, KEY_TAB, APP_DRAWER_USAGE};
             let active_os = dev.cfg.config.output[dev.cfg.active_output as usize].os;
             let fi_reprog = pt.hidpp_disc.fi_reprog_controls;
             match hidpp_keymap::on_hidpp_event(report, fi_reprog, active_os, &mut pt.gesture_pressed) {
                 GestureEdge::Pressed => {
-                    // Tab tap while Alt is held opens the switcher; the trailing
-                    // Alt-only report keeps the overlay up (HID is stateful).
-                    hal.route_kbd(dev, &[MOD_LEFT_ALT, 0, KEY_TAB, 0, 0, 0, 0, 0]);
-                    hal.route_kbd(dev, &[MOD_LEFT_ALT, 0, 0, 0, 0, 0, 0, 0]);
-                    crate::service::dlog::i(b"pt").s(b"remap gesture press -> Alt+Tab hold").done();
+                    // Defer the action to release: the held duration decides
+                    // tap (Alt+Tab) vs hold (app drawer). Nothing is emitted now,
+                    // so a long press never flashes the switcher.
+                    pt.gesture_press_us = hal.now_us_64();
                 }
                 GestureEdge::Released => {
-                    hal.route_kbd(dev, &[0u8; 8]); // release Alt -> commit selection
-                    crate::service::dlog::i(b"pt").s(b"remap gesture release -> Alt up").done();
+                    // Guard against a release with no matching Android press
+                    // (e.g. the press landed before an OS switch).
+                    if pt.gesture_press_us != 0 {
+                        let elapsed = hal.now_us_64().wrapping_sub(pt.gesture_press_us);
+                        pt.gesture_press_us = 0;
+                        match hidpp_keymap::classify_press(elapsed) {
+                            GesturePress::Tap => {
+                                // One-shot Alt+Tab -> toggle to the previous app.
+                                hal.route_kbd(dev, &[MOD_LEFT_ALT, 0, KEY_TAB, 0, 0, 0, 0, 0]);
+                                hal.route_kbd(dev, &[0u8; 8]);
+                                crate::service::dlog::i(b"pt").s(b"remap gesture tap -> Alt+Tab").done();
+                            }
+                            GesturePress::Hold => {
+                                // One-shot consumer 0x1A2 -> open the all-apps drawer
+                                // (persistent overlay, touch-selectable).
+                                hal.route_consumer(dev, &hidpp_keymap::consumer_report(APP_DRAWER_USAGE));
+                                hal.route_consumer(dev, &hidpp_keymap::consumer_report(0));
+                                crate::service::dlog::i(b"pt").s(b"remap gesture hold -> app drawer").done();
+                            }
+                        }
+                    }
                 }
                 GestureEdge::None => {}
             }
@@ -657,6 +676,14 @@ fn log_hidpp_event(pt: &mut PassthroughState, report: &[u8], now_us: u64) {
             s.thumb_last_us = now_us;
             log_stream_summary(b"thumb", n, sum);
         }
+        return;
+    }
+
+    // ReprogControls divertedRawXYEvent (fn=1) floods at ~70/s while a diverted
+    // button (e.g. the gesture/thumb button) is held. Its layout is known (long
+    // report, big-endian dx@[4..6], dy@[6..8]) and unused outside the remap, so
+    // suppress the per-event spam to keep the peer_log ring readable.
+    if fi != 0 && fi == pt.hidpp_disc.fi_reprog_controls && (report[3] >> 4) & 0x0F == 1 {
         return;
     }
 

@@ -173,6 +173,12 @@ pub struct PassthroughState {
     /// domain::hidpp_keymap.
     pub gesture_pressed: bool,
 
+    /// Timestamp of the current gesture-button press (us). Set on the press
+    /// edge; on release the held duration classifies the gesture as a tap
+    /// (Alt+Tab) or a hold (app drawer). 0 = no press in progress. See
+    /// domain::hidpp_keymap.
+    pub gesture_press_us: u64,
+
     /// Debug: last forwarded mouse button byte, for button-transition logging
     /// (pointer movement is not logged). DH_DEBUG observability only.
     pub dbg_last_buttons: u8,
@@ -221,6 +227,7 @@ impl Default for PassthroughState {
             smartshift_consume: 0,
             disconnect_requested: false,
             gesture_pressed: false,
+            gesture_press_us: 0,
             dbg_last_buttons: 0,
             dbg_stream: DbgStreamLog::default(),
         }
