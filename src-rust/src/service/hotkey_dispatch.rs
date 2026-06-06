@@ -14,6 +14,7 @@ pub fn execute_action(
     hal: &(impl OutputControl + ReportQueue + PeerLink + ConfigStore + Watchdog + Indicator + Timer),
     action: HotkeyAction,
 ) {
+    crate::service::dlog::i(b"hk").s(b"action=").s(action.name()).done();
     match action {
         HotkeyAction::OutputToggle => output_toggle(state, hal),
         HotkeyAction::MouseZoomToggle => mouse_zoom_toggle(state, hal),

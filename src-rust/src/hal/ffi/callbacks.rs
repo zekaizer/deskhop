@@ -715,6 +715,7 @@ pub unsafe extern "C" fn rust_init_config(config_mode_active: bool, board_role: 
         crate::service::dlog::i(b"cfg")
             .s(b"ver=").u(c.version)
             .s(b" role=").u(board_role as u32)
+            .s(b" cfgmode=").u(config_mode_active as u32)
             .s(b" active=").u(cfg.active_output as u32)
             .s(b" pt=").u(c.passthrough_enabled as u32)
             .s(b" gm=").u(c.gaming_mode_default as u32)
