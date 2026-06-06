@@ -59,6 +59,13 @@ pub extern "C" fn rust_main_loop() -> ! {
         scheduler::Task::new(tasks::remap_engine_tick_task, scheduler::hz(1000)),
     ];
 
+    // initial_setup() is done and the scheduler is about to run: stop the
+    // boot-stage LED timer and hand the indicator to the runtime LED task.
+    unsafe {
+        hal::device::hal_boot_led_stop();
+        domain::boot_led::release();
+    }
+
     loop {
         // Stamp Core0 liveness (mirrors core1_last_loop_pass in rust_core1_loop)
         // so the debug heartbeat's c0 reflects this core's loop rate.

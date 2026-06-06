@@ -80,6 +80,9 @@ extern "C" {
     // ---- Debug ----
     pub fn hal_debug_blink(count: i32, delay_ms: i32);
     pub fn hal_debug_dump_state();
+    /// Start/stop the non-blocking boot-stage LED timer (see domain/boot_led.rs).
+    pub fn hal_boot_led_start();
+    pub fn hal_boot_led_stop();
     /// Heap arena (peak bytes sbrk'd) and currently in-use bytes — for sizing
     /// the log ring reserve.
     pub fn hal_heap_arena() -> u32;

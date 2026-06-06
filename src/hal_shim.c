@@ -10,6 +10,38 @@
  * - Rust side: build.rs (bindgen parses structs.h, generates const assert) */
 
 /* ==================================================== *
+ * Boot-stage LED — non-blocking hardware-timer driver.
+ * Drives the boot indicator during initial_setup without blocking Core0,
+ * so the main loop (tud_task) is not stalled. See domain/boot_led.rs.
+ * ==================================================== */
+
+extern void rust_boot_led_tick(void);
+static repeating_timer_t boot_led_timer;
+static bool boot_led_running = false;
+
+static bool boot_led_cb(repeating_timer_t *rt) {
+    (void)rt;
+    rust_boot_led_tick();
+    return true; /* keep repeating */
+}
+
+void hal_boot_led_start(void) {
+    if (boot_led_running)
+        return;
+    /* Negative period => fire every 100ms relative to the scheduled time, not
+     * the callback return, keeping a steady cadence. */
+    if (add_repeating_timer_ms(-100, boot_led_cb, NULL, &boot_led_timer))
+        boot_led_running = true;
+}
+
+void hal_boot_led_stop(void) {
+    if (!boot_led_running)
+        return;
+    cancel_repeating_timer(&boot_led_timer);
+    boot_led_running = false;
+}
+
+/* ==================================================== *
  * Timestamp
  * ==================================================== */
 

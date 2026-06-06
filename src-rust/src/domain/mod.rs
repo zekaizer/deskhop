@@ -19,6 +19,7 @@ pub mod kbd_state;
 pub mod key_remap;
 pub mod keyboard;
 pub mod blink;
+pub mod boot_led;
 pub mod led_pattern;
 pub mod mouse;
 pub mod mouse_logic;
