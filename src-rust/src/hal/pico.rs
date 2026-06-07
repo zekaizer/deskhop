@@ -3,6 +3,7 @@
 
 use super::device;
 use super::traits::*;
+use crate::domain::constants::{PACKET_LENGTH, RAW_PACKET_LENGTH, START1, START2, START_LENGTH};
 
 /// Real HAL backed by platform SDK via C FFI.
 pub struct PicoHal;
@@ -310,6 +311,40 @@ impl Indicator for PicoHal {
 }
 
 // ---- DmaRx ----
+//
+// The UART RX ring is DMA-filled in C (uart_rxbuf, setup.c); Rust owns the read
+// cursor and does the ring math here — previously the hal_*_packet helpers in
+// hal_shim.c. The only remaining hardware call is the DMA write position.
+
+const DMA_RX_BUFFER_SIZE: u32 = 1024;
+/// NEXT_RING_IDX mask (0x3FF) — the ring is a power-of-two so wrap is `& mask`.
+const DMA_RX_RING_MASK: u32 = DMA_RX_BUFFER_SIZE - 1;
+
+extern "C" {
+    /// DMA-filled UART receive ring (defined in setup.c). MUST be `static mut`
+    /// and read via `read_volatile`: the DMA writes it asynchronously behind the
+    /// compiler's back, so an immutable static (or a plain `*ptr` load) lets the
+    /// optimizer treat the bytes as invariant and cache/elide the reads, breaking
+    /// packet detection on real hardware (the C side read a plain mutable global,
+    /// which is re-read every access).
+    static mut uart_rxbuf: [u8; DMA_RX_BUFFER_SIZE as usize];
+}
+
+/// Software read cursor into uart_rxbuf. Touched only by packet_receive_tick
+/// (Core1), so a plain static suffices. Starts at 0, matching the
+/// zero-initialized C `global_hw.dma_ptr` it replaces.
+static mut RX_READ_POS: u32 = 0;
+/// Most recently fetched packet, preamble stripped: type + data[8] + checksum.
+/// Returned by `in_packet_ptr` for packet_receive_tick to parse.
+static mut IN_PACKET: [u8; PACKET_LENGTH] = [0; PACKET_LENGTH];
+
+#[inline]
+unsafe fn rxbuf_byte(idx: u32) -> u8 {
+    let base = core::ptr::addr_of_mut!(uart_rxbuf).cast::<u8>();
+    // Volatile: force a real load each call — the DMA may have written this byte
+    // since the last read (see the static's comment).
+    core::ptr::read_volatile(base.add((idx & DMA_RX_RING_MASK) as usize))
+}
 
 impl DmaRx for PicoHal {
     #[inline]
@@ -319,27 +354,44 @@ impl DmaRx for PicoHal {
 
     #[inline]
     fn dma_rx_read_pos(&self) -> u32 {
-        unsafe { device::hal_dma_read_pos() }
+        unsafe { *core::ptr::addr_of!(RX_READ_POS) }
     }
 
     #[inline]
     fn dma_rx_advance_one(&self) {
-        unsafe { device::hal_dma_advance_one() }
+        unsafe {
+            let p = core::ptr::addr_of_mut!(RX_READ_POS);
+            *p = (*p + 1) & DMA_RX_RING_MASK;
+        }
     }
 
     #[inline]
     fn is_start_of_packet(&self) -> bool {
-        unsafe { device::hal_is_start_of_packet() }
+        unsafe {
+            let pos = *core::ptr::addr_of!(RX_READ_POS);
+            rxbuf_byte(pos) == START1 && rxbuf_byte(pos + 1) == START2
+        }
     }
 
     #[inline]
     fn fetch_packet(&self) {
-        unsafe { device::hal_fetch_packet() }
+        // Copy RAW_PACKET_LENGTH bytes from the ring into IN_PACKET, dropping the
+        // START_LENGTH preamble, advancing the read cursor for every byte.
+        unsafe {
+            let dst = core::ptr::addr_of_mut!(IN_PACKET).cast::<u8>();
+            let p = core::ptr::addr_of_mut!(RX_READ_POS);
+            for i in 0..RAW_PACKET_LENGTH {
+                if i >= START_LENGTH {
+                    *dst.add(i - START_LENGTH) = rxbuf_byte(*p);
+                }
+                *p = (*p + 1) & DMA_RX_RING_MASK;
+            }
+        }
     }
 
     #[inline]
     fn in_packet_ptr(&self) -> *const u8 {
-        unsafe { device::hal_get_in_packet_ptr() }
+        core::ptr::addr_of!(IN_PACKET).cast::<u8>()
     }
 }
 

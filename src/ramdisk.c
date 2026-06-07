@@ -59,18 +59,21 @@ bool tud_msc_is_writable_cb(uint8_t lun) {
 
 /* Simple firmware write routine, we get 512-byte uf2 blocks with 256 byte payload */
 int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t bufsize) {
-    uf2_t *uf2 = (uf2_t *)&buffer[0];
-    bool is_final_block = uf2->blockNo == (STAGING_IMAGE_SIZE / FLASH_PAGE_SIZE) - 1;
-    uint32_t flash_addr = (uint32_t)ADDR_FW_RUNNING + uf2->blockNo * FLASH_PAGE_SIZE - XIP_BASE;
-
     if (lba >= NUMBER_OF_BLOCKS)
         return -1;
 
+    /* The UF2 block-number arithmetic (final block, page address, CRC-coverage
+     * gate) is the unit-tested Rust step machine; C only does the flash writes
+     * and the post-write CRC verify (which must read freshly-written flash). */
+    uf2_t *uf2 = (uf2_t *)&buffer[0];
+    msc_step_t s;
+    rust_msc_write_step(uf2->blockNo, uf2->magicStart0, uf2->magicStart1, uf2->magicEnd, &s);
+
     /* If we're not detecting UF2 magic constants, we have nothing to do... */
-    if (uf2->magicStart0 != UF2_MAGIC_START0 || uf2->magicStart1 != UF2_MAGIC_START1 || uf2->magicEnd != UF2_MAGIC_END)
+    if (!s.is_uf2)
         return (int32_t)bufsize;
 
-    if (uf2->blockNo == 0) {
+    if (s.is_first) {
         global_fw.fw.checksum = 0xffffffff;
 
         /* Make sure nobody else touches the flash during this operation, otherwise we get empty pages */
@@ -78,14 +81,15 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t *
         dh_debug_printf("fw msc upload start (USB UF2 -> RUNNING)\n");
     }
 
-    /* Update checksum continuously as blocks are being received */
-    const uint32_t last_block_with_checksum = (STAGING_IMAGE_SIZE - FLASH_SECTOR_SIZE) / FLASH_PAGE_SIZE;
-    for (int i=0; i<FLASH_PAGE_SIZE && uf2->blockNo < last_block_with_checksum; i++)
-        global_fw.fw.checksum = crc32_iter(global_fw.fw.checksum, buffer[32 + i]);
+    /* Update checksum continuously as blocks are being received (the last sector,
+     * which holds the CRC itself, is excluded by s.accumulate_crc) */
+    if (s.accumulate_crc)
+        for (int i = 0; i < FLASH_PAGE_SIZE; i++)
+            global_fw.fw.checksum = crc32_iter(global_fw.fw.checksum, buffer[32 + i]);
 
-    write_flash_page(flash_addr, &buffer[32]);
+    write_flash_page((uint32_t)ADDR_FW_RUNNING + s.flash_offset - XIP_BASE, &buffer[32]);
 
-    if (is_final_block) {
+    if (s.is_final) {
         global_fw.fw.checksum = ~global_fw.fw.checksum;
 
         /* If checksums don't match, overwrite first sector and rely on ROM bootloader for recovery */

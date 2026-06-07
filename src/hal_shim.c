@@ -48,6 +48,13 @@ void hal_boot_led_stop(void) {
 uint64_t hal_time_us_64(void) { return time_us_64(); }
 uint32_t hal_time_us_32(void) { return time_us_32(); }
 
+/* Chip unique board id as an ASCII hex string — for the USB serial-number
+ * string descriptor, which is assembled in Rust (rust_get_string_descriptor).
+ * Wraps the Pico SDK formatter (the actual hex format is SDK-owned). */
+void hal_get_board_id_str(uint8_t *buf, uint32_t len) {
+    pico_get_unique_board_id_string((char *)buf, len);
+}
+
 /* ==================================================== *
  * Queue operations (Pico SDK queue_t)
  * ==================================================== */
@@ -183,31 +190,11 @@ uint32_t hal_dma_rx_remaining(void) {
     return (uint32_t)DMA_RX_BUFFER_SIZE - dma_channel_hw_addr(global_hw.dma_rx_channel)->transfer_count;
 }
 
-bool hal_is_start_of_packet(void) {
-    return uart_rxbuf[global_hw.dma_ptr] == START1
-        && uart_rxbuf[NEXT_RING_IDX(global_hw.dma_ptr)] == START2;
-}
-
-void hal_fetch_packet(void) {
-    uint8_t *dst = (uint8_t *)&global_hw.in_packet;
-    for (int i = 0; i < RAW_PACKET_LENGTH; i++) {
-        if (i >= START_LENGTH) dst[i - START_LENGTH] = uart_rxbuf[global_hw.dma_ptr];
-        global_hw.dma_ptr = NEXT_RING_IDX(global_hw.dma_ptr);
-    }
-}
-
-/* Used by Rust packet_receive_tick to scan past non-preamble bytes. */
-void hal_dma_advance_one(void) {
-    global_hw.dma_ptr = NEXT_RING_IDX(global_hw.dma_ptr);
-}
-
-uint32_t hal_dma_read_pos(void) {
-    return global_hw.dma_ptr;
-}
-
-const uint8_t *hal_get_in_packet_ptr(void) {
-    return (const uint8_t *)&global_hw.in_packet;
-}
+/* The RX ring read cursor + packet extraction (START scan, preamble strip,
+ * fetch into in_packet) moved to Rust (hal/pico.rs DmaRx impl), which reads
+ * uart_rxbuf directly and owns the read index. The former hal_is_start_of_packet
+ * / hal_fetch_packet / hal_dma_advance_one / hal_dma_read_pos /
+ * hal_get_in_packet_ptr helpers (and global_hw.dma_ptr / in_packet) are gone. */
 
 /* ==================================================== *
  * HID report extraction
@@ -421,115 +408,13 @@ void hal_tuh_vid_pid_get(uint8_t dev_addr, uint16_t *vid, uint16_t *pid) {
     tuh_vid_pid_get(dev_addr, vid, pid);
 }
 
-/* Rust FFI accessors for passthrough interface data */
-extern uint8_t pt_iface_protocol(uint8_t idx);
-extern uint16_t pt_iface_desc_len(uint8_t idx);
-
-/* Report descriptor sizes from usb_descriptors.c */
-extern const uint16_t desc_hid_report_size;
-extern const uint16_t desc_hid_report_relmouse_size;
-
-/* Append one HID interface descriptor block using TinyUSB macro.
- * Returns the number of bytes written, or 0 if the buffer would overflow. */
-static uint16_t _append_hid_itf(uint8_t *buf, uint16_t off, uint16_t buf_size,
-                                 uint8_t itf_num, uint8_t str_idx,
-                                 uint8_t protocol, uint16_t report_desc_len,
-                                 uint8_t ep_addr, uint16_t ep_size, uint8_t ep_interval) {
-    const uint8_t desc[] = {
-        TUD_HID_DESCRIPTOR(itf_num, str_idx, protocol, report_desc_len,
-                           ep_addr, ep_size, ep_interval)
-    };
-    if (off + sizeof(desc) > buf_size) return 0;
-    memcpy(buf + off, desc, sizeof(desc));
-    return sizeof(desc);
-}
-
-/* Build passthrough config descriptor using TinyUSB macros.
- * Reads interface data from Rust via FFI accessors. Returns *config_desc_len
- * = 0 if the supplied buffer is too small for the resulting descriptor. */
-void hal_passthrough_build_config_desc(uint8_t *config_desc, uint16_t buf_size,
-                                        uint16_t *config_desc_len, uint8_t iface_count) {
-    uint8_t *buf = config_desc;
-    uint16_t off = 0;
-    uint8_t num_itf = 2 + iface_count; /* DeskHop base + passthrough */
-    uint16_t written;
-
-#ifdef DH_DEBUG
-    num_itf += 2; /* CDC Communication + Data interfaces */
-#endif
-
-    /* The device-side TinyUSB HID class pool has CFG_TUD_HID instances. The
-     * composite declares 2 DeskHop base HID interfaces + iface_count passthrough
-     * HID interfaces (CDC does not consume a HID slot). If that exceeds
-     * CFG_TUD_HID, hidd_open() cannot claim every interface and the host's
-     * SET_CONFIGURATION stalls on re-enumeration — the device never mounts.
-     * Refuse to build such a descriptor so the caller keeps the default DeskHop
-     * identity (recoverable via config-mode hotkey) instead of bricking. */
-    if (2 + iface_count > CFG_TUD_HID) goto overflow;
-
-    /* Configuration descriptor header (9 bytes) */
-    if (off + 9 > buf_size) goto overflow;
-    buf[off++] = 9;
-    buf[off++] = TUSB_DESC_CONFIGURATION;
-    off += 2; /* wTotalLength — filled at end */
-    buf[off++] = num_itf;
-    buf[off++] = 1;    /* bConfigurationValue */
-    buf[off++] = 0;    /* iConfiguration */
-    buf[off++] = 0x80 | TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP;
-    buf[off++] = 250;  /* bMaxPower: 500mA / 2 */
-
-    /* DeskHop ITF 0: main HID (keyboard + abs mouse + consumer + system) */
-    written = _append_hid_itf(buf, off, buf_size, ITF_NUM_HID, 2 /* STRID_PRODUCT */,
-                              HID_ITF_PROTOCOL_NONE, desc_hid_report_size,
-                              0x81, CFG_TUD_HID_EP_BUFSIZE, 1);
-    if (written == 0) goto overflow;
-    off += written;
-
-    /* DeskHop ITF 1: relative mouse helper */
-    written = _append_hid_itf(buf, off, buf_size, ITF_NUM_HID_REL_M, 4 /* STRID_MOUSE */,
-                              HID_ITF_PROTOCOL_NONE, desc_hid_report_relmouse_size,
-                              0x82, CFG_TUD_HID_EP_BUFSIZE, 1);
-    if (written == 0) goto overflow;
-    off += written;
-
-    /* Passthrough interfaces (data from Rust via FFI) */
-    for (uint8_t i = 0; i < iface_count; i++) {
-        written = _append_hid_itf(buf, off, buf_size, ITF_NUM_PT_BASE + i, 0,
-                                  pt_iface_protocol(i),
-                                  pt_iface_desc_len(i),
-                                  EPNUM_PT_BASE + i,
-                                  CFG_TUD_HID_EP_BUFSIZE, 1);
-        if (written == 0) goto overflow;
-        off += written;
-    }
-
-#ifdef DH_DEBUG
-    {
-        uint8_t cdc_itf  = ITF_NUM_PT_BASE + iface_count;
-        uint8_t ep_notif = 0x80 | (3 + iface_count);
-        uint8_t ep_out   = (uint8_t)(3 + iface_count + 1);
-        uint8_t ep_in    = 0x80 | (3 + iface_count + 1);
-
-        const uint8_t cdc[] = {
-            TUD_CDC_DESCRIPTOR(cdc_itf, 7 /* STRID_DEBUG */, ep_notif, 8,
-                               ep_out, ep_in, 64)
-        };
-        if (off + sizeof(cdc) > buf_size) goto overflow;
-        memcpy(buf + off, cdc, sizeof(cdc));
-        off += sizeof(cdc);
-    }
-#endif
-
-    /* Fill wTotalLength (bytes 2-3 of config header) */
-    buf[2] = (uint8_t)(off);
-    buf[3] = (uint8_t)(off >> 8);
-
-    *config_desc_len = off;
-    return;
-
-overflow:
-    *config_desc_len = 0;
-}
+/* The passthrough composite config descriptor is now assembled in Rust
+ * (domain::usb_config_desc::build_config_desc, driven by
+ * hal::ffi::passthrough_hal_build_config_desc): interface/endpoint numbering,
+ * the CFG_TUD_HID brick-guard and wTotalLength are unit-tested there, with the
+ * TinyUSB TUD_HID_DESCRIPTOR / TUD_CDC_DESCRIPTOR byte layouts re-encoded as
+ * Rust const arrays. The former _append_hid_itf / hal_passthrough_build_config_desc
+ * (and the pt_iface_* / desc_hid_report_*_size externs they used) are gone. */
 
 bool hal_tuh_set_report(uint8_t dev_addr, uint8_t itf_num,
                         uint8_t report_id, uint8_t report_type,

@@ -57,6 +57,9 @@ extern "C" {
     pub fn hal_flash_read_config(buf: *mut u8, len: u32);
     pub fn hal_flash_write_config(buf: *const u8);
 
+    // ---- USB string descriptor: chip unique board id (ASCII hex) ----
+    pub fn hal_get_board_id_str(buf: *mut u8, len: u32);
+
     // ---- LED / HID host (via hal_shim.c) ----
     pub fn hal_gpio_put_led(state: bool);
     pub fn hal_gpio_get_led() -> bool;
@@ -106,14 +109,11 @@ extern "C" {
     pub fn hal_queue_hid_report(instance: u8, report_id: u8, data: *const u8, len: u8);
 
     // ---- DMA ----
+    // The RX ring math (read cursor, START scan, packet fetch) now lives in
+    // Rust (hal/pico.rs); only the DMA write position remains a hardware call.
     pub fn hal_dma_channel_is_busy() -> bool;
     pub fn hal_dma_tx_send(buf: *const u8, len: u32);
     pub fn hal_dma_rx_remaining() -> u32;
-    pub fn hal_dma_advance_one();
-    pub fn hal_dma_read_pos() -> u32;
-    pub fn hal_get_in_packet_ptr() -> *const u8;
-    pub fn hal_is_start_of_packet() -> bool;
-    pub fn hal_fetch_packet();
 
     // ---- Passthrough (Semi-DDM) ----
     pub fn hal_tud_disconnect();
@@ -123,8 +123,6 @@ extern "C" {
         dev_addr: u8, itf_num: u8, report_id: u8, report_type: u8,
         data: *const u8, len: u16,
     ) -> bool;
-    pub fn hal_passthrough_build_config_desc(
-        config_desc: *mut u8, buf_size: u16,
-        config_desc_len: *mut u16, iface_count: u8,
-    );
+    // hal_passthrough_build_config_desc removed — the composite config descriptor
+    // is now assembled in Rust (domain::usb_config_desc::build_config_desc).
 }

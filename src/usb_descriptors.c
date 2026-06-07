@@ -26,6 +26,7 @@ tusb_desc_device_t const desc_device = DEVICE_DESCRIPTOR(0x1209, 0xc000);
 extern uint8_t const *rust_get_device_descriptor(void);
 extern uint8_t const *rust_get_hid_report_descriptor(uint8_t instance);
 extern uint8_t const *rust_get_configuration_descriptor(void);
+extern uint16_t const *rust_get_string_descriptor(uint8_t index, uint16_t langid);
 
 uint8_t const *tud_descriptor_device_cb(void) {
     return rust_get_device_descriptor();
@@ -47,7 +48,8 @@ uint8_t const desc_hid_report_relmouse[] = {TUD_HID_REPORT_DESC_MOUSEHELP(HID_RE
 
 uint8_t const desc_hid_report_vendor[] = {TUD_HID_REPORT_DESC_VENDOR_CTRL(HID_REPORT_ID(REPORT_ID_VENDOR))};
 
-/* Sizes exported for hal_shim.c passthrough config descriptor builder */
+/* Sizes consumed by the Rust passthrough config descriptor builder
+ * (domain::usb_config_desc, via hal::ffi extern statics) */
 const uint16_t desc_hid_report_size = sizeof(desc_hid_report);
 const uint16_t desc_hid_report_relmouse_size = sizeof(desc_hid_report_relmouse);
 
@@ -77,21 +79,9 @@ bool tud_mouse_report(uint8_t mode, uint8_t buttons, int16_t x, int16_t y, int8_
 // String Descriptors
 //--------------------------------------------------------------------+
 
-// array of pointer to string descriptors
-char const *string_desc_arr[] = {
-    (const char[]){0x09, 0x04}, // 0: is supported language is English (0x0409)
-    "Hrvoje Cavrak",            // 1: Manufacturer
-    "DeskHop Switch",           // 2: Product
-    "0",                        // 3: Serials, should use chip ID
-    "DeskHop Helper",           // 4: Mouse Helper Interface
-    "DeskHop Config",           // 5: Vendor Interface
-    "DeskHop Disk",             // 6: Disk Interface
-#ifdef DH_DEBUG
-    "DeskHop Debug",            // 7: Debug Interface
-#endif
-};
-
-// String Descriptor Index
+// String Descriptor Index — referenced by the configuration descriptors below.
+// The descriptor bytes themselves are assembled in Rust
+// (rust_get_string_descriptor).
 enum {
     STRID_LANGID = 0,
     STRID_MANUFACTURER,
@@ -103,50 +93,11 @@ enum {
     STRID_DEBUG,
 };
 
-static uint16_t _desc_str[32];
-
 // Invoked when received GET STRING DESCRIPTOR request
 // Application return pointer to descriptor, whose contents must exist long enough for transfer to
 // complete
 uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
-    (void)langid;
-
-    uint8_t chr_count;
-
-    // 2 (hex) characters for every byte + 1 '\0' for string end
-    static char serial_number[PICO_UNIQUE_BOARD_ID_SIZE_BYTES * 2 + 1] = {0};
-
-    if (!serial_number[0]) {
-       pico_get_unique_board_id_string(serial_number, sizeof(serial_number));
-    }
-
-    if (index == 0) {
-        memcpy(&_desc_str[1], string_desc_arr[0], 2);
-        chr_count = 1;
-    } else {
-        // Note: the 0xEE index string is a Microsoft OS 1.0 Descriptors.
-        // https://docs.microsoft.com/en-us/windows-hardware/drivers/usbcon/microsoft-defined-usb-descriptors
-
-        if (!(index < sizeof(string_desc_arr) / sizeof(string_desc_arr[0])))
-            return NULL;
-
-        const char *str = (index == STRID_SERIAL) ? serial_number : string_desc_arr[index];
-
-        // Cap at max char
-        chr_count = strlen(str);
-        if (chr_count > 31)
-            chr_count = 31;
-
-        // Convert ASCII string into UTF-16
-        for (uint8_t i = 0; i < chr_count; i++) {
-            _desc_str[1 + i] = str[i];
-        }
-    }
-
-    // first byte is length (including header), second byte is string type
-    _desc_str[0] = (TUSB_DESC_STRING << 8) | (2 * chr_count + 2);
-
-    return _desc_str;
+    return rust_get_string_descriptor(index, langid);
 }
 
 //--------------------------------------------------------------------+

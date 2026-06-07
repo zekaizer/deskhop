@@ -275,14 +275,6 @@ pub unsafe extern "C" fn pt_get_report_desc(device_instance: u8, out_len: *mut u
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn pt_iface_protocol(idx: u8) -> u8 {
-    let pt = &*core::ptr::addr_of!(PT_STATE);
-    if (idx as usize) < pt.ifaces.len() { pt.ifaces[idx as usize].itf_protocol } else { 0 }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn pt_iface_desc_len(idx: u8) -> u16 {
-    let pt = &*core::ptr::addr_of!(PT_STATE);
-    if (idx as usize) < pt.ifaces.len() { pt.ifaces[idx as usize].desc_len } else { 0 }
-}
+// pt_iface_protocol / pt_iface_desc_len (C accessors for the old C descriptor
+// builder) were removed: the builder is now Rust (domain::usb_config_desc) and
+// reads PT_STATE directly via get_pt_state.
