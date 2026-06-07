@@ -321,8 +321,13 @@ const DMA_RX_BUFFER_SIZE: u32 = 1024;
 const DMA_RX_RING_MASK: u32 = DMA_RX_BUFFER_SIZE - 1;
 
 extern "C" {
-    /// DMA-filled UART receive ring (defined in setup.c).
-    static uart_rxbuf: [u8; DMA_RX_BUFFER_SIZE as usize];
+    /// DMA-filled UART receive ring (defined in setup.c). MUST be `static mut`
+    /// and read via `read_volatile`: the DMA writes it asynchronously behind the
+    /// compiler's back, so an immutable static (or a plain `*ptr` load) lets the
+    /// optimizer treat the bytes as invariant and cache/elide the reads, breaking
+    /// packet detection on real hardware (the C side read a plain mutable global,
+    /// which is re-read every access).
+    static mut uart_rxbuf: [u8; DMA_RX_BUFFER_SIZE as usize];
 }
 
 /// Software read cursor into uart_rxbuf. Touched only by packet_receive_tick
@@ -335,8 +340,10 @@ static mut IN_PACKET: [u8; PACKET_LENGTH] = [0; PACKET_LENGTH];
 
 #[inline]
 unsafe fn rxbuf_byte(idx: u32) -> u8 {
-    let base = core::ptr::addr_of!(uart_rxbuf).cast::<u8>();
-    *base.add((idx & DMA_RX_RING_MASK) as usize)
+    let base = core::ptr::addr_of_mut!(uart_rxbuf).cast::<u8>();
+    // Volatile: force a real load each call — the DMA may have written this byte
+    // since the last read (see the static's comment).
+    core::ptr::read_volatile(base.add((idx & DMA_RX_RING_MASK) as usize))
 }
 
 impl DmaRx for PicoHal {
