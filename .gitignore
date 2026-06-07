@@ -3,8 +3,15 @@ compile_commands.json
 src-rust/target
 
 .idea/
-.claude/
 .cache/
+
+# .claude: ignore personal/local state, but share project-scoped assets.
+# Whitelist: skills, commands, agents, and the shared (non-local) settings.
+.claude/*
+!.claude/skills/
+!.claude/commands/
+!.claude/agents/
+!.claude/settings.json
 build-test/
 build-release/
 CLAUDE.local.md
