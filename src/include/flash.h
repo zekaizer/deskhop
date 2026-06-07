@@ -46,6 +46,19 @@ typedef struct {
 } fw_step_t;
 extern void rust_fw_next_step(uint32_t address, fw_step_t *out);
 
+/* Per-block USB-MSC UF2 write decision (config-mode drag-drop upgrade), computed
+ * by the unit-tested Rust step machine (service::fw_upgrade::msc_write_step).
+ * Must match the Rust #[repr(C)]. */
+typedef struct {
+    uint8_t  is_uf2;          /* valid UF2 magic — else ignore the block */
+    uint8_t  is_first;        /* blockNo 0: (re)init running checksum + flag */
+    uint8_t  accumulate_crc;  /* payload is inside the CRC-protected region */
+    uint8_t  is_final;        /* last block: finalize CRC, verify, reboot/recover */
+    uint32_t flash_offset;    /* image offset of this page (add running base) */
+} msc_step_t;
+extern void rust_msc_write_step(uint32_t block_no, uint32_t magic0, uint32_t magic1,
+                                uint32_t magic_end, msc_step_t *out);
+
 /*==============================================================================
  *  Firmware Transfer Packet
  *==============================================================================*/

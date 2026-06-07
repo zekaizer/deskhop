@@ -9,6 +9,10 @@ const STAGING_IMAGE_SIZE: u32 = 262144;
 const FLASH_SECTOR_SIZE: u32 = 4096;
 const FLASH_PAGE_SIZE: u32 = 256;
 
+const UF2_MAGIC_START0: u32 = 0x0A32_4655;
+const UF2_MAGIC_START1: u32 = 0x9E5D_5157;
+const UF2_MAGIC_END: u32 = 0x0AB1_6F30;
+
 /// One receiver tick's decision, computed purely from the current expected
 /// `address`. Extracted from C (`firmware_upgrade_task_c`) so the page/sector/
 /// terminal arithmetic — where the off-by-one shipped — is unit-testable.
@@ -65,6 +69,65 @@ pub unsafe extern "C" fn rust_fw_next_step(address: u32, out: *mut FwStep) {
         return;
     }
     core::ptr::write(out, next_step(address));
+}
+
+/// One USB-MSC UF2 block's write decision (the config-mode drag-and-drop upgrade
+/// path, which writes the new image straight to the RUNNING slot). Computed
+/// purely from the UF2 header so the off-by-one-prone block arithmetic — final
+/// block, page address, CRC-coverage gate — is unit-testable, the same treatment
+/// `next_step` gives the UART auto-sync path. `#[repr(C)]` so tud_msc_write10_cb
+/// can consume it via `rust_msc_write_step`.
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct MscStep {
+    /// The block carries valid UF2 magic. 0 = not a UF2 block (caller ignores it).
+    pub is_uf2: u8,
+    /// First block (blockNo 0): (re)initialize the running checksum + flag.
+    pub is_first: u8,
+    /// Payload is inside the CRC-protected region (everything but the final
+    /// sector, which holds the metadata/CRC) — caller folds it into the checksum.
+    pub accumulate_crc: u8,
+    /// Last block: caller finalizes the checksum, verifies, and reboots/recovers.
+    pub is_final: u8,
+    /// Image offset of this page (caller adds the running-slot flash base).
+    pub flash_offset: u32,
+}
+
+/// Pure decision for one UF2 block written over USB-MSC. `magic0`/`magic1`/
+/// `magic_end` are the UF2 header's start0/start1/end words; a mismatch yields
+/// `is_uf2 = 0` and the caller does nothing.
+pub fn msc_write_step(block_no: u32, magic0: u32, magic1: u32, magic_end: u32) -> MscStep {
+    let mut s = MscStep::default();
+    if magic0 != UF2_MAGIC_START0 || magic1 != UF2_MAGIC_START1 || magic_end != UF2_MAGIC_END {
+        return s;
+    }
+    s.is_uf2 = 1;
+    s.is_first = (block_no == 0) as u8;
+    // CRC covers every page except the final sector, matching the range of
+    // calculate_firmware_crc32 (STAGING_IMAGE_SIZE - FLASH_SECTOR_SIZE).
+    let last_block_with_checksum = (STAGING_IMAGE_SIZE - FLASH_SECTOR_SIZE) / FLASH_PAGE_SIZE;
+    s.accumulate_crc = (block_no < last_block_with_checksum) as u8;
+    s.is_final = (block_no == STAGING_IMAGE_SIZE / FLASH_PAGE_SIZE - 1) as u8;
+    s.flash_offset = block_no * FLASH_PAGE_SIZE;
+    s
+}
+
+/// FFI: fill `*out` with the write decision for one UF2 block.
+///
+/// # Safety
+/// `out` must point to a valid `MscStep`.
+#[no_mangle]
+pub unsafe extern "C" fn rust_msc_write_step(
+    block_no: u32,
+    magic0: u32,
+    magic1: u32,
+    magic_end: u32,
+    out: *mut MscStep,
+) {
+    if out.is_null() {
+        return;
+    }
+    core::ptr::write(out, msc_write_step(block_no, magic0, magic1, magic_end));
 }
 
 /// Receive one firmware data word (4 bytes) during an upgrade.
@@ -338,6 +401,65 @@ mod tests {
         // The cap word is the sole finalize and requests nothing further.
         assert_eq!(next_step(STAGING_IMAGE_SIZE).finalize, 1);
         assert_eq!(next_step(STAGING_IMAGE_SIZE).request_address, 0);
+    }
+
+    // -- msc_write_step (the USB-MSC drag-drop UF2 write decision) --
+
+    const M0: u32 = UF2_MAGIC_START0;
+    const M1: u32 = UF2_MAGIC_START1;
+    const ME: u32 = UF2_MAGIC_END;
+
+    #[test]
+    fn msc_rejects_non_uf2_block() {
+        // No UF2 magic → ignore the block entirely (caller returns bufsize).
+        let s = msc_write_step(0, 0, 0, 0);
+        assert_eq!(s.is_uf2, 0);
+        assert_eq!(s.is_first, 0);
+        assert_eq!(s.is_final, 0);
+        assert_eq!(s.accumulate_crc, 0);
+        // A single wrong magic word is enough to reject.
+        assert_eq!(msc_write_step(0, M0, M1, ME ^ 1).is_uf2, 0);
+        assert_eq!(msc_write_step(0, M0 ^ 1, M1, ME).is_uf2, 0);
+    }
+
+    #[test]
+    fn msc_first_block_inits_and_writes_offset_zero() {
+        let s = msc_write_step(0, M0, M1, ME);
+        assert_eq!(s.is_uf2, 1);
+        assert_eq!(s.is_first, 1);
+        assert_eq!(s.flash_offset, 0);
+        assert_eq!(s.accumulate_crc, 1);
+        assert_eq!(s.is_final, 0);
+    }
+
+    #[test]
+    fn msc_flash_offset_is_block_times_page() {
+        let s = msc_write_step(5, M0, M1, ME);
+        assert_eq!(s.flash_offset, 5 * FLASH_PAGE_SIZE);
+        assert_eq!(s.is_first, 0);
+    }
+
+    #[test]
+    fn msc_final_block_is_last_page_only() {
+        let last = STAGING_IMAGE_SIZE / FLASH_PAGE_SIZE - 1; // 1023
+        let s = msc_write_step(last, M0, M1, ME);
+        assert_eq!(s.is_final, 1);
+        assert_eq!(s.flash_offset, last * FLASH_PAGE_SIZE);
+        // One block short must NOT finalize (the off-by-one the C had no test for).
+        assert_eq!(msc_write_step(last - 1, M0, M1, ME).is_final, 0);
+    }
+
+    #[test]
+    fn msc_crc_excludes_final_metadata_sector() {
+        // CRC covers blocks 0..1007; the final sector (blocks 1008..1023, the last
+        // 4KB holding the metadata/CRC) is excluded — mirrors the C gate
+        // `blockNo < (STAGING_IMAGE_SIZE - FLASH_SECTOR_SIZE) / FLASH_PAGE_SIZE`.
+        let last_crc = (STAGING_IMAGE_SIZE - FLASH_SECTOR_SIZE) / FLASH_PAGE_SIZE; // 1008
+        assert_eq!(msc_write_step(last_crc - 1, M0, M1, ME).accumulate_crc, 1);
+        assert_eq!(msc_write_step(last_crc, M0, M1, ME).accumulate_crc, 0);
+        // The final block is inside the excluded sector.
+        let last = STAGING_IMAGE_SIZE / FLASH_PAGE_SIZE - 1;
+        assert_eq!(msc_write_step(last, M0, M1, ME).accumulate_crc, 0);
     }
 
     // -- CRC lower-edge + byte-order contract --
