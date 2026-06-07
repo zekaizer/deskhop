@@ -190,31 +190,11 @@ uint32_t hal_dma_rx_remaining(void) {
     return (uint32_t)DMA_RX_BUFFER_SIZE - dma_channel_hw_addr(global_hw.dma_rx_channel)->transfer_count;
 }
 
-bool hal_is_start_of_packet(void) {
-    return uart_rxbuf[global_hw.dma_ptr] == START1
-        && uart_rxbuf[NEXT_RING_IDX(global_hw.dma_ptr)] == START2;
-}
-
-void hal_fetch_packet(void) {
-    uint8_t *dst = (uint8_t *)&global_hw.in_packet;
-    for (int i = 0; i < RAW_PACKET_LENGTH; i++) {
-        if (i >= START_LENGTH) dst[i - START_LENGTH] = uart_rxbuf[global_hw.dma_ptr];
-        global_hw.dma_ptr = NEXT_RING_IDX(global_hw.dma_ptr);
-    }
-}
-
-/* Used by Rust packet_receive_tick to scan past non-preamble bytes. */
-void hal_dma_advance_one(void) {
-    global_hw.dma_ptr = NEXT_RING_IDX(global_hw.dma_ptr);
-}
-
-uint32_t hal_dma_read_pos(void) {
-    return global_hw.dma_ptr;
-}
-
-const uint8_t *hal_get_in_packet_ptr(void) {
-    return (const uint8_t *)&global_hw.in_packet;
-}
+/* The RX ring read cursor + packet extraction (START scan, preamble strip,
+ * fetch into in_packet) moved to Rust (hal/pico.rs DmaRx impl), which reads
+ * uart_rxbuf directly and owns the read index. The former hal_is_start_of_packet
+ * / hal_fetch_packet / hal_dma_advance_one / hal_dma_read_pos /
+ * hal_get_in_packet_ptr helpers (and global_hw.dma_ptr / in_packet) are gone. */
 
 /* ==================================================== *
  * HID report extraction
