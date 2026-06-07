@@ -1189,12 +1189,47 @@ fn parse_hex(s: &[u8]) -> Option<u32> {
 ///                        (e.g. kb042b = LeftAlt+Tab) to the active output
 /// The cc/kb commands let us hunt the right Android key without reflashing.
 ///
+/// Feed raw CDC bytes here; this owns the line buffer and overflow policy (was
+/// the static accumulator in tud_cdc_rx_cb) and dispatches each completed
+/// (CR/LF-terminated) command to dispatch_dbg_line.
+///
 /// # Safety
-/// Call from the USB task (Core0) only; routes via the active-output queues.
+/// `buf` must point to `len` readable bytes. Call from the USB task (Core0)
+/// only; commands route via the active-output queues.
 #[no_mangle]
-pub unsafe extern "C" fn rust_dbg_cmd(buf: *const u8, len: usize) {
-    if buf.is_null() || len == 0 { return; }
-    let line = core::slice::from_raw_parts(buf, len);
+pub unsafe extern "C" fn rust_cdc_feed(buf: *const u8, len: u32) {
+    if buf.is_null() {
+        return;
+    }
+    let data = core::slice::from_raw_parts(buf, len as usize);
+
+    // Command line buffer (mirrors the former C `static char line[24]`).
+    const LINE_MAX: usize = 24;
+    static mut LINE: [u8; LINE_MAX] = [0; LINE_MAX];
+    static mut LLEN: usize = 0;
+    let line = core::ptr::addr_of_mut!(LINE).cast::<u8>();
+    let llen = core::ptr::addr_of_mut!(LLEN);
+
+    for &c in data {
+        if c == b'\r' || c == b'\n' {
+            if *llen > 0 {
+                dispatch_dbg_line(core::slice::from_raw_parts(line, *llen));
+                *llen = 0;
+            }
+        } else if *llen < LINE_MAX {
+            *line.add(*llen) = c;
+            *llen += 1;
+        } else {
+            *llen = 0; // overflow — drop the line
+        }
+    }
+}
+
+/// Dispatch one complete debug command line.
+unsafe fn dispatch_dbg_line(line: &[u8]) {
+    if line.is_empty() {
+        return;
+    }
 
     if line.starts_with(b"logdump") {
         crate::service::peer_log::rewind_read();

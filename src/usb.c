@@ -45,11 +45,14 @@ void tud_umount_cb(void) { rust_on_tud_umount(); }
 
 #if defined(DH_DEBUG) || defined(DH_DEBUG_CDC_FLASH)
 #ifdef DH_DEBUG
-extern void rust_dbg_cmd(const uint8_t *buf, uint32_t len);
+/* Line accumulation + command dispatch live in Rust (rust_cdc_feed); the C side
+ * only reads raw bytes and forwards them. Commands: logdump, ptr, pushfw,
+ * cc<hex>, kb<modkey-hex>. */
+extern void rust_cdc_feed(const uint8_t *buf, uint32_t len);
 #endif
 
 void tud_cdc_rx_cb(uint8_t itf) {
-    char buf[64];
+    uint8_t buf[64];
     uint32_t count = tud_cdc_n_available(itf);
 
     if (count == 0)
@@ -67,22 +70,7 @@ void tud_cdc_rx_cb(uint8_t itf) {
 #endif
 
 #ifdef DH_DEBUG
-    /* Accumulate a newline-terminated command line and dispatch it to Rust.
-     * Commands: logdump, ptr, pushfw, cc<hex>, kb<modkey-hex> (see rust_dbg_cmd). */
-    {
-        static char line[24];
-        static uint8_t llen = 0;
-        for (uint32_t i = 0; i < count; i++) {
-            char c = buf[i];
-            if (c == '\r' || c == '\n') {
-                if (llen) { rust_dbg_cmd((const uint8_t *)line, llen); llen = 0; }
-            } else if (llen < sizeof(line)) {
-                line[llen++] = c;
-            } else {
-                llen = 0; /* overflow — drop the line */
-            }
-        }
-    }
+    rust_cdc_feed(buf, count);
 #endif
 }
 #endif
