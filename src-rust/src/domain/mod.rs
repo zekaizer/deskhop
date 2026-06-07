@@ -30,3 +30,4 @@ pub mod passthrough;
 pub mod passthrough_scan;
 pub mod screensaver;
 pub mod structs;
+pub mod usb_config_desc;

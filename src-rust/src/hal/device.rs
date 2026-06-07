@@ -123,8 +123,6 @@ extern "C" {
         dev_addr: u8, itf_num: u8, report_id: u8, report_type: u8,
         data: *const u8, len: u16,
     ) -> bool;
-    pub fn hal_passthrough_build_config_desc(
-        config_desc: *mut u8, buf_size: u16,
-        config_desc_len: *mut u16, iface_count: u8,
-    );
+    // hal_passthrough_build_config_desc removed — the composite config descriptor
+    // is now assembled in Rust (domain::usb_config_desc::build_config_desc).
 }
