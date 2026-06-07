@@ -57,6 +57,9 @@ extern "C" {
     pub fn hal_flash_read_config(buf: *mut u8, len: u32);
     pub fn hal_flash_write_config(buf: *const u8);
 
+    // ---- USB string descriptor: chip unique board id (ASCII hex) ----
+    pub fn hal_get_board_id_str(buf: *mut u8, len: u32);
+
     // ---- LED / HID host (via hal_shim.c) ----
     pub fn hal_gpio_put_led(state: bool);
     pub fn hal_gpio_get_led() -> bool;

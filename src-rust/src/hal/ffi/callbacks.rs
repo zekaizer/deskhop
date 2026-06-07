@@ -1005,6 +1005,70 @@ pub unsafe extern "C" fn rust_get_configuration_descriptor() -> *const u8 {
 }
 
 // ============================================================
+// USB string descriptors — ASCII→UTF-16 conversion (was the C
+// tud_descriptor_string_cb in usb_descriptors.c). Device/config/
+// HID-report descriptors already live here; this finishes the set.
+// ============================================================
+
+const TUSB_DESC_STRING_TYPE: u16 = 0x03;
+const STRID_SERIAL: u8 = 3;
+/// PICO_UNIQUE_BOARD_ID_SIZE_BYTES (8) * 2 hex chars + NUL.
+const BOARD_ID_STR_LEN: usize = 8 * 2 + 1;
+
+/// Static string table (index 0 is the language id, handled inline; index 3 is
+/// the serial, resolved from the chip unique id). Mirrors the former C
+/// `string_desc_arr[]`.
+fn string_desc_for(index: u8) -> Option<&'static [u8]> {
+    Some(match index {
+        1 => b"Hrvoje Cavrak",  // Manufacturer
+        2 => b"DeskHop Switch", // Product
+        4 => b"DeskHop Helper", // Mouse Helper Interface
+        5 => b"DeskHop Config", // Vendor Interface
+        6 => b"DeskHop Disk",   // Disk Interface
+        #[cfg(feature = "dh_debug")]
+        7 => b"DeskHop Debug", // Debug Interface
+        _ => return None,
+    })
+}
+
+/// GET STRING DESCRIPTOR. Builds the UTF-16 string descriptor into a static
+/// buffer (which must outlive the call — TinyUSB reads it after we return) and
+/// returns it, or null to STALL an unknown index.
+#[no_mangle]
+pub unsafe extern "C" fn rust_get_string_descriptor(index: u8, _langid: u16) -> *const u16 {
+    static mut DESC_STR: [u16; 32] = [0; 32];
+    let out = core::ptr::addr_of_mut!(DESC_STR).cast::<u16>();
+
+    let chr_count: usize = if index == 0 {
+        // Supported language: English (0x0409), little-endian in the word.
+        *out.add(1) = 0x0409;
+        1
+    } else {
+        let mut serial = [0u8; BOARD_ID_STR_LEN];
+        let s: &[u8] = if index == STRID_SERIAL {
+            device::hal_get_board_id_str(serial.as_mut_ptr(), serial.len() as u32);
+            let n = serial.iter().position(|&b| b == 0).unwrap_or(serial.len());
+            &serial[..n]
+        } else {
+            match string_desc_for(index) {
+                Some(s) => s,
+                None => return core::ptr::null(),
+            }
+        };
+        // Cap at the 31-char descriptor limit, then widen ASCII to UTF-16.
+        let count = s.len().min(31);
+        for (i, &b) in s[..count].iter().enumerate() {
+            *out.add(1 + i) = b as u16;
+        }
+        count
+    };
+
+    // First word: low byte = total length (incl. 2-byte header), high byte = type.
+    *out = (TUSB_DESC_STRING_TYPE << 8) | (2 * chr_count as u16 + 2);
+    out
+}
+
+// ============================================================
 // TinyUSB device mount/unmount — set tud_connected flag
 // ============================================================
 

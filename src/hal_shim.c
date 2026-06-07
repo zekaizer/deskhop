@@ -48,6 +48,13 @@ void hal_boot_led_stop(void) {
 uint64_t hal_time_us_64(void) { return time_us_64(); }
 uint32_t hal_time_us_32(void) { return time_us_32(); }
 
+/* Chip unique board id as an ASCII hex string — for the USB serial-number
+ * string descriptor, which is assembled in Rust (rust_get_string_descriptor).
+ * Wraps the Pico SDK formatter (the actual hex format is SDK-owned). */
+void hal_get_board_id_str(uint8_t *buf, uint32_t len) {
+    pico_get_unique_board_id_string((char *)buf, len);
+}
+
 /* ==================================================== *
  * Queue operations (Pico SDK queue_t)
  * ==================================================== */
