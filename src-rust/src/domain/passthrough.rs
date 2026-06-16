@@ -162,6 +162,11 @@ pub struct PassthroughState {
     /// trigger (so the release of the second press isn't forwarded as an
     /// orphan event).
     pub smartshift_consume: u8,
+    /// True once the release (Up1) of the first press has been observed within
+    /// the current window. A second press only completes a double-click when
+    /// this is set — so two Downs with no intervening Up (a single physical
+    /// actuation reported twice, e.g. dual fn=2+fn=0 emission) do NOT switch.
+    pub smartshift_saw_release: bool,
 
     /// Set by on_device_unmount (Core1) to request the device-side
     /// disconnect/reconnect cycle. The actual tud_disconnect is performed by
@@ -225,6 +230,7 @@ impl Default for PassthroughState {
             smartshift_buf_count: 0,
             smartshift_buf: [SmartShiftBufEntry::default(); SMARTSHIFT_BUF_SIZE],
             smartshift_consume: 0,
+            smartshift_saw_release: false,
             disconnect_requested: false,
             gesture_pressed: false,
             gesture_press_us: 0,
@@ -472,6 +478,7 @@ pub fn smartshift_reset(state: &mut PassthroughState) {
     state.smartshift_window_us = 0;
     state.smartshift_buf_count = 0;
     state.smartshift_consume = 0;
+    state.smartshift_saw_release = false;
 }
 
 /// Accumulate a scroll delta and scale by HIRES_SCROLL_DIVISOR.

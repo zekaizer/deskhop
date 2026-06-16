@@ -337,9 +337,11 @@ pub fn on_report_received(
             if pt.smartshift_window_us > 0 {
                 let elapsed = now_us.wrapping_sub(pt.smartshift_window_us);
                 if passthrough::is_smartshift_press(report) {
-                    if elapsed <= window_us {
-                        // Second press within window — consume buffered + this press,
-                        // mark the upcoming release for consumption, trigger switch.
+                    if elapsed <= window_us && pt.smartshift_saw_release {
+                        // Down2 within the window AND a Down1->Up1 release was seen
+                        // in between: a genuine double-click. Consume the buffered
+                        // events + this press, mark the upcoming release for
+                        // consumption, trigger the switch — the host never sees it.
                         crate::service::dlog::i(b"pt").s(b"smartshift double-click").done();
                         passthrough::smartshift_reset(pt);
                         pt.smartshift_consume = 1;
@@ -347,20 +349,42 @@ pub fn on_report_received(
                         hal.receive_report(dev_addr, instance);
                         return ReportAction::Handled;
                     }
-                    // Window expired — let passthrough_task flush on the next tick;
-                    // start a fresh window with this press as the new Down1.
-                    flush_smartshift_buffer(pt, hal);
-                    pt.smartshift_window_us = now_us;
-                    if !passthrough::smartshift_buf_push(pt, dev_inst, report) {
-                        // Should not happen with empty buffer, but stay safe.
-                        passthrough::smartshift_reset(pt);
-                        // Fall through to normal forwarding below.
+                    if elapsed > window_us {
+                        // Window expired — let passthrough_task flush on the next
+                        // tick; start a fresh window with this press as the new Down1.
+                        flush_smartshift_buffer(pt, hal);
+                        pt.smartshift_window_us = now_us;
+                        pt.smartshift_saw_release = false;
+                        if !passthrough::smartshift_buf_push(pt, dev_inst, report) {
+                            // Should not happen with empty buffer, but stay safe.
+                            passthrough::smartshift_reset(pt);
+                            // Fall through to normal forwarding below.
+                        } else {
+                            hal.receive_report(dev_addr, instance);
+                            return ReportAction::Handled;
+                        }
                     } else {
-                        hal.receive_report(dev_addr, instance);
-                        return ReportAction::Handled;
+                        // A press inside the window with no intervening release: a
+                        // repeated/duplicated Down for the SAME physical actuation
+                        // (e.g. an MX Master emitting the wheel-mode key as both an
+                        // fn=2 analyticsKeyEvent and an fn=0 divertedButtons frame, or
+                        // a held divertedButtons bitmap re-sent). NOT a double-click —
+                        // buffer it and keep waiting for a real Up->Down sequence.
+                        if passthrough::smartshift_buf_push(pt, dev_inst, report) {
+                            hal.receive_report(dev_addr, instance);
+                            return ReportAction::Handled;
+                        }
+                        flush_smartshift_buffer(pt, hal);
+                        passthrough::smartshift_reset(pt);
                     }
                 } else {
-                    // Non-SmartShift event during window — buffer to preserve order.
+                    // Non-press HID++ input event during the window. If it is the
+                    // release (Up1) of the SmartShift button, record it so the next
+                    // press can complete the double-click.
+                    if passthrough::is_smartshift_release(report) {
+                        pt.smartshift_saw_release = true;
+                    }
+                    // Buffer to preserve event order.
                     if passthrough::smartshift_buf_push(pt, dev_inst, report) {
                         hal.receive_report(dev_addr, instance);
                         return ReportAction::Handled;
@@ -374,6 +398,7 @@ pub fn on_report_received(
             // (c) idle state, first SmartShift press → enter pending
             else if passthrough::is_smartshift_press(report) {
                 pt.smartshift_window_us = now_us;
+                pt.smartshift_saw_release = false;
                 if passthrough::smartshift_buf_push(pt, dev_inst, report) {
                     hal.receive_report(dev_addr, instance);
                     return ReportAction::Handled;
@@ -1094,13 +1119,17 @@ mod tests {
         let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = ss_setup();
         hal.set_time(1_000_000);
         let press = smartshift_event(true);
+        let release = smartshift_event(false);
         on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
                            &press, 1, 0, &hal);
-        // 100ms later, second press
+        // Up1 — required to arm the second press as a double-click.
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &release, 1, 0, &hal);
+        // 100ms later, second press completes Down1->Up1->Down2.
         hal.set_time(1_100_000);
         on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
                            &press, 1, 0, &hal);
-        assert!(cfg.switch_requested, "second press within window must trigger switch");
+        assert!(cfg.switch_requested, "Down1->Up1->Down2 within window must trigger switch");
         assert_eq!(pt.smartshift_window_us, 0, "window must clear");
         assert_eq!(pt.smartshift_buf_count, 0, "buffer must clear");
         assert_eq!(pt.smartshift_consume, 1, "release of second press must be marked for consumption");
@@ -1130,6 +1159,40 @@ mod tests {
                            &smartshift_diverted(false), 1, 0, &hal);
         assert_eq!(pt.smartshift_consume, 0, "post-switch release consumed");
         assert_eq!(hal.hid_queued.borrow().len(), 0, "nothing forwarded for the double-click");
+    }
+
+    #[test]
+    fn smartshift_two_presses_without_release_do_not_switch() {
+        // A single physical actuation can surface as two SmartShift "Down" reports
+        // with no Up in between (a held divertedButtons bitmap re-sent, or dual
+        // fn=2+fn=0 emission for one click). Without an intervening release this is
+        // NOT a double-click and must not switch the output. Regression for the
+        // single-click-switches bug exposed once fn=0 detection was added (c4224bb).
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = ss_setup();
+        hal.set_time(1_000_000);
+        let press = smartshift_event(true);
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &press, 1, 0, &hal);
+        hal.set_time(1_010_000);
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &press, 1, 0, &hal);
+        assert!(!cfg.switch_requested, "two Downs with no Up between must not switch");
+        assert!(pt.smartshift_window_us > 0, "window stays armed, awaiting a real Up->Down");
+        assert!(!pt.smartshift_saw_release, "no release observed");
+    }
+
+    #[test]
+    fn smartshift_dual_shape_single_click_does_not_switch() {
+        // An MX Master may report one physical wheel-mode click as BOTH an fn=0
+        // divertedButtons frame and an fn=2 analyticsKeyEvent. Two Downs, no Up
+        // between → not a double-click.
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = ss_setup();
+        hal.set_time(1_000_000);
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &smartshift_diverted(true), 1, 0, &hal);   // fn=0 Down
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &smartshift_event(true), 1, 0, &hal);      // fn=2 Down, same click
+        assert!(!cfg.switch_requested, "dual-shape single click must not switch");
     }
 
     #[test]
