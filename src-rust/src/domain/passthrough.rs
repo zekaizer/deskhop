@@ -24,6 +24,11 @@ pub const HIDPP_REPORT_ID_LONG: u8 = 0x11;
 /// SmartShift button CID — used for double-click detection on MX Master.
 pub const SMARTSHIFT_CID: u8 = 0xC4;
 
+/// MX gesture/thumb button CID. Diverted by Options+ and surfaced as a
+/// divertedButtonsEvent (fn=0) bitmap entry; the canonical definition lives here
+/// (the lower module) and is re-exported by domain::hidpp_keymap.
+pub const GESTURE_CID: u8 = 0xC3;
+
 /// Maximum buffered events while in SmartShift double-click pending state.
 /// 8 entries is enough for the typical Down1/Up1/Down2/Up2 plus a small
 /// burst of unrelated HID++ events (scroll, etc.) within the window.
@@ -506,12 +511,42 @@ pub fn cid_to_button_bit(cid_lo: u8) -> u8 {
     }
 }
 
+/// True if a divertedButtonsEvent bitmap (`params` = report[4..], laid out as
+/// (cid_hi, cid_lo) pairs) carries a CID that only ReprogControls emits — a
+/// standard button or the gesture/SmartShift key. Used to learn the feature
+/// index from fn=0 events.
+fn params_have_reprog_cid(params: &[u8]) -> bool {
+    let mut i = 0;
+    while i + 1 < params.len() {
+        if params[i] == 0x00 {
+            let cid = params[i + 1];
+            if cid == GESTURE_CID || cid == SMARTSHIFT_CID || cid_to_button_bit(cid) != 0 {
+                return true;
+            }
+        }
+        i += 2;
+    }
+    false
+}
+
 /// Auto-learn ReprogControls feature index from observed button events (sw_id=0).
 /// Called when fi_reprog_controls is not yet known.
 pub fn autolearn_feature(d: &mut HidppDiscovery, fi: u8, fn_: u8, params: &[u8]) {
-    // fn=2 (analyticsKeyEvent) with a recognizable CID
-    if fn_ == 2 && params.len() >= 3 && params[0] == 0x00 && cid_to_button_bit(params[1]) != 0
-        && d.fi_reprog_controls != fi
+    if fi == 0 || d.fi_reprog_controls == fi {
+        return;
+    }
+    // fn=2 (analyticsKeyEvent) with a recognizable standard-button CID.
+    if fn_ == 2 && params.len() >= 3 && params[0] == 0x00 && cid_to_button_bit(params[1]) != 0 {
+        d.fi_reprog_controls = fi;
+        return;
+    }
+    // fn=0 (divertedButtonsEvent) bitmap carrying a known ReprogControls CID.
+    // Required for mice whose buttons Options+ diverts as fn=0 only — they never
+    // emit the fn=2 analyticsKeyEvent the branch above relies on, so without this
+    // fi_reprog_controls stays 0 and the gesture remap silently no-ops. Exclude
+    // the HiRes-scroll / thumbwheel indices (their fn=0 deltas could alias a CID).
+    if fn_ == 0 && fi != d.fi_hires_scroll && fi != d.fi_thumbwheel
+        && params_have_reprog_cid(params)
     {
         d.fi_reprog_controls = fi;
     }
@@ -951,9 +986,44 @@ mod tests {
     }
 
     #[test]
-    fn autolearn_ignores_wrong_fn() {
+    fn autolearn_from_fn0_standard_button() {
+        // fn=0 divertedButtons bitmap carrying a standard-button CID (Back) — a
+        // mouse whose buttons Options+ diverts as fn=0 (no fn=2) must still learn.
         let mut d = HidppDiscovery::default();
-        autolearn_feature(&mut d, 0x05, 0, &[0x00, 0x50, 0x01]); // fn=0 not fn=2
+        autolearn_feature(&mut d, 0x05, 0, &[0x00, 0x53, 0x00]);
+        assert_eq!(d.fi_reprog_controls, 0x05);
+    }
+
+    #[test]
+    fn autolearn_from_fn0_gesture_cid() {
+        // Pressing only the gesture button (0xC3) must be enough to learn the
+        // ReprogControls index so the Android remap fires on the first press.
+        let mut d = HidppDiscovery::default();
+        autolearn_feature(&mut d, 0x05, 0, &[0x00, GESTURE_CID, 0x00]);
+        assert_eq!(d.fi_reprog_controls, 0x05);
+    }
+
+    #[test]
+    fn autolearn_from_fn0_smartshift_cid() {
+        let mut d = HidppDiscovery::default();
+        autolearn_feature(&mut d, 0x05, 0, &[0x00, SMARTSHIFT_CID, 0x00]);
+        assert_eq!(d.fi_reprog_controls, 0x05);
+    }
+
+    #[test]
+    fn autolearn_fn0_ignores_unknown_cid() {
+        let mut d = HidppDiscovery::default();
+        autolearn_feature(&mut d, 0x05, 0, &[0x00, 0xAA, 0x00]); // unknown CID
+        assert_eq!(d.fi_reprog_controls, 0);
+    }
+
+    #[test]
+    fn autolearn_fn0_excludes_scroll_index() {
+        // A HiRes-scroll fn=0 delta could alias a CID byte; never learn the
+        // already-known scroll/thumbwheel index as ReprogControls.
+        let mut d = HidppDiscovery::default();
+        d.fi_hires_scroll = 0x06;
+        autolearn_feature(&mut d, 0x06, 0, &[0x00, 0x53, 0x00]); // looks like Back, but on scroll fi
         assert_eq!(d.fi_reprog_controls, 0);
     }
 

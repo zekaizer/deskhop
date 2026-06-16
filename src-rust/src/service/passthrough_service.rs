@@ -316,6 +316,17 @@ pub fn on_report_received(
 
         let is_input = passthrough::is_hidpp_input_event(report);
 
+        // Learn the ReprogControls feature index as early as possible (before the
+        // gesture remap, which needs it to tell its divertedButtonsEvent apart
+        // from the scroll/thumbwheel fn=0 streams). Mice that surface buttons only
+        // as fn=0 never trigger the fn=2 autolearn done later on the inactive
+        // convert path, so learning here is what lets the gesture remap fire on
+        // the very first press instead of never.
+        if is_input && pt.hidpp_disc.fi_reprog_controls == 0 && report.len() >= 4 {
+            let fn_ = (report[3] >> 4) & 0x0F;
+            passthrough::autolearn_feature(&mut pt.hidpp_disc, report[2], fn_, &report[4..]);
+        }
+
         // SmartShift double-click state machine. On first SmartShift press,
         // buffer the event and start a window. On a second press within the
         // window, consume both presses + the upcoming release and trigger an
@@ -1083,6 +1094,53 @@ mod tests {
         t.2.tud_connected = true;
         t.2.config.smartshift_double_click_ms = 350;
         t
+    }
+
+    /// divertedButtonsEvent (fn=0) carrying the gesture/thumb button (0xC3) on
+    /// the ReprogControls feature index (0x05) — what an MX Master emits for the
+    /// thumb button once Options+ has diverted it.
+    fn gesture_diverted(pressed: bool) -> [u8; 7] {
+        [
+            HIDPP_REPORT_ID_SHORT,
+            0x01,         // device_idx
+            0x05,         // feature_idx (ReprogControls)
+            0x00,         // (fn=0 << 4) | sw_id=0  → divertedButtonsEvent
+            0x00,         // cid_hi
+            if pressed { passthrough::GESTURE_CID } else { 0x00 }, // cid_lo (bitmap)
+            0x00,
+        ]
+    }
+
+    #[test]
+    fn gesture_tap_learns_index_and_remaps_on_first_press() {
+        // Regression: with the mouse's buttons diverted as fn=0 only (no fn=2
+        // analyticsKeyEvent), fi_reprog_controls used to stay 0 forever, so the
+        // Android gesture remap never fired. The early autolearn must learn the
+        // index from the gesture's OWN fn=0 event so a single tap maps to Alt+Tab
+        // on the very first press.
+        let (mut pt, mut hid, mut cfg, mut fw, mut led, hal) = ss_setup();
+        cfg.config.output[cfg.active_output as usize].os =
+            crate::domain::constants::OS_ANDROID;
+        assert_eq!(pt.hidpp_disc.fi_reprog_controls, 0, "index not learned yet");
+
+        hal.set_time(1_000_000);
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &gesture_diverted(true), 1, 0, &hal);
+        assert_eq!(pt.hidpp_disc.fi_reprog_controls, 0x05,
+                   "first press must learn the ReprogControls index");
+        assert!(pt.gesture_pressed, "press edge tracked");
+        assert!(pt.gesture_press_us > 0, "press timed for the tap/hold decision");
+
+        // Release 50ms later → a tap → one-shot Alt+Tab.
+        hal.set_time(1_050_000);
+        on_report_received(&mut pt, &mut dev!(hid, cfg, fw, led),
+                           &gesture_diverted(false), 1, 0, &hal);
+        let kbd = hal.kbd_reports.borrow();
+        assert_eq!(kbd.len(), 2, "tap emits Alt+Tab press + release");
+        assert_eq!(kbd[0],
+            [crate::domain::hidpp_keymap::MOD_LEFT_ALT, 0,
+             crate::domain::hidpp_keymap::KEY_TAB, 0, 0, 0, 0, 0]);
+        assert_eq!(kbd[1], [0u8; 8]);
     }
 
     #[test]

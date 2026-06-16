@@ -24,8 +24,9 @@ use crate::domain::constants::OS_ANDROID;
 use crate::domain::hid_routing::CONSUMER_CONTROL_LENGTH;
 use crate::domain::passthrough;
 
-/// MX gesture/thumb button — Logitech HID++ Control-ID (low byte).
-pub const GESTURE_CID: u8 = 0xC3;
+/// MX gesture/thumb button — Logitech HID++ Control-ID (low byte). Canonical
+/// definition lives in domain::passthrough; re-exported here for the remap.
+pub use crate::domain::passthrough::GESTURE_CID;
 
 /// HID keyboard modifier bit for Left Alt and the Tab keycode. A quick tap of
 /// the gesture button emits a one-shot Alt+Tab, which on Android toggles to the
