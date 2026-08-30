@@ -30,7 +30,14 @@ pub fn extract_kbd_data(
 
     if kbd.is_nkro {
         let rc = extract_kbd_nkro(report, iface, kbd, &mut out);
-        return (out, rc);
+        if rc >= 0 {
+            return (out, rc);
+        }
+        // Descriptor parsed as NKRO but the report layout doesn't match —
+        // e.g. wireless dongles advertising an NKRO collection while sending
+        // boot-style reports. Clear any partial write and fall through to the
+        // boot/other extractors, as the C original did.
+        out = [0u8; KBD_REPORT_LENGTH];
     }
 
     if !iface.uses_report_id
@@ -228,6 +235,60 @@ mod tests {
         // Keys extracted from bitmap
         assert_eq!(out[2], 2); // usage_min + bit 2
         assert_eq!(out[3], 4); // usage_min + bit 4
+    }
+
+    #[test]
+    fn test_nkro_failure_falls_back_to_boot() {
+        // Wireless dongles can advertise an NKRO collection but transmit
+        // boot-style reports: the size-mismatch guard fires and C fell
+        // through to boot extraction. Returning the error left such
+        // keyboards completely dead.
+        let mut iface = zeroed_iface();
+        iface.protocol = 1;
+        iface.uses_report_id = false;
+
+        let mut kbd = KeyboardDescriptor::default();
+        kbd.is_nkro = true;
+        kbd.nkro = ReportVal {
+            size: 16,
+            usage_min: 0,
+            usage_max: 7, // span 8 != size 16 → extraction fails
+            ..ReportVal::default()
+        };
+
+        let report = [0x02, 0x00, 0x04, 0x05, 0x00, 0x00, 0x00, 0x00];
+        let (out, rc) = extract_kbd_data(&report, &iface, &kbd);
+        assert_eq!(rc, KBD_REPORT_LENGTH as i32);
+        assert_eq!(out[0], 0x02); // boot layout: modifier
+        assert_eq!(out[2], 0x04); // keycodes intact
+        assert_eq!(out[3], 0x05);
+    }
+
+    #[test]
+    fn test_nkro_failure_with_report_id_falls_back_to_other() {
+        // With a report ID the 8/9-byte boot shortcut does not apply; the
+        // fallback must land in extract_kbd_other with cleared output (no
+        // stale modifier from the failed NKRO attempt).
+        let mut iface = zeroed_iface();
+        iface.protocol = 1;
+        iface.uses_report_id = true;
+
+        let mut kbd = KeyboardDescriptor::default();
+        kbd.is_nkro = true;
+        kbd.modifier = ReportVal { offset_idx: 0, size: 4, ..ReportVal::default() };
+        kbd.nkro = ReportVal {
+            size: 16,
+            usage_min: 0,
+            usage_max: 7,
+            ..ReportVal::default()
+        };
+        kbd.key_array[2] = true;
+
+        let report = [0x01, 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let (out, rc) = extract_kbd_data(&report, &iface, &kbd);
+        assert_eq!(rc, KBD_REPORT_LENGTH as i32);
+        assert_eq!(out[0], 0x02); // modifier via other-path mapping
+        assert_eq!(out[2], 0x04); // key from key_array[2]
     }
 
     #[test]
