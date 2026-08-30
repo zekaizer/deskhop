@@ -168,6 +168,22 @@ impl ParserState {
         Self::default()
     }
 
+    /// Reset to the freshly-constructed state without materializing a
+    /// temporary `ParserState` (~850B) on the stack — callers may keep this
+    /// state in a static precisely because their stack cannot hold it.
+    pub fn reset(&mut self) {
+        self.report_id = 0;
+        self.global_usage = 0;
+        self.usage_count = 0;
+        self.usages = [0; HID_MAX_USAGES];
+        self.usage_ptr = 0;
+        self.collection = Collection::default();
+        self.report_offsets = [ReportOffset::default(); MAX_REPORTS];
+        self.num_report_offsets = 0;
+        self.globals = [Item::default(); 16];
+        self.locals = [Item::default(); 16];
+    }
+
     fn is_block_end(&self) -> bool {
         self.collection.start == self.collection.end
     }
@@ -252,9 +268,11 @@ impl ParserState {
         }
     }
 
-    /// Process a main INPUT item. Returns the parsed ReportVals for the caller
-    /// to use for populating interface structures.
-    fn handle_main_input(&mut self, item: &Item) -> ParsedInput {
+    /// Process a main INPUT item, writing the parsed ReportVals into `out`.
+    /// Returns false when no report-offset slot is available (item dropped).
+    /// Out-param instead of a by-value return: `ParsedInput` is ~380B and this
+    /// runs on Core1's 2KB stack.
+    fn handle_main_input(&mut self, item: &Item, out: &mut ParsedInput) -> bool {
         let mut size = self.globals[RI_GLOBAL_REPORT_SIZE as usize].val;
         let mut count = self.globals[RI_GLOBAL_REPORT_COUNT as usize].val;
 
@@ -267,22 +285,19 @@ impl ParserState {
         let rid = self.report_id;
         let offset_idx = match self.get_or_create_report_offset(rid) {
             Some(idx) => idx,
-            None => return ParsedInput { vals: [ReportVal::default(); 16], count: 0, uses_report_id: false },
+            None => return false,
         };
 
-        let mut result = ParsedInput {
-            vals: [ReportVal::default(); 16],
-            count: 0,
-            uses_report_id: self.report_id != 0,
-        };
+        out.count = 0;
+        out.uses_report_id = self.report_id != 0;
 
         for i in 0..(count as usize) {
             self.update_usage(i);
             let val = self.store_element(item.val, size, i);
 
-            if result.count < 16 {
-                result.vals[result.count] = val;
-                result.count += 1;
+            if out.count < 16 {
+                out.vals[out.count] = val;
+                out.count += 1;
             }
 
             self.report_offsets[offset_idx].offset_in_bits += size;
@@ -301,43 +316,51 @@ impl ParserState {
             }
         }
 
-        result
+        true
     }
 
-    fn handle_main_item(&mut self, item: &Item) -> Option<ParsedInput> {
-        let result = match item.hdr.tag {
+    fn handle_main_item(&mut self, item: &Item, out: &mut ParsedInput) -> bool {
+        let produced = match item.hdr.tag {
             RI_MAIN_COLLECTION => {
                 self.collection.start += 1;
-                None
+                false
             }
             RI_MAIN_COLLECTION_END => {
                 self.collection.end += 1;
-                None
+                false
             }
-            RI_MAIN_INPUT => Some(self.handle_main_input(item)),
-            _ => None,
+            RI_MAIN_INPUT => self.handle_main_input(item, out),
+            _ => false,
         };
 
         self.usage_count = 0;
         self.locals = [Item::default(); 16];
 
-        result
+        produced
     }
 }
 
 /// Result of parsing a main INPUT item — up to 16 report values
+#[derive(Default)]
 pub struct ParsedInput {
     pub vals: [ReportVal; 16],
     pub count: usize,
     pub uses_report_id: bool,
 }
 
-/// Parse a HID report descriptor and return all extracted ReportVals.
+/// Parse a HID report descriptor, streaming each main INPUT item to `on_input`.
 /// This is the pure-logic version that doesn't touch hid_interface_t directly.
-/// The caller is responsible for populating interface structures from the results.
-pub fn parse_descriptor(report: &[u8]) -> (ParserState, alloc_free::ParseResults) {
-    let mut parser = ParserState::new();
-    let mut results = alloc_free::ParseResults::new();
+///
+/// Streaming (vs. returning accumulated results by value) is load-bearing: the
+/// exported FFI wrapper runs inside the TinyUSB mount callback on Core1, whose
+/// stack is only 2KB — this frame must stay at one `ParsedInput` (~380B).
+/// `parser` is caller-provided for the same reason (it may live in a static).
+pub fn parse_descriptor_with(
+    report: &[u8],
+    parser: &mut ParserState,
+    mut on_input: impl FnMut(&ParsedInput),
+) {
+    let mut scratch = ParsedInput::default();
     let mut pos = 0;
 
     while pos < report.len() {
@@ -353,20 +376,32 @@ pub fn parse_descriptor(report: &[u8]) -> (ParserState, alloc_free::ParseResults
 
         let item = Item { hdr, val };
 
-        match hdr.htype {
-            RI_TYPE_MAIN => {
-                if let Some(parsed) = parser.handle_main_item(&item) {
-                    results.push(parsed);
-                }
+        let produced = match hdr.htype {
+            RI_TYPE_MAIN => parser.handle_main_item(&item, &mut scratch),
+            RI_TYPE_GLOBAL => {
+                parser.handle_global_item(&item);
+                false
             }
-            RI_TYPE_GLOBAL => parser.handle_global_item(&item),
-            RI_TYPE_LOCAL => parser.handle_local_item(&item),
-            _ => {}
+            RI_TYPE_LOCAL => {
+                parser.handle_local_item(&item);
+                false
+            }
+            _ => false,
+        };
+        if produced {
+            on_input(&scratch);
         }
 
         pos += data_bytes;
     }
+}
 
+/// Accumulating convenience wrapper over [`parse_descriptor_with`] — returns
+/// ~7KB by value, so it is for host-side tests only, never the firmware path.
+pub fn parse_descriptor(report: &[u8]) -> (ParserState, alloc_free::ParseResults) {
+    let mut parser = ParserState::new();
+    let mut results = alloc_free::ParseResults::new();
+    parse_descriptor_with(report, &mut parser, |input| results.push(input));
     (parser, results)
 }
 
@@ -402,7 +437,7 @@ pub mod alloc_free {
             Self::default()
         }
 
-        pub fn push(&mut self, input: ParsedInput) {
+        pub fn push(&mut self, input: &ParsedInput) {
             if self.count < MAX_INPUTS {
                 self.inputs[self.count] = Some(ParsedInputCompact {
                     vals: input.vals,
@@ -749,6 +784,67 @@ mod tests {
         // Offsets should be independent per report ID
         assert_eq!({ r1.vals[0].offset }, 0);
         assert_eq!({ r2.vals[0].offset }, 0);
+    }
+
+    #[test]
+    fn test_parse_descriptor_with_streams_same_items() {
+        // Streaming entry point must deliver the same items the accumulating
+        // wrapper stores (wrapper is itself built on the streaming core, so
+        // assert against hand-computed expectations, not just each other).
+        #[rustfmt::skip]
+        let desc: &[u8] = &[
+            0xA1, 0x01,       // Collection
+            0x85, 0x01,       //   Report ID (1)
+            0x75, 0x08,       //   Report Size (8)
+            0x95, 0x02,       //   Report Count (2)
+            0x81, 0x00,       //   Input -> 2 items of 8 bits
+            0x85, 0x02,       //   Report ID (2)
+            0x75, 0x10,       //   Report Size (16)
+            0x95, 0x01,       //   Report Count (1)
+            0x81, 0x00,       //   Input -> 1 item of 16 bits
+            0xC0,             // End Collection
+        ];
+
+        let mut parser = ParserState::new();
+        let mut seen = [(0usize, 0u16, 0u8, false); 4];
+        let mut n = 0;
+        parse_descriptor_with(desc, &mut parser, |input| {
+            seen[n] = (
+                input.count,
+                { input.vals[0].size },
+                input.vals[0].report_id,
+                input.uses_report_id,
+            );
+            n += 1;
+        });
+
+        assert_eq!(n, 2);
+        assert_eq!(seen[0], (2, 8, 1, true));
+        assert_eq!(seen[1], (1, 16, 2, true));
+        assert_eq!(parser.collection.start, 1);
+        assert_eq!(parser.collection.end, 1);
+    }
+
+    #[test]
+    fn test_parser_state_reset_equals_fresh() {
+        let mut parser = ParserState::new();
+        let mut sink = |_: &ParsedInput| {};
+        parse_descriptor_with(&[0xA1, 0x01, 0x85, 0x07, 0xC0], &mut parser, &mut sink);
+        assert_eq!(parser.report_id, 7);
+        assert_eq!(parser.collection.start, 1);
+
+        parser.reset();
+        assert_eq!(parser.report_id, 0);
+        assert_eq!(parser.collection.start, 0);
+        assert_eq!(parser.num_report_offsets, 0);
+
+        // A reset parser must parse identically to a fresh one
+        let (_, results) = parse_descriptor(&[0x75, 0x08, 0x95, 0x01, 0x81, 0x00]);
+        let mut count_after_reset = 0;
+        parse_descriptor_with(&[0x75, 0x08, 0x95, 0x01, 0x81, 0x00], &mut parser, |_| {
+            count_after_reset += 1;
+        });
+        assert_eq!(count_after_reset, results.len());
     }
 
     #[test]

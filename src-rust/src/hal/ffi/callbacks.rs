@@ -246,9 +246,16 @@ pub unsafe extern "C" fn rust_get_report_value(report: *const u8, len: i32, val:
 // HID parser (from hid_parser_ffi.rs)
 // ============================================================
 
+/// Parser scratch state (~850B). Static, not stack: the sole runtime caller is
+/// the TinyUSB mount path on Core1 (rust_on_hid_mount -> tuh_hid_mount_cb),
+/// whose stack is only 2KB. Core1-only access — never touch from Core0.
+static mut PARSER_STATE: hid_parser::ParserState = unsafe { core::mem::zeroed() };
+
 /// Replace C's parse_report_descriptor with Rust parser.
 /// Parses the HID descriptor, then calls extract_data for each
 /// parsed INPUT item to populate hid_interface_t.
+/// Streams INPUT items instead of accumulating results: the by-value variant
+/// needed a ~14KB stack frame, overrunning Core1's 2KB stack on every mount.
 #[export_name = "parse_report_descriptor"]
 pub unsafe extern "C" fn rust_parse_report_descriptor(
     iface_ptr: *mut c_void,  // hid_interface_t*
@@ -261,20 +268,20 @@ pub unsafe extern "C" fn rust_parse_report_descriptor(
     }
 
     let desc = core::slice::from_raw_parts(report, desc_len as usize);
-    let (_parser, results) = hid_parser::parse_descriptor(desc);
 
-    let iface = iface_from_ptr(iface_ptr);
+    let parser = &mut *core::ptr::addr_of_mut!(PARSER_STATE);
+    parser.reset();
 
-    for input in results.iter() {
+    hid_parser::parse_descriptor_with(desc, parser, |input| {
         if input.uses_report_id {
-            iface.uses_report_id = true;
+            iface_from_ptr(iface_ptr).uses_report_id = true;
         }
 
         for i in 0..input.count {
             let val = &input.vals[i];
             rust_extract_data(iface_ptr, val as *const _ as *const u8);
         }
-    }
+    });
 }
 
 // ============================================================
