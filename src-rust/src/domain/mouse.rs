@@ -46,6 +46,31 @@ pub fn is_screen_switch_needed(position: i32, offset: i32, threshold: u16) -> i3
     }
 }
 
+/// Screen-position values in config output.pos (matches C enum screen_pos_e).
+pub const SCREEN_POS_LEFT: u8 = 1;
+pub const SCREEN_POS_RIGHT: u8 = 2;
+
+/// Threshold to apply for a movement in `direction` (SCREEN_POS_LEFT/RIGHT).
+/// Local switches (virtual desktop changes) get no gap; only cross-output
+/// jumps use the configured threshold (upstream v0.78, 58664dd).
+pub fn get_jump_threshold(
+    screen_pos: u8,
+    screen_index: u32,
+    direction: u8,
+    config_threshold: u16,
+) -> u16 {
+    // On a non-main local screen every possible switch is local.
+    if screen_index > 1 {
+        return 0;
+    }
+    // On the main screen moving away from the border the switch is local too.
+    if screen_pos == direction && screen_index == 1 {
+        return 0;
+    }
+    // Everything else is a cross-output jump.
+    config_threshold
+}
+
 /// Calculate mouse acceleration factor (fixed-point ×256).
 /// Returns factor_fp where actual factor = factor_fp / 256.
 pub fn calculate_mouse_acceleration_factor_fp(
@@ -146,6 +171,28 @@ mod tests {
     #[test]
     fn test_screen_switch_right() {
         assert_eq!(is_screen_switch_needed(32767, 100, 0), 1);
+    }
+
+    #[test]
+    fn test_jump_threshold_local_screen_is_zero() {
+        // On a non-main local screen (index > 1) every switch is local — no gap.
+        assert_eq!(get_jump_threshold(SCREEN_POS_LEFT, 2, SCREEN_POS_LEFT, 479), 0);
+        assert_eq!(get_jump_threshold(SCREEN_POS_RIGHT, 3, SCREEN_POS_LEFT, 479), 0);
+    }
+
+    #[test]
+    fn test_jump_threshold_main_screen_away_from_border_is_zero() {
+        // On the main screen (index 1) moving away from the border (direction
+        // == own pos) the switch is a local virtual-desktop change — no gap.
+        assert_eq!(get_jump_threshold(SCREEN_POS_LEFT, 1, SCREEN_POS_LEFT, 479), 0);
+        assert_eq!(get_jump_threshold(SCREEN_POS_RIGHT, 1, SCREEN_POS_RIGHT, 479), 0);
+    }
+
+    #[test]
+    fn test_jump_threshold_cross_output_uses_config() {
+        // Main screen, moving toward the border — the real cross-PC jump.
+        assert_eq!(get_jump_threshold(SCREEN_POS_LEFT, 1, SCREEN_POS_RIGHT, 479), 479);
+        assert_eq!(get_jump_threshold(SCREEN_POS_RIGHT, 1, SCREEN_POS_LEFT, 479), 479);
     }
 
     #[test]

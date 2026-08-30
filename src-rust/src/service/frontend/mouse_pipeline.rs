@@ -31,6 +31,7 @@ pub fn process_report(
         output.speed_x, output.speed_y,
         state.cfg.mouse_zoom, state.cfg.config.enable_acceleration != 0,
         state.cfg.config.jump_threshold,
+        output.pos, output.screen_index,
     );
     state.hid.pointer_x = new_x;
     state.hid.pointer_y = new_y;

@@ -57,7 +57,7 @@ mod tests {
         };
         // Start near left edge
         let (x, _, dir) = mouse_logic::update_mouse_position(
-            100, 16000, &values, 16, 28, false, false, 0,
+            100, 16000, &values, 16, 28, false, false, 0, 0, 1,
         );
         assert_eq!(x, 0); // clamped
         assert_eq!(dir, mouse_logic::SwitchDirection::Left);
@@ -412,7 +412,7 @@ mod tests {
             move_x: -200, move_y: 0, wheel: 0, pan: 0, buttons: 0,
         };
         let (x, _y, dir) = mouse_logic::update_mouse_position(
-            50, state.hid.pointer_y, &values, 16, 28, false, false, 0,
+            50, state.hid.pointer_y, &values, 16, 28, false, false, 0, 0, 1,
         );
         assert_eq!(x, 0); // clamped to edge
         assert_eq!(dir, mouse_logic::SwitchDirection::Left);

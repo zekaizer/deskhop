@@ -41,6 +41,8 @@ pub fn update_mouse_position(
     mouse_zoom: bool,
     enable_acceleration: bool,
     jump_threshold: u16,
+    screen_pos: u8,
+    screen_index: u32,
 ) -> (i16, i16, SwitchDirection) {
     let zoom_shift: u32 = if mouse_zoom { 2 } else { 0 }; // MOUSE_ZOOM_SCALING_FACTOR
 
@@ -57,7 +59,20 @@ pub fn update_mouse_position(
     let offset_x = ((values.move_x as i64 * accel_fp as i64 * sx as i64) >> 8) as i32;
     let offset_y = ((values.move_y as i64 * accel_fp as i64 * sy as i64) >> 8) as i32;
 
-    let switch = mouse::is_screen_switch_needed(pointer_x as i32, offset_x, jump_threshold);
+    // Local switches (virtual desktop changes) have no gap; only cross-output
+    // jumps use the configured threshold. No X offset implies no switch.
+    let switch = if offset_x == 0 {
+        0
+    } else {
+        let direction = if offset_x < 0 {
+            mouse::SCREEN_POS_LEFT
+        } else {
+            mouse::SCREEN_POS_RIGHT
+        };
+        let threshold =
+            mouse::get_jump_threshold(screen_pos, screen_index, direction, jump_threshold);
+        mouse::is_screen_switch_needed(pointer_x as i32, offset_x, threshold)
+    };
 
     let new_x = mouse::move_and_keep_on_screen(pointer_x as i32, offset_x) as i16;
     let new_y = mouse::move_and_keep_on_screen(pointer_y as i32, offset_y) as i16;
@@ -168,7 +183,7 @@ mod tests {
         };
 
         let (x, y, dir) = update_mouse_position(
-            16000, 16000, &values, 16, 28, false, false, 0,
+            16000, 16000, &values, 16, 28, false, false, 0, 0, 1,
         );
 
         assert!(x > 16000); // moved right
@@ -185,10 +200,33 @@ mod tests {
         };
 
         let (_, _, dir) = update_mouse_position(
-            100, 16000, &values, 16, 28, false, false, 0,
+            100, 16000, &values, 16, 28, false, false, 0, 0, 1,
         );
 
         assert_eq!(dir, SwitchDirection::Left);
+    }
+
+    #[test]
+    fn test_update_mouse_position_local_switch_ignores_threshold() {
+        // On a non-main local screen (index 2) the configured jump threshold
+        // must not gate the switch — virtual desktop changes have no gap.
+        // offset_x = (-10 * 256 * 16) >> 8 = -160: past the edge (100), inside
+        // the 479 gap.
+        let values = MouseValues { move_x: -10, move_y: 0, ..Default::default() };
+
+        let (_, _, dir) = update_mouse_position(
+            100, 16000, &values, 16, 28, false, false, 479,
+            mouse::SCREEN_POS_LEFT, 2,
+        );
+        assert_eq!(dir, SwitchDirection::Left);
+
+        // Same movement on the main screen toward the border (pos RIGHT,
+        // moving left) keeps the configured gap: no switch yet.
+        let (_, _, dir) = update_mouse_position(
+            100, 16000, &values, 16, 28, false, false, 479,
+            mouse::SCREEN_POS_RIGHT, 1,
+        );
+        assert_eq!(dir, SwitchDirection::None);
     }
 
     #[test]
@@ -354,10 +392,10 @@ mod tests {
 
         // With zoom enabled, speed is halved (shift right by 2)
         let (x_zoom, _, _) = update_mouse_position(
-            16000, 16000, &values, 16, 28, true, false, 0,
+            16000, 16000, &values, 16, 28, true, false, 0, 0, 1,
         );
         let (x_normal, _, _) = update_mouse_position(
-            16000, 16000, &values, 16, 28, false, false, 0,
+            16000, 16000, &values, 16, 28, false, false, 0, 0, 1,
         );
 
         assert!(x_zoom < x_normal); // zoom should move less
