@@ -89,6 +89,9 @@ pub struct MscStep {
     pub accumulate_crc: u8,
     /// Last block: caller finalizes the checksum, verifies, and reboots/recovers.
     pub is_final: u8,
+    /// Valid UF2 magic but blockNo past the running image — caller must fail
+    /// the MSC write (-1); flash_offset would fall outside the RUNNING slot.
+    pub reject: u8,
     /// Image offset of this page (caller adds the running-slot flash base).
     pub flash_offset: u32,
 }
@@ -102,6 +105,12 @@ pub fn msc_write_step(block_no: u32, magic0: u32, magic1: u32, magic_end: u32) -
         return s;
     }
     s.is_uf2 = 1;
+    // Bound blockNo to the running image — flash_offset past STAGING_IMAGE_SIZE
+    // would write outside the RUNNING slot (upstream v0.78 hardening).
+    if block_no > STAGING_IMAGE_SIZE / FLASH_PAGE_SIZE - 1 {
+        s.reject = 1;
+        return s;
+    }
     s.is_first = (block_no == 0) as u8;
     // CRC covers every page except the final sector, matching the range of
     // calculate_firmware_crc32 (STAGING_IMAGE_SIZE - FLASH_SECTOR_SIZE).
@@ -501,6 +510,23 @@ mod tests {
         let s = msc_write_step(5, M0, M1, ME);
         assert_eq!(s.flash_offset, 5 * FLASH_PAGE_SIZE);
         assert_eq!(s.is_first, 0);
+    }
+
+    #[test]
+    fn msc_rejects_out_of_range_block_no() {
+        // Valid magic but blockNo past the image: must reject (caller returns -1)
+        // and must not carry any write/CRC/finalize action — otherwise
+        // flash_offset lands outside the RUNNING slot.
+        let max = STAGING_IMAGE_SIZE / FLASH_PAGE_SIZE - 1; // 1023
+        for bad in [max + 1, max + 2, u32::MAX / FLASH_PAGE_SIZE, u32::MAX] {
+            let s = msc_write_step(bad, M0, M1, ME);
+            assert_eq!(s.reject, 1, "blockNo {bad} must be rejected");
+            assert_eq!(s.is_first, 0);
+            assert_eq!(s.accumulate_crc, 0);
+            assert_eq!(s.is_final, 0);
+        }
+        // The last valid block stays accepted.
+        assert_eq!(msc_write_step(max, M0, M1, ME).reject, 0);
     }
 
     #[test]

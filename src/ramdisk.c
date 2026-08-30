@@ -73,6 +73,10 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t *
     if (!s.is_uf2)
         return (int32_t)bufsize;
 
+    /* Valid UF2 but blockNo past the image — refuse before touching flash */
+    if (s.reject)
+        return -1;
+
     if (s.is_first) {
         global_fw.fw.checksum = 0xffffffff;
 

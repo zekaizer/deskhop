@@ -57,6 +57,7 @@ typedef struct {
     uint8_t  is_first;        /* blockNo 0: (re)init running checksum + flag */
     uint8_t  accumulate_crc;  /* payload is inside the CRC-protected region */
     uint8_t  is_final;        /* last block: finalize CRC, verify, reboot/recover */
+    uint8_t  reject;          /* UF2 magic ok but blockNo out of range — fail the write */
     uint32_t flash_offset;    /* image offset of this page (add running base) */
 } msc_step_t;
 extern void rust_msc_write_step(uint32_t block_no, uint32_t magic0, uint32_t magic1,
