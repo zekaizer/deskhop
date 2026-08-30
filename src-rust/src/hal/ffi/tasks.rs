@@ -77,9 +77,14 @@ pub(crate) unsafe fn packet_receiver_task() {
     crate::service::tasks::packet_receive_tick(&mut state, &hal);
 }
 
+// Core0 only (device-side scheduler task).
+static mut HID_QUEUE_STALL: crate::service::tasks::HeadStall =
+    crate::service::tasks::HeadStall::new();
+
 pub(crate) unsafe fn process_hid_queue_task() {
     let hal = crate::hal::pico::PicoHal::new();
-    crate::service::tasks::process_hid_queue(&hal);
+    let stall = &mut *core::ptr::addr_of_mut!(HID_QUEUE_STALL);
+    crate::service::tasks::process_hid_queue(&hal, stall, crate::hal::device::hal_time_us_32());
 }
 
 pub(crate) unsafe fn led_blinking_task() {

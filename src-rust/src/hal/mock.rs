@@ -57,6 +57,8 @@ pub struct MockHal {
     pub hid_queued: RefCell<Vec<(u8, u8, Vec<u8>)>>,
     /// Word returned by read_running_fw (defaults 0); set to verify served data.
     pub running_fw: Cell<u32>,
+    /// Simulated hid_queue_out entries (36B hid_generic_pkt_t) for peek/pop.
+    pub hid_out_queue: RefCell<Vec<[u8; 36]>>,
 }
 
 impl MockHal {
@@ -102,6 +104,7 @@ impl MockHal {
             hid_sent: RefCell::new(Vec::new()),
             hid_queued: RefCell::new(Vec::new()),
             running_fw: Cell::new(0),
+            hid_out_queue: RefCell::new(Vec::new()),
         }
     }
 
@@ -187,8 +190,24 @@ impl ReportQueue for MockHal {
 // ---- HidQueue ----
 
 impl HidQueue for MockHal {
-    fn peek_hid_report(&self, _out: &mut [u8]) -> bool { false }
-    fn pop_hid_report(&self, _out: &mut [u8]) -> bool { false }
+    fn peek_hid_report(&self, out: &mut [u8]) -> bool {
+        match self.hid_out_queue.borrow().first() {
+            Some(e) => {
+                out[..e.len()].copy_from_slice(e);
+                true
+            }
+            None => false,
+        }
+    }
+    fn pop_hid_report(&self, out: &mut [u8]) -> bool {
+        let mut q = self.hid_out_queue.borrow_mut();
+        if q.is_empty() {
+            return false;
+        }
+        let e = q.remove(0);
+        out[..e.len()].copy_from_slice(&e);
+        true
+    }
     fn send_hid_report(&self, instance: u8, report_id: u8, data: &[u8]) -> bool {
         self.hid_sent.borrow_mut().push((instance, report_id, data.to_vec()));
         true

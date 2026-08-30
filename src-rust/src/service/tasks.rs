@@ -76,14 +76,48 @@ const HID_REPORT_DATA_MAX: usize = 32;
 /// Size of hid_generic_pkt_t: instance(1) + report_id(1) + type(1) + len(1) + data(HID_REPORT_DATA_MAX) = 36
 const HID_GENERIC_PKT_SIZE: usize = 4 + HID_REPORT_DATA_MAX;
 
+/// Drop the queue head after it has been unsendable this long. Long enough
+/// for a transiently busy endpoint (ms-scale); short enough to recover the
+/// queue within one passthrough reconnect window.
+pub const HID_QUEUE_HEAD_DROP_US: u32 = 250_000;
+
+/// Tracks how long the current queue head has been unsendable.
+pub struct HeadStall {
+    armed: bool,
+    since_us: u32,
+}
+
+impl HeadStall {
+    pub const fn new() -> Self {
+        Self { armed: false, since_us: 0 }
+    }
+}
+
+impl Default for HeadStall {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Send one pending HID report from the output queue via TinyUSB.
 /// Peek → check if TinyUSB endpoint is ready → send → remove on success.
 /// Returns true if a report was actually sent (marks active-output activity).
+///
+/// A head whose HID instance never becomes ready again (a passthrough entry's
+/// dev_inst after the disconnect/reconnect re-enumeration resets to the
+/// default 2-interface descriptor) would jam the queue forever — this queue
+/// also carries consumer-control, system-control, and config-mode responses.
+/// Drop the head after `HID_QUEUE_HEAD_DROP_US` of continuous not-ready.
 pub fn process_hid_queue(
     hal: &(impl HidQueue + UsbDevice),
+    stall: &mut HeadStall,
+    now_us: u32,
 ) -> bool {
     let mut buf = [0u8; HID_GENERIC_PKT_SIZE];
-    if !hal.peek_hid_report(&mut buf) { return false; }
+    if !hal.peek_hid_report(&mut buf) {
+        stall.armed = false;
+        return false;
+    }
 
     let instance = buf[0];
     let report_id = buf[1];
@@ -91,8 +125,20 @@ pub fn process_hid_queue(
     let len = buf[3] as usize;
     let data = &buf[4..4 + len.min(HID_REPORT_DATA_MAX)];
 
-    if !hal.hid_ready(instance) { return false; }
+    if !hal.hid_ready(instance) {
+        if !stall.armed {
+            stall.armed = true;
+            stall.since_us = now_us;
+        } else if now_us.wrapping_sub(stall.since_us) > HID_QUEUE_HEAD_DROP_US {
+            hal.pop_hid_report(&mut buf);
+            stall.armed = false;
+            crate::service::dlog::w(b"hid")
+                .s(b"drop stalled head inst=").u(instance as u32).done();
+        }
+        return false;
+    }
 
+    stall.armed = false;
     if hal.send_hid_report(instance, report_id, data) {
         hal.pop_hid_report(&mut buf);
         return true;
@@ -305,6 +351,79 @@ mod tests {
     use super::*;
     use crate::domain::constants::RAW_PACKET_LENGTH;
     use crate::hal::mock::MockHal;
+
+    // ---- process_hid_queue head-stall drop ----
+
+    fn q_entry(inst: u8, rid: u8, len: u8) -> [u8; 36] {
+        let mut e = [0u8; 36];
+        e[0] = inst;
+        e[1] = rid;
+        e[3] = len;
+        e
+    }
+
+    #[test]
+    fn hid_queue_sends_ready_head() {
+        let hal = MockHal::new();
+        hal.hid_out_queue.borrow_mut().push(q_entry(1, 2, 4));
+        let mut stall = HeadStall::new();
+        assert!(process_hid_queue(&hal, &mut stall, 0));
+        assert_eq!(hal.hid_sent.borrow().len(), 1);
+        assert!(hal.hid_out_queue.borrow().is_empty());
+    }
+
+    #[test]
+    fn hid_queue_keeps_unready_head_within_window() {
+        let hal = MockHal::new();
+        hal.hid_ready_map.set(0x00); // nothing ready
+        hal.hid_out_queue.borrow_mut().push(q_entry(3, 0, 4));
+        let mut stall = HeadStall::new();
+        assert!(!process_hid_queue(&hal, &mut stall, 0));
+        assert!(!process_hid_queue(&hal, &mut stall, HID_QUEUE_HEAD_DROP_US - 1));
+        assert_eq!(hal.hid_out_queue.borrow().len(), 1); // still queued
+        assert!(hal.hid_sent.borrow().is_empty());
+    }
+
+    #[test]
+    fn hid_queue_drops_head_stalled_past_window() {
+        // A stale passthrough instance (never ready after re-enumeration)
+        // must not jam the entries behind it forever.
+        let hal = MockHal::new();
+        hal.hid_ready_map.set(0b0000_0010); // only instance 1 ready
+        hal.hid_out_queue.borrow_mut().push(q_entry(5, 0, 4)); // stale head
+        hal.hid_out_queue.borrow_mut().push(q_entry(1, 2, 4)); // live entry behind
+        let mut stall = HeadStall::new();
+
+        assert!(!process_hid_queue(&hal, &mut stall, 0)); // arms
+        assert!(!process_hid_queue(&hal, &mut stall, HID_QUEUE_HEAD_DROP_US + 1)); // drops head
+        assert_eq!(hal.hid_out_queue.borrow().len(), 1);
+
+        // Next tick sends the live entry that was stuck behind the stale head
+        assert!(process_hid_queue(&hal, &mut stall, HID_QUEUE_HEAD_DROP_US + 2));
+        let sent = hal.hid_sent.borrow();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].0, 1);
+    }
+
+    #[test]
+    fn hid_queue_ready_head_resets_stall_window() {
+        // A transient not-ready followed by a send must not leave a stale
+        // armed window that later drops a fresh head prematurely.
+        let hal = MockHal::new();
+        hal.hid_ready_map.set(0x00);
+        hal.hid_out_queue.borrow_mut().push(q_entry(0, 0, 4));
+        let mut stall = HeadStall::new();
+        assert!(!process_hid_queue(&hal, &mut stall, 0)); // arms
+
+        hal.hid_ready_map.set(0xFF);
+        assert!(process_hid_queue(&hal, &mut stall, 1000)); // sends, resets
+
+        hal.hid_ready_map.set(0x00);
+        hal.hid_out_queue.borrow_mut().push(q_entry(0, 0, 4));
+        // Old window must not carry over: this is a fresh stall at t=DROP+2
+        assert!(!process_hid_queue(&hal, &mut stall, HID_QUEUE_HEAD_DROP_US + 2));
+        assert_eq!(hal.hid_out_queue.borrow().len(), 1); // NOT dropped
+    }
 
     // ---- check_system_health ----
 
