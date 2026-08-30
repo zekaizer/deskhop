@@ -261,6 +261,21 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_output_select_out_of_range_ignored() {
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.tud_connected = true;
+        state.cfg.active_output = 1;
+
+        let pkt = make_packet(PacketType::OutputSelect, [7, 0, 0, 0, 0, 0, 0, 0]);
+        dispatch_packet(&mut state, &hal, &pkt);
+
+        assert_eq!(state.cfg.active_output, 1); // unchanged
+        assert_eq!(hal.leds_synced.get(), 0); // no side effects
+    }
+
+    #[test]
     fn dispatch_flash_led() {
         let hal = MockHal::new();
         let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();

@@ -40,7 +40,14 @@ pub fn handle_simple_msg(ptype: u8, data: &[u8; 8], state: &DeviceState<'_>) -> 
         Some(PacketType::Reboot) => HandlerAction::Reboot,
         Some(PacketType::Screensaver) => HandlerAction::SetScreensaverMode(val),
         Some(PacketType::OutputSelect) => {
-            HandlerAction::SetActiveOutput(val)
+            // Raw peer byte indexes config.output[NUM_SCREENS] downstream, and
+            // the 1-byte checksum passes some corruptions — reject instead of
+            // switching to a garbage output.
+            if (val as usize) < crate::domain::constants::NUM_SCREENS {
+                HandlerAction::SetActiveOutput(val)
+            } else {
+                HandlerAction::None
+            }
         }
         Some(PacketType::KbdSetReport) => {
             HandlerAction::SetKeyboardLeds(val)
@@ -261,6 +268,26 @@ mod tests {
         let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
         apply_action(&HandlerAction::SetActiveOutput(1), &mut state);
         assert_eq!(state.cfg.active_output, 1);
+    }
+
+    #[test]
+    fn test_output_select_out_of_range_rejected() {
+        // active_output indexes config.output[NUM_SCREENS]; a corrupted
+        // OutputSelect that passes the weak 1-byte checksum must be rejected,
+        // not stored (the passthrough path would index OOB and panic).
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        let action = handle_simple_msg(
+            PacketType::OutputSelect as u8, &[7, 0, 0, 0, 0, 0, 0, 0], &state,
+        );
+        assert!(matches!(action, HandlerAction::None));
+        // Boundary values stay accepted
+        for v in 0..crate::domain::constants::NUM_SCREENS as u8 {
+            let action = handle_simple_msg(
+                PacketType::OutputSelect as u8, &[v, 0, 0, 0, 0, 0, 0, 0], &state,
+            );
+            assert!(matches!(action, HandlerAction::SetActiveOutput(o) if o == v));
+        }
     }
 
     #[test]

@@ -48,6 +48,11 @@ pub fn handle_output_select(
     hal: &(impl OutputControl + ReportQueue),
     output: u8,
 ) {
+    // active_output indexes config.output[NUM_SCREENS] (unguarded in the
+    // passthrough HID++ path) — never store an out-of-range value.
+    if (output as usize) >= crate::domain::constants::NUM_SCREENS {
+        return;
+    }
     state.cfg.active_output = output;
     if state.cfg.tud_connected {
         crate::service::backend::host_link::release_all_keys(state, hal);
