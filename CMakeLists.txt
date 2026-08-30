@@ -4,7 +4,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 ## Version Configuration.
 ## Define e.g. 0.72 as major 0 and minor 72
 set(VERSION_MAJOR 0)
-set(VERSION_MINOR 77)
+set(VERSION_MINOR 78)
 set(DDM_VERSION 6)
 
 ## Release Type Selection
