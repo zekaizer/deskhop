@@ -114,7 +114,11 @@ fn extract_kbd_nkro(
     let nkro_report = &src[nkro_offset..nkro_end];
 
     hid_report::extract_bit_variable(
-        nkro_report, usage_min, usage_max, 0, &mut out[2..2 + KEYS_IN_USB_REPORT],
+        nkro_report,
+        usage_min,
+        usage_max,
+        kbd.nkro.offset,
+        &mut out[2..2 + KEYS_IN_USB_REPORT],
     ) as i32
 }
 
@@ -224,6 +228,41 @@ mod tests {
         // Keys extracted from bitmap
         assert_eq!(out[2], 2); // usage_min + bit 2
         assert_eq!(out[3], 4); // usage_min + bit 4
+    }
+
+    #[test]
+    fn test_extract_nkro_midbyte_bit_offset() {
+        // NKRO bitmap starting mid-byte (offset 12 = byte 1, bit 4): the bit
+        // offset within the first bitmap byte must come from nkro.offset & 7
+        // (C behaviour) — a hardcoded 0 shifts every extracted usage.
+        let mut iface = zeroed_iface();
+        iface.protocol = 1;
+        iface.uses_report_id = false;
+
+        let mut kbd = KeyboardDescriptor::default();
+        kbd.is_nkro = true;
+        kbd.modifier = ReportVal {
+            offset: 0,
+            offset_idx: 0,
+            size: 8,
+            ..ReportVal::default()
+        };
+        kbd.nkro = ReportVal {
+            offset: 12,     // bit offset: byte 1, bit 4
+            offset_idx: 1,  // bitmap bytes start at src[1]
+            size: 4,
+            usage_min: 4,
+            usage_max: 7,   // span 4 == size
+            ..ReportVal::default()
+        };
+
+        // src[1] bits 4 and 6 set → usages 4 and 6
+        let report = [0x01, 0b0101_0000, 0, 0, 0, 0, 0, 0];
+        let (out, rc) = extract_kbd_data(&report, &iface, &kbd);
+        assert_eq!(rc, 2);
+        assert_eq!(out[0], 0x01);
+        assert_eq!(out[2], 4);
+        assert_eq!(out[3], 6);
     }
 
     #[test]
