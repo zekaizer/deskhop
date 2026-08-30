@@ -182,8 +182,27 @@ pub fn remap_engine_process(
     for i in 0..engine.config.count as usize {
         let e = &engine.config.entries[i];
 
-        // Check output_mask
         if e.output_mask != 0xFF && (e.output_mask & (1 << active_output)) == 0 {
+            // Entry inactive on this output. A tap-hold that began before an
+            // output switch must still be cancelled here: remap_engine_tick
+            // ignores output_mask, so a stranded Waiting entry would ripen and
+            // get_active_output would inject the hold key into the WRONG
+            // output, and the next press back on the original output would
+            // land in a stale Held branch and swallow the tap.
+            if e.remap_type == RemapType::TapHold {
+                let r = &mut engine.runtime[i];
+                if r.state != RemapState::Idle {
+                    r.state = RemapState::Idle;
+                    r.timestamp = 0;
+                    r.consumed = false; // no tap into the wrong output
+                    if key_in_report(e.trigger, report) {
+                        // Consume the in-flight press once; after the cancel
+                        // the trigger acts natively on this output.
+                        report_remove_key(report, e.trigger);
+                        result = RemapResult::Modified;
+                    }
+                }
+            }
             continue;
         }
 
@@ -404,6 +423,107 @@ mod tests {
         assert_eq!(engine.config.entries[1].tap_action.keycode, HID_KEY_SPACE);
         assert_eq!(engine.config.entries[1].tap_action.modifier, KEYBOARD_MODIFIER_LEFTSHIFT);
         assert_eq!(engine.config.entries[1].output_mask, 0x02);
+    }
+
+    // -- Output-switch-while-held (masked in-flight cancel) --
+
+    fn make_masked_tap_hold(mask: u8) -> RemapEntry {
+        RemapEntry {
+            output_mask: mask,
+            ..make_tap_hold(0x39, 0x90, 0x39) // CapsLock: tap LANG1, hold CapsLock
+        }
+    }
+
+    #[test]
+    fn output_switch_while_waiting_cancels_entry() {
+        // Press on output 0 (masked in), then the output switches to 1 (masked
+        // out) with the key still held: the in-flight entry must cancel, not
+        // stay Waiting forever (the tick ignores output_mask and would ripen
+        // it into a phantom hold on the wrong output).
+        let mut engine = new_engine();
+        engine.config.entries[0] = make_masked_tap_hold(0x01);
+        engine.config.count = 1;
+
+        let mut report = make_report(&[0x39]);
+        remap_engine_process(&mut engine, &mut report, 0, 1000);
+        assert_eq!(engine.runtime[0].state, RemapState::Waiting);
+
+        // Switched to output 1, key still held
+        let mut report = make_report(&[0x39]);
+        remap_engine_process(&mut engine, &mut report, 1, 2000);
+        assert_eq!(engine.runtime[0].state, RemapState::Idle);
+        assert!(!engine.runtime[0].consumed); // no tap into the wrong output
+        assert_eq!(report.keycode[0], 0); // in-flight press stays consumed
+
+        // The tick must not ripen the cancelled entry into Held
+        assert!(!remap_engine_tick(&mut engine, 2000 + TAP_HOLD_DEFAULT_US * 2));
+        let mut out = HidKeyboardReport::default();
+        remap_engine_get_active_output(&engine, &mut out);
+        assert_eq!(out.keycode[0], 0); // no phantom hold injection
+    }
+
+    #[test]
+    fn output_switch_while_held_cancels_entry() {
+        let mut engine = new_engine();
+        engine.config.entries[0] = make_masked_tap_hold(0x01);
+        engine.config.count = 1;
+
+        let mut report = make_report(&[0x39]);
+        remap_engine_process(&mut engine, &mut report, 0, 1000);
+        remap_engine_tick(&mut engine, 1000 + TAP_HOLD_DEFAULT_US + 1);
+        assert_eq!(engine.runtime[0].state, RemapState::Held);
+
+        // Switch to masked-out output with the key still held
+        let mut report = make_report(&[0x39]);
+        remap_engine_process(&mut engine, &mut report, 1, 2_000_000);
+        assert_eq!(engine.runtime[0].state, RemapState::Idle);
+
+        let mut out = HidKeyboardReport::default();
+        remap_engine_get_active_output(&engine, &mut out);
+        assert_eq!(out.keycode[0], 0); // hold key no longer injected
+    }
+
+    #[test]
+    fn tap_works_after_cancelled_switch_roundtrip() {
+        // After the cancel, returning to the original output and tapping must
+        // emit the tap — the old stale Held state used to swallow it.
+        let mut engine = new_engine();
+        engine.config.entries[0] = make_masked_tap_hold(0x01);
+        engine.config.count = 1;
+
+        // Press on 0, switch to 1 (cancel), release on 1
+        let mut report = make_report(&[0x39]);
+        remap_engine_process(&mut engine, &mut report, 0, 1000);
+        let mut report = make_report(&[0x39]);
+        remap_engine_process(&mut engine, &mut report, 1, 2000);
+        let mut report = make_report(&[]);
+        remap_engine_process(&mut engine, &mut report, 1, 3000);
+
+        // Back on 0: tap (press + release before threshold)
+        let mut report = make_report(&[0x39]);
+        remap_engine_process(&mut engine, &mut report, 0, 10_000);
+        assert_eq!(report.keycode[0], 0); // trigger consumed
+        let mut report = make_report(&[]);
+        remap_engine_process(&mut engine, &mut report, 0, 20_000);
+
+        let mut out = HidKeyboardReport::default();
+        assert!(remap_engine_get_pending(&mut engine, &mut out));
+        assert_eq!(out.keycode[0], 0x90); // tap emitted
+    }
+
+    #[test]
+    fn masked_idle_entry_stays_untouched() {
+        // A masked-out entry with no in-flight state must keep passing the
+        // raw trigger through (native CapsLock on the other OS).
+        let mut engine = new_engine();
+        engine.config.entries[0] = make_masked_tap_hold(0x01);
+        engine.config.count = 1;
+
+        let mut report = make_report(&[0x39]);
+        let result = remap_engine_process(&mut engine, &mut report, 1, 1000);
+        assert_eq!(result, RemapResult::Pass);
+        assert_eq!(report.keycode[0], 0x39); // untouched
+        assert_eq!(engine.runtime[0].state, RemapState::Idle);
     }
 
     // -- SIMPLE remap tests --
