@@ -202,7 +202,12 @@ pub fn screensaver_tick(
     if role >= state.cfg.config.output.len() { return None; }
 
     let ss = &state.cfg.config.output[role].screensaver;
-    let inactivity = hal.now_us_64() - state.cfg.last_activity[role];
+    // last_activity is written by the other core; a torn u64 read on M0+ can
+    // transiently yield last > now. Treat that as "just active" — a plain
+    // subtraction underflows (panic under dh_debug's overflow checks).
+    let now = hal.now_us_64();
+    let last = state.cfg.last_activity[role];
+    let inactivity = now.saturating_sub(last);
     let current_time = hal.now_us_32();
 
     if !screensaver::should_activate(
@@ -351,6 +356,27 @@ mod tests {
     use super::*;
     use crate::domain::constants::RAW_PACKET_LENGTH;
     use crate::hal::mock::MockHal;
+
+    // ---- screensaver_tick torn cross-core timestamp ----
+
+    #[test]
+    fn screensaver_tick_survives_torn_activity_timestamp() {
+        // last_activity is written by the other core; a torn u64 read can
+        // transiently yield last > now. The plain `now - last` underflowed:
+        // panic with overflow checks on (dh_debug), or an absurd inactivity
+        // that spuriously started the screensaver.
+        let hal = MockHal::new();
+        hal.set_time(1_000);
+        let (mut hid, mut cfg, mut fw, mut led) = DeviceState::zeroed_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.board_role = 0;
+        state.cfg.config.output[0].screensaver.mode = 1;
+        state.cfg.config.output[0].screensaver.idle_time_us = 1_000_000;
+        state.cfg.last_activity[0] = u64::MAX; // torn-read artifact
+
+        // Must be treated as "just active", not as huge inactivity
+        assert!(screensaver_tick(&state, &hal, 0, &[0u8; 8]).is_none());
+    }
 
     // ---- process_hid_queue head-stall drop ----
 
