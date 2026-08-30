@@ -37,6 +37,30 @@ pub fn validate_config(config_bytes: &[u8], config: &Config) -> bool {
         && config.version == CURRENT_CONFIG_VERSION
 }
 
+/// Validate a stored config purely from its byte image (magic, version,
+/// checksum decoded from the bytes). Exists so the FFI loader never needs a
+/// typed `&Config` view aliasing the `&mut [u8]` it reads flash into.
+pub fn validate_config_bytes(config_bytes: &[u8]) -> bool {
+    let size = core::mem::size_of::<Config>();
+    if config_bytes.len() < size {
+        return false;
+    }
+    // from_le_bytes matches the in-memory layout on both build targets
+    // (thumbv6m and the x86 test host are little-endian).
+    let rd_u32 = |off: usize| {
+        u32::from_le_bytes([
+            config_bytes[off],
+            config_bytes[off + 1],
+            config_bytes[off + 2],
+            config_bytes[off + 3],
+        ])
+    };
+    rd_u32(core::mem::offset_of!(Config, magic_header)) == MAGIC_HEADER
+        && rd_u32(core::mem::offset_of!(Config, version)) == CURRENT_CONFIG_VERSION
+        && rd_u32(core::mem::offset_of!(Config, checksum))
+            == crc::calc_crc32(&config_bytes[..checksum_offset()])
+}
+
 /// Byte offset of the `checksum` field. NOT `size_of - 4`: `Config` is
 /// 8-byte aligned (it has u64 members), so `checksum` (the last declared
 /// field, a u32) is followed by 4 bytes of trailing padding. The CRC must
@@ -66,13 +90,14 @@ pub fn reset_config_timer(cfg: &mut super::structs::DeviceConfig, now_us: u64) {
 /// The caller (FFI layer) is responsible for the pointer-to-slice conversion.
 pub fn load_config_from_bytes(
     config_bytes: &mut [u8],
-    config: &Config,
     hal: &impl ConfigFlash,
     default_config: &Config,
 ) -> Option<Config> {
     hal.flash_read_config(config_bytes);
 
-    if validate_config(config_bytes, config) {
+    // Validate from the bytes alone — taking a typed &Config view of the same
+    // memory alongside this &mut slice (as the caller once did) is aliasing UB.
+    if validate_config_bytes(config_bytes) {
         None // config is valid, no replacement needed
     } else {
         Some(*default_config)
@@ -86,4 +111,44 @@ pub fn prepare_save_page(config_bytes: &[u8]) -> [u8; FLASH_PAGE_SIZE] {
     let mut page = [0u8; FLASH_PAGE_SIZE];
     page[..size].copy_from_slice(&config_bytes[..size]);
     page
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_bytes(c: &Config) -> &[u8] {
+        unsafe {
+            core::slice::from_raw_parts(
+                c as *const Config as *const u8,
+                core::mem::size_of::<Config>(),
+            )
+        }
+    }
+
+    #[test]
+    fn validate_config_bytes_matches_typed_validation() {
+        let mut c = Config {
+            magic_header: MAGIC_HEADER,
+            version: CURRENT_CONFIG_VERSION,
+            ..Config::default()
+        };
+        c.checksum = compute_config_checksum(config_bytes(&c));
+
+        assert!(validate_config(config_bytes(&c), &c));
+        assert!(validate_config_bytes(config_bytes(&c)));
+
+        // Each field breaks validation the same way in both forms
+        let mut bad = c;
+        bad.magic_header ^= 1;
+        assert!(!validate_config_bytes(config_bytes(&bad)));
+        let mut bad = c;
+        bad.version += 1;
+        assert!(!validate_config_bytes(config_bytes(&bad)));
+        let mut bad = c;
+        bad.checksum ^= 1;
+        assert!(!validate_config_bytes(config_bytes(&bad)));
+        // Short buffer rejected
+        assert!(!validate_config_bytes(&config_bytes(&c)[..8]));
+    }
 }

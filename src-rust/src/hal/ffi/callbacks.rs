@@ -776,7 +776,7 @@ pub unsafe extern "C" fn rust_load_config() {
         &mut cfg.config as *mut structs::Config as *mut u8, size,
     );
     if let Some(default) = crate::domain::config::load_config_from_bytes(
-        config_bytes, &cfg.config, &hal, &DEFAULT_CONFIG,
+        config_bytes, &hal, &DEFAULT_CONFIG,
     ) {
         cfg.config = default;
     }
