@@ -305,11 +305,14 @@ pub fn on_report_received(
 
     // HID++ vendor interfaces: route by message type
     if pt.ifaces[idx].always_passthrough {
-        // Intercept DeskHop sw_id responses (scan only)
-        if report.len() >= 7 && (report[3] & 0x0F) == HIDPP_SWID_DESKHOP {
-            if pt.hidpp_scan.state == HidppScanState::QueryIRoot {
-                passthrough_scan::handle_scan_response(pt, report);
-            }
+        // Intercept DeskHop sw_id responses only while our scan is actually
+        // awaiting one. sw_id 0xF is not reserved — a host driver may use it
+        // too, and unconditionally consuming those responses blackholed them.
+        if report.len() >= 7
+            && (report[3] & 0x0F) == HIDPP_SWID_DESKHOP
+            && pt.hidpp_scan.state == HidppScanState::QueryIRoot
+        {
+            passthrough_scan::handle_scan_response(pt, report);
             hal.receive_report(dev_addr, instance);
             return ReportAction::Handled;
         }
