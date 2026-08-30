@@ -97,8 +97,8 @@ pub fn handle_set_report(
     led_value: u8,
 ) {
     let other = 1usize.wrapping_sub(state.cfg.board_role as usize);
-    if other < state.cfg.keyboard_leds.len() {
-        state.cfg.keyboard_leds[other] = led_value;
+    if other < state.cfg.keyboard_leds_desired.len() {
+        state.cfg.keyboard_leds_desired[other] = led_value;
     }
     if state.cfg.keyboard_connected && !state.is_active_output() {
         hal.sync_leds();
@@ -218,7 +218,7 @@ mod tests {
 
         handle_set_report(&mut state, &hal, 0x07);
 
-        assert_eq!(state.cfg.keyboard_leds[1], 0x07); // other = 1 - 0 = 1
+        assert_eq!(state.cfg.keyboard_leds_desired[1], 0x07); // other = 1 - 0 = 1
         assert_eq!(hal.leds_synced.get(), 1);
     }
 
@@ -233,7 +233,7 @@ mod tests {
 
         handle_set_report(&mut state, &hal, 0x03);
 
-        assert_eq!(state.cfg.keyboard_leds[1], 0x03);
+        assert_eq!(state.cfg.keyboard_leds_desired[1], 0x03);
         assert_eq!(hal.leds_synced.get(), 0); // no sync when active
     }
 
@@ -392,7 +392,7 @@ mod tests {
         handle_set_report(&mut state, &hal, 0x05);
 
         // "other" index = 1 - 1 = 0
-        assert_eq!(state.cfg.keyboard_leds[0], 0x05);
+        assert_eq!(state.cfg.keyboard_leds_desired[0], 0x05);
         assert_eq!(hal.leds_synced.get(), 1);
     }
 

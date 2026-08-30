@@ -100,6 +100,18 @@ pub(crate) unsafe fn led_blinking_task() {
     crate::service::tasks::led_blink_tick(&mut state, &hal);
 }
 
+/// Re-send the keyboard LED state until the keyboard accepts it. Core1 only:
+/// send_kbd_leds_xcore reaches tuh_hid_set_report directly on this core.
+pub(crate) unsafe fn led_sync_task() {
+    let cfg = &*core::ptr::addr_of!(crate::domain::structs::GLOBAL_CFG);
+    if let Some(desired) = crate::service::led::led_sync_needed(cfg) {
+        let hid = &*core::ptr::addr_of!(crate::domain::structs::GLOBAL_HID);
+        crate::hal::ffi::callbacks::send_kbd_leds_xcore(
+            hid.kbd_dev_addr, hid.kbd_instance, &desired, 1,
+        );
+    }
+}
+
 pub(crate) unsafe fn screensaver_task() {
     let hal = crate::hal::pico::PicoHal::new();
     let mut state = crate::domain::structs::DeviceState::from_globals();

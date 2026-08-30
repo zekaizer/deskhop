@@ -421,7 +421,7 @@ mod tests {
         let pkt = make_packet(PacketType::KbdSetReport, [0x07, 0, 0, 0, 0, 0, 0, 0]);
         dispatch_packet(&mut state, &hal, &pkt);
 
-        assert_eq!(state.cfg.keyboard_leds[1], 0x07);
+        assert_eq!(state.cfg.keyboard_leds_desired[1], 0x07);
         assert_eq!(hal.leds_synced.get(), 1);
     }
 

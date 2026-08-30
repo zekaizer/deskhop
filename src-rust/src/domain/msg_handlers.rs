@@ -91,8 +91,8 @@ pub fn apply_action(action: &HandlerAction, state: &mut DeviceState<'_>) -> bool
         HandlerAction::SetKeyboardLeds(leds) => {
             // Store to OTHER_ROLE (1 - board_role)
             let other = 1 - state.cfg.board_role as usize;
-            if other < state.cfg.keyboard_leds.len() {
-                state.cfg.keyboard_leds[other] = *leds;
+            if other < state.cfg.keyboard_leds_desired.len() {
+                state.cfg.keyboard_leds_desired[other] = *leds;
             }
             true // needs sync_leds HAL call
         }
@@ -296,7 +296,7 @@ mod tests {
         let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
         state.cfg.board_role = 0;
         apply_action(&HandlerAction::SetKeyboardLeds(0x07), &mut state);
-        assert_eq!(state.cfg.keyboard_leds[1], 0x07); // OTHER_ROLE = 1
+        assert_eq!(state.cfg.keyboard_leds_desired[1], 0x07); // OTHER_ROLE = 1
     }
 
     #[test]

@@ -49,7 +49,12 @@ pub struct DeviceConfig {
     pub config: Config,
     pub active_output: u8,
     pub board_role: u8,
-    pub keyboard_leds: [u8; 2],
+    /// LED state each host asked for (index 0 = output A, 1 = output B).
+    pub keyboard_leds_desired: [u8; 2],
+    /// LED state last accepted by the locally attached keyboard
+    /// (tuh_hid_set_report succeeded). led_sync_task re-sends until it
+    /// matches the desired state for the active output.
+    pub keyboard_leds_actual: u8,
     pub last_activity: [u64; 2],
     pub core1_last_loop_pass: u64,
     /// Core0 loop timestamp, written each main-loop pass. Symmetric to

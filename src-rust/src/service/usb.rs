@@ -95,7 +95,7 @@ pub fn process_led_report(
         state.cfg.active_output,
     );
 
-    state.cfg.keyboard_leds[state.cfg.board_role as usize] = leds;
+    state.cfg.keyboard_leds_desired[state.cfg.board_role as usize] = leds;
 
     if state.cfg.keyboard_connected && state.is_active_output() {
         hal.sync_leds();

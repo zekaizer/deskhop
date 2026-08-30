@@ -824,9 +824,14 @@ extern "C" {
 /// core). Called on Core0, it defers by flagging leds_resync_pending; the Core1
 /// led_blink_tick drains the flag and re-sends. This keeps tuh_hid_set_report
 /// off Core0, which would otherwise race tuh_task and hang Core1.
-unsafe fn send_kbd_leds_xcore(da: u8, inst: u8, leds: *const u8, len: u8) {
+pub(crate) unsafe fn send_kbd_leds_xcore(da: u8, inst: u8, leds: *const u8, len: u8) {
     if device::hal_is_core1() {
-        device::hal_tuh_hid_set_report(da, inst, leds, len);
+        // Track what the keyboard actually accepted: a refused transfer
+        // (endpoint busy / device gone) leaves keyboard_leds_actual stale so
+        // led_sync_task re-sends it (upstream v0.78 desired/actual split).
+        if device::hal_tuh_hid_set_report(da, inst, leds, len) && len >= 1 {
+            (*core::ptr::addr_of_mut!(structs::GLOBAL_CFG)).keyboard_leds_actual = *leds;
+        }
     } else {
         (*core::ptr::addr_of_mut!(structs::GLOBAL_CFG)).leds_resync_pending = true;
     }
