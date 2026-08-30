@@ -136,7 +136,7 @@ pub unsafe extern "C" fn rust_process_mouse_report(
     _itf: u8,
     iface_ptr: *mut c_void,
 ) {
-    if raw_report.is_null() || iface_ptr.is_null() { crate::traceln!("mouse: null ptr"); return; }
+    if raw_report.is_null() || iface_ptr.is_null() || len <= 0 { crate::traceln!("mouse: null ptr"); return; }
 
     let mut state = crate::domain::structs::DeviceState::from_globals();
     let state = &mut state;
@@ -583,6 +583,13 @@ pub unsafe extern "C" fn rust_on_hid_report_received(
     len: u16,
     iface_ptr: *mut c_void,
 ) {
+    // TinyUSB delivers len==0 for failed/ZLP transfers (hidh_xfer_cb passes the
+    // result through with no length filter). Every consumer below indexes
+    // report[0] (report-ID dispatch, extract paths), so drop empty reports here
+    // — an index panic on Core1 spins the diag_led loop until the watchdog
+    // reboots the whole board.
+    if report.is_null() || len == 0 { return; }
+
     let itf_protocol = device::hal_tuh_hid_interface_protocol(dev_addr, instance);
     let iface = iface_from_ptr(iface_ptr);
     let mut state = structs::DeviceState::from_globals();
