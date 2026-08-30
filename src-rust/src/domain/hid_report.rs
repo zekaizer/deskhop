@@ -22,7 +22,9 @@ pub fn get_report_value(report: &[u8], offset_bits: u16, size_bits: u16) -> i32 
     let mut remaining_bits: u16 = 8 - offset_in_bits;
     let mut idx = byte_offset;
 
-    while size_bits > remaining_bits && idx < report.len() - 1 {
+    // remaining_bits < 32: a >32-bit field would otherwise shift i32 by 32+
+    // (debug panic); only the low 32 bits are representable anyway.
+    while size_bits > remaining_bits && remaining_bits < 32 && idx < report.len() - 1 {
         idx += 1;
         result |= (report[idx] as i32) << remaining_bits;
         remaining_bits += 8;
@@ -114,6 +116,16 @@ mod tests {
     fn test_get_report_value_out_of_bounds() {
         let report = [0x42];
         assert_eq!(get_report_value(&report, 16, 8), 0);
+    }
+
+    #[test]
+    fn test_get_report_value_wide_field_no_shift_overflow() {
+        // A descriptor can declare a >32-bit field; only the low 32 bits fit
+        // an i32, and the byte loop must stop before a 32-bit shift (which
+        // panics under debug overflow checks).
+        let report = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
+        let v = get_report_value(&report, 0, 40);
+        assert_eq!(v as u32, 0x4433_2211);
     }
 
     #[test]
