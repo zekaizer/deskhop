@@ -158,7 +158,14 @@ void hal_flash_write_config(const uint8_t *buf) {
 void hal_gpio_put_led(bool state) { gpio_put(GPIO_LED_PIN, state); }
 bool hal_gpio_get_led(void) { return gpio_get(GPIO_LED_PIN); }
 void hal_tuh_hid_set_report(uint8_t dev_addr, uint8_t instance, const uint8_t *data, uint8_t len) {
-    tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT, (void *)data, len);
+    /* tuh_hid_set_report is asynchronous: usbh stores the buffer POINTER and
+     * reads it during a later DATA stage, after the caller's frame is gone —
+     * callers pass stack-local LED bytes. Copy into a static first. A single
+     * buffer suffices: send_kbd_leds_xcore gates all callers to Core1. */
+    static uint8_t buf[8];
+    if (len > sizeof(buf)) len = sizeof(buf);
+    memcpy(buf, data, len);
+    tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT, buf, len);
 }
 
 /* True when running on Core1 (the USB host stack core). Used to gate host-stack
