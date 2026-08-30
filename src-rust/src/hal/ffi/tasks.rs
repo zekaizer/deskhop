@@ -36,7 +36,14 @@ pub(crate) unsafe fn get_pt_state() -> &'static mut PassthroughState {
     &mut *core::ptr::addr_of_mut!(PT_STATE)
 }
 
-// --- Remap engine state (Core0 only) ---
+// --- Remap engine state (Core1-serialized) ---
+//
+// All post-boot access runs on Core1: remap_engine_process in the TinyUSB
+// host report callback (inside usb_host_task) and remap_engine_tick_task,
+// both on the Core1 scheduler loop, strictly sequential. The only Core0
+// access is remap_engine_init in rust_passthrough_init, which runs before
+// multicore_launch_core1 (setup.c). Do not schedule users of this state on
+// Core0 — that reintroduces a cross-core aliased-&mut race.
 
 use crate::domain::key_remap::RemapEngine;
 

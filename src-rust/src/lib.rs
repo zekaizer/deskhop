@@ -70,7 +70,6 @@ pub extern "C" fn rust_main_loop() -> ! {
         scheduler::Task::new(tasks::process_uart_tx_task, scheduler::top()),
         scheduler::Task::new(tasks::debug_log_flush_task, scheduler::hz(1000)),
         scheduler::Task::new(tasks::passthrough_task, scheduler::hz(100)),
-        scheduler::Task::new(tasks::remap_engine_tick_task, scheduler::hz(1000)),
     ];
 
     // initial_setup() is done and the scheduler is about to run: stop the
@@ -105,6 +104,12 @@ pub extern "C" fn rust_core1_loop() -> ! {
         scheduler::Task::new(c_tasks::firmware_upgrade_task, scheduler::hz(4000)),
         scheduler::Task::new(tasks::heartbeat_output_task, scheduler::hz(1)),
         scheduler::Task::new(tasks::passthrough_host_tx_task, scheduler::hz(1000)),
+        // Must run on Core1: remap_engine_process runs in the TinyUSB host
+        // report callback (inside usb_host_task on this loop), so keeping the
+        // tick here serializes ALL post-boot REMAP_ENGINE access to Core1 —
+        // on Core0 the two mutated the engine concurrently (torn u64
+        // timestamps on M0+, aliased &mut).
+        scheduler::Task::new(tasks::remap_engine_tick_task, scheduler::hz(1000)),
     ];
 
     loop {
