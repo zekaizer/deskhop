@@ -515,7 +515,13 @@ pub unsafe extern "C" fn rust_on_hid_mount(
     let mut state = structs::DeviceState::from_globals();
     let hal = crate::hal::pico::PicoHal::new();
 
-    let desc_slice = core::slice::from_raw_parts(desc_report, desc_len as usize);
+    // TinyUSB can hand a NULL descriptor (failed descriptor fetch);
+    // from_raw_parts requires non-null even for len 0.
+    let desc_slice = if desc_report.is_null() {
+        &[][..]
+    } else {
+        core::slice::from_raw_parts(desc_report, desc_len as usize)
+    };
 
     // System-level readable dump of the device's HID report descriptor (all HID
     // interfaces, not just passthrough) so the exact presentation is captured.
