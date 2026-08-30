@@ -120,19 +120,26 @@ bool is_bootsel_pressed(void) {
 #ifdef DH_DEBUG
 extern void peer_log_push(const uint8_t *data, size_t len);
 
+/* Runs on BOTH cores (Rust traceln on Core1 lands here); Core1's stack is
+ * only 2KB, so keep this frame small — no second conversion buffer. */
 int dh_debug_printf(const char *fmt, ...) {
-    va_list a; va_start(a, fmt); char b[512];
-    int l = vsnprintf(b, 512, fmt, a);
+    va_list a; va_start(a, fmt); char b[256];
+    int l = vsnprintf(b, sizeof b, fmt, a);
     va_end(a);
     if (l <= 0) return l;
-    if (l > 512) l = 512;
-    /* Convert \n to \r\n for CDC terminal compatibility */
-    char cr[1024]; int j = 0;
-    for (int i = 0; i < l && j < 1022; i++) {
-        if (b[i] == '\n' && (i == 0 || b[i-1] != '\r')) cr[j++] = '\r';
-        cr[j++] = b[i];
+    /* On truncation vsnprintf NUL-terminates at b[255]; don't push the NUL */
+    if (l >= (int)sizeof b) l = (int)sizeof b - 1;
+    /* Convert \n to \r\n for CDC terminal compatibility: push the run up to
+     * each bare \n, then "\r\n", instead of building a converted copy */
+    int start = 0;
+    for (int i = 0; i < l; i++) {
+        if (b[i] == '\n' && (i == 0 || b[i-1] != '\r')) {
+            if (i > start) peer_log_push((const uint8_t *)b + start, (size_t)(i - start));
+            peer_log_push((const uint8_t *)"\r\n", 2);
+            start = i + 1;
+        }
     }
-    peer_log_push((const uint8_t *)cr, (size_t)j);
+    if (l > start) peer_log_push((const uint8_t *)b + start, (size_t)(l - start));
     return l;
 }
 #else
