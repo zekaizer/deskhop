@@ -114,7 +114,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
 }
 
 void tuh_hid_set_protocol_complete_cb(uint8_t dev_addr, uint8_t idx, uint8_t protocol) {
-    if (dev_addr > MAX_DEVICES || idx > MAX_INTERFACES)
+    if (dev_addr > MAX_DEVICES || idx >= MAX_INTERFACES)
         return;
     hid_interface_t *iface = iface_from_opaque(&global_hw.iface[dev_addr-1][idx]);
     rust_on_hid_set_protocol_complete(iface, protocol);

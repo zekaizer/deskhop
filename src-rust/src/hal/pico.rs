@@ -47,7 +47,14 @@ impl Watchdog for PicoHal {
     fn reboot(&self) -> ! {
         unsafe {
             device::reboot();
-            core::hint::unreachable_unchecked()
+        }
+        // The AIRCR write returns and the reset latches asynchronously — and on
+        // RP2040 an AIRCR reset can fail outright (see promote_staging_cb in
+        // hal_util.c). Reaching past device::reboot() is therefore a real path;
+        // unreachable_unchecked here was UB. Spin until the reset takes (or, if
+        // it never does, until the watchdog resets us in release builds).
+        loop {
+            core::hint::spin_loop();
         }
     }
 
