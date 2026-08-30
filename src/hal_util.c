@@ -1,6 +1,7 @@
 /* DeskHop HAL utilities — flash config + debug output + BOOTSEL. */
 #include "main.h"
 #include "pico/flash.h"
+#include "hardware/structs/psm.h"
 
 uint32_t calculate_firmware_crc32(void) { return calc_crc32(ADDR_FW_RUNNING, STAGING_IMAGE_SIZE - FLASH_SECTOR_SIZE); }
 
@@ -79,6 +80,12 @@ static void __not_in_flash_func(promote_staging_cb)(void *param) {
      * writes only (no flash-resident call) so it stays RAM-safe after RUNNING was
      * overwritten. (watchdog_reboot() itself lives in flash and could be at a
      * different address in the just-written image, so it is NOT safe to call here.) */
+    /* PSM WDSEL is set only by the SDK's _watchdog_enable(); DH_DEBUG builds
+     * never call it, so WDSEL=0 and TRIGGER would reset nothing — the board
+     * then spins in the loop below forever (interrupts off, total silence)
+     * with RUNNING fully written. Select everything but ROSC/XOSC, exactly as
+     * _watchdog_enable does. Direct register store: RAM-safe. */
+    psm_hw->wdsel = PSM_WDSEL_BITS & ~(PSM_WDSEL_ROSC_BITS | PSM_WDSEL_XOSC_BITS);
     watchdog_hw->scratch[4] = 0;
     hw_set_bits(&watchdog_hw->ctrl, WATCHDOG_CTRL_TRIGGER_BITS);
     (void)ints;
