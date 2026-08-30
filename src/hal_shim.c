@@ -238,7 +238,19 @@ void hal_queue_system_packet(const uint8_t *payload) {
  * send via tud_hid_n_report. Lets Core1 (tuh callbacks) forward host reports to
  * the device side WITHOUT touching the device stack directly (cross-core race). */
 void hal_queue_hid_report(uint8_t instance, uint8_t report_id, const uint8_t *data, uint8_t len) {
-    if (len > HID_REPORT_DATA_MAX) len = HID_REPORT_DATA_MAX;
+    if (len > HID_REPORT_DATA_MAX) {
+        /* Forwarding a truncated report hands the host corrupt data — drop it
+         * instead. Not widening the slot: the queue is 128 deep, so +32B/slot
+         * costs +4KB of heap, which eats the debug log-ring reserve.
+         * Logged once per boot; a device streaming oversize reports would
+         * otherwise flood the ring. */
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            dh_debug_printf("hid: drop oversize report len=%u inst=%u\n", len, instance);
+        }
+        return;
+    }
     _queue_packet(data, 0, len, report_id, instance);
 }
 
