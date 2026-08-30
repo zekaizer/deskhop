@@ -130,6 +130,70 @@ pub unsafe extern "C" fn rust_msc_write_step(
     core::ptr::write(out, msc_write_step(block_no, magic0, magic1, magic_end));
 }
 
+/// How long to wait for a ResponseByte before re-sending the RequestByte.
+/// UART round trips are ms-scale, so this only fires on an actual loss.
+pub const FW_RETRY_TIMEOUT_US: u32 = 250_000;
+/// Consecutive unanswered retries at one address before giving up. After the
+/// abort the heartbeat path restarts the sync from scratch.
+pub const FW_MAX_RETRIES: u32 = 20;
+
+/// Outcome of one stall-tracker tick while waiting for a ResponseByte.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StallAction {
+    /// Still within the wait window — do nothing.
+    None,
+    /// Window expired — re-send the RequestByte for the current address.
+    Resend,
+    /// Too many unanswered retries at one address — abort the upgrade.
+    Abort,
+}
+
+/// Tracks how long the receiver has been waiting on one address.
+pub struct StallTracker {
+    armed: bool,
+    address: u32,
+    window_start_us: u32,
+    retries: u32,
+}
+
+impl StallTracker {
+    pub const fn new() -> Self {
+        Self { armed: false, address: 0, window_start_us: 0, retries: 0 }
+    }
+}
+
+impl Default for StallTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One stall-tracker tick. Call only while an upgrade is in progress and the
+/// receiver is waiting for a ResponseByte (`!byte_done`) — the lock-step
+/// transfer has no other recovery for a lost packet: nothing re-requests, and
+/// heartbeats are silenced while `upgrade_in_progress`, so a single drop
+/// wedged the sync until power-cycle.
+pub fn stall_tick(t: &mut StallTracker, address: u32, now_us: u32) -> StallAction {
+    if !t.armed || t.address != address {
+        // First wait at this address (progress resets the retry budget)
+        t.armed = true;
+        t.address = address;
+        t.window_start_us = now_us;
+        t.retries = 0;
+        return StallAction::None;
+    }
+    if now_us.wrapping_sub(t.window_start_us) <= FW_RETRY_TIMEOUT_US {
+        return StallAction::None;
+    }
+    if t.retries >= FW_MAX_RETRIES {
+        t.armed = false;
+        return StallAction::Abort;
+    }
+    t.retries += 1;
+    t.window_start_us = now_us;
+    StallAction::Resend
+}
+
 /// Receive one firmware data word (4 bytes) during an upgrade.
 /// Validates address, accumulates CRC, buffers page data.
 pub fn receive_fw_byte(
@@ -558,6 +622,78 @@ mod tests {
         let r = send_fw_byte(&state, &hal, 0x100).unwrap();
         assert_eq!(&r[4..8], &[0xEF, 0xBE, 0xAD, 0xDE]);
         assert_eq!(&r[0..4], &[0x00, 0x01, 0x00, 0x00]); // 0x100 little-endian echo
+    }
+
+    // -- stall_tick (ResponseByte-loss recovery for the lock-step transfer) --
+
+    #[test]
+    fn stall_none_within_window() {
+        let mut t = StallTracker::new();
+        assert_eq!(stall_tick(&mut t, 100, 0), StallAction::None); // arms the window
+        assert_eq!(stall_tick(&mut t, 100, FW_RETRY_TIMEOUT_US - 1), StallAction::None);
+    }
+
+    #[test]
+    fn stall_resend_after_timeout_then_rearms() {
+        let mut t = StallTracker::new();
+        stall_tick(&mut t, 100, 0);
+        assert_eq!(stall_tick(&mut t, 100, FW_RETRY_TIMEOUT_US + 1), StallAction::Resend);
+        // The window restarts after a resend
+        assert_eq!(stall_tick(&mut t, 100, FW_RETRY_TIMEOUT_US + 2), StallAction::None);
+        assert_eq!(
+            stall_tick(&mut t, 100, 2 * FW_RETRY_TIMEOUT_US + 2),
+            StallAction::Resend
+        );
+    }
+
+    #[test]
+    fn stall_progress_resets_retries() {
+        // A transfer that keeps advancing (address changes) must never abort,
+        // however many single retries accumulate across different addresses.
+        let mut t = StallTracker::new();
+        let mut now = 0u32;
+        for addr in (0..2 * FW_MAX_RETRIES).map(|i| i * 4) {
+            stall_tick(&mut t, addr, now); // arms for this address
+            now += FW_RETRY_TIMEOUT_US + 1;
+            assert_eq!(stall_tick(&mut t, addr, now), StallAction::Resend);
+            now += 1;
+        }
+    }
+
+    #[test]
+    fn stall_aborts_after_max_retries_then_resets() {
+        let mut t = StallTracker::new();
+        let mut now = 0u32;
+        stall_tick(&mut t, 100, now);
+        for _ in 0..FW_MAX_RETRIES {
+            now += FW_RETRY_TIMEOUT_US + 1;
+            assert_eq!(stall_tick(&mut t, 100, now), StallAction::Resend);
+        }
+        now += FW_RETRY_TIMEOUT_US + 1;
+        assert_eq!(stall_tick(&mut t, 100, now), StallAction::Abort);
+        // After the abort the tracker re-arms fresh (a new upgrade starts clean)
+        now += 5;
+        assert_eq!(stall_tick(&mut t, 100, now), StallAction::None);
+        assert_eq!(
+            stall_tick(&mut t, 100, now + FW_RETRY_TIMEOUT_US + 1),
+            StallAction::Resend
+        );
+    }
+
+    #[test]
+    fn stall_handles_time_wraparound() {
+        // time_us_32 wraps every ~71 minutes — a transfer can straddle the wrap.
+        let mut t = StallTracker::new();
+        let start = u32::MAX - 1000;
+        stall_tick(&mut t, 100, start);
+        assert_eq!(
+            stall_tick(&mut t, 100, start.wrapping_add(FW_RETRY_TIMEOUT_US - 1)),
+            StallAction::None
+        );
+        assert_eq!(
+            stall_tick(&mut t, 100, start.wrapping_add(FW_RETRY_TIMEOUT_US + 1)),
+            StallAction::Resend
+        );
     }
 
     #[test]

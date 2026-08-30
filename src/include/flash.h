@@ -45,6 +45,9 @@ typedef struct {
     uint32_t request_address;  /* next address to request when not finalizing */
 } fw_step_t;
 extern void rust_fw_next_step(uint32_t address, fw_step_t *out);
+/* Stall recovery while waiting for a ResponseByte: nonzero = re-send the
+ * RequestByte for the current address (service::fw_upgrade::stall_tick). */
+extern uint32_t rust_fw_stall_tick(void);
 
 /* Per-block USB-MSC UF2 write decision (config-mode drag-drop upgrade), computed
  * by the unit-tested Rust step machine (service::fw_upgrade::msc_write_step).

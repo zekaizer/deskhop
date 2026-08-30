@@ -226,6 +226,40 @@ pub unsafe extern "C" fn rust_passthrough_init() {
     cfg.gaming_mode = cfg.config.gaming_mode_default != 0;
 }
 
+// --- FW auto-sync stall recovery (Core1 only: fw-upgrade receiver task) ---
+
+use crate::service::fw_upgrade::{StallAction, StallTracker};
+
+static mut FW_STALL: StallTracker = StallTracker::new();
+
+/// Called from firmware_upgrade_task_c while waiting for a ResponseByte
+/// (`upgrade_in_progress && !byte_done`). Returns nonzero when the caller
+/// should re-send the RequestByte for the current address. An abort is
+/// applied here (clears upgrade_in_progress) so heartbeats resume and the
+/// peer restarts the sync from scratch.
+#[no_mangle]
+pub unsafe extern "C" fn rust_fw_stall_tick() -> u32 {
+    let tracker = &mut *core::ptr::addr_of_mut!(FW_STALL);
+    let state = crate::domain::structs::DeviceState::from_globals();
+    let address = state.fw.fw.address;
+    let now = crate::hal::device::hal_time_us_32();
+    match crate::service::fw_upgrade::stall_tick(tracker, address, now) {
+        StallAction::None => 0,
+        StallAction::Resend => {
+            crate::service::dlog::w(b"fw")
+                .s(b"rx stall resend addr=").u(address).done();
+            1
+        }
+        StallAction::Abort => {
+            crate::service::dlog::e(b"fw")
+                .s(b"rx stall ABORT addr=").u(address).done();
+            state.fw.fw.upgrade_in_progress = false;
+            state.fw.fw.address = 0;
+            0
+        }
+    }
+}
+
 /// Called from C set_active_output / Rust callbacks.
 #[export_name = "release_all_keys"]
 pub unsafe extern "C" fn rust_release_all_keys() {

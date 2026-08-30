@@ -10,7 +10,19 @@ void usb_host_task_c(void) { if (tuh_inited()) tuh_task(); }
 
 /* Firmware upgrade (flash + queue) — requires direct flash/SDK access */
 void firmware_upgrade_task_c(void) {
-    if (!global_fw.fw.upgrade_in_progress || !global_fw.fw.byte_done || queue_is_full(queue_from_opaque(&global_hw.uart_tx_queue))) return;
+    if (!global_fw.fw.upgrade_in_progress) return;
+    if (!global_fw.fw.byte_done) {
+        /* Waiting on a ResponseByte. The transfer is strictly lock-step, so one
+         * lost packet (e.g. a bad-checksum drop) would otherwise wedge it
+         * forever — nothing re-requests, and heartbeats are silenced while
+         * upgrade_in_progress. The Rust stall tracker re-requests after a
+         * timeout and aborts after repeated failures so the heartbeat path can
+         * restart the sync. */
+        if (rust_fw_stall_tick())
+            request_byte(global_fw.fw.address);
+        return;
+    }
+    if (queue_is_full(queue_from_opaque(&global_hw.uart_tx_queue))) return;
     /* The page-write / terminal / next-request decision is the unit-tested Rust
      * step machine (service::fw_upgrade::next_step) — keeps the off-by-one-prone
      * page/sector/terminal arithmetic out of untestable C. The C side only does
