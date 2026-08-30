@@ -26,6 +26,17 @@ pub fn process_report(
     if output_idx >= state.cfg.config.output.len() { return; }
     let output = &state.cfg.config.output[output_idx];
 
+    // If nothing changed, don't send a report. Composite keyboards (e.g. QMK)
+    // that expose a mouse HID interface emit zero-movement mouse reports during
+    // keyboard events; forwarding them as absolute reports makes the pointer
+    // jump (upstream v0.78, af4d38c).
+    if values.move_x == 0 && values.move_y == 0
+        && values.wheel == 0 && values.pan == 0
+        && values.buttons as i16 == state.hid.mouse_buttons
+    {
+        return;
+    }
+
     let (new_x, new_y, dir) = mouse_logic::update_mouse_position(
         state.hid.pointer_x, state.hid.pointer_y, values,
         output.speed_x, output.speed_y,
@@ -213,6 +224,27 @@ mod tests {
         cfg.config.output[0].speed_x = 16;
         cfg.config.output[0].speed_y = 16;
         (hid, cfg, fw, led)
+    }
+
+    #[test]
+    fn process_report_suppresses_no_change_reports() {
+        // Composite keyboards (e.g. QMK) with a mouse HID interface emit
+        // zero-movement mouse reports during keyboard events; forwarding them
+        // as absolute reports makes the pointer jump. No change → no report.
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = make_state_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.hid.mouse_buttons = 1; // button already held
+
+        let values = MouseValues { move_x: 0, move_y: 0, wheel: 0, pan: 0, buttons: 1 };
+        process_report(&mut state, &hal, &values);
+        assert!(hal.mouse_reports.borrow().is_empty(), "no-change report must be dropped");
+
+        // A button change alone must still go through.
+        let values = MouseValues { move_x: 0, move_y: 0, wheel: 0, pan: 0, buttons: 0 };
+        process_report(&mut state, &hal, &values);
+        assert_eq!(hal.mouse_reports.borrow().len(), 1);
+        assert_eq!(state.hid.mouse_buttons, 0);
     }
 
     #[test]
