@@ -187,8 +187,11 @@ fn switch_desktop_macos(
     output_report_raw(hal, state, &edge);
 
     let move_x: i16 = if left { -MACOS_SWITCH_MOVE_X } else { MACOS_SWITCH_MOVE_X };
+    // Buttons stay 0 on the relative nudges: repeating the held state on the
+    // relative HID mouse would latch the button down permanently when the user
+    // drags an item across desktops (upstream v0.78, 58664dd).
     let rel = [
-        state.hid.mouse_buttons as u8,
+        0,
         move_x.to_le_bytes()[0], move_x.to_le_bytes()[1],
         0, 0, 0, 0, RELATIVE,
     ];
@@ -227,6 +230,38 @@ mod tests {
         assert_ne!(state.hid.pointer_x, 1000);
         // Report should be routed (active output → local queue)
         assert_eq!(hal.mouse_reports.borrow().len(), 1);
+    }
+
+    #[test]
+    fn macos_desktop_switch_releases_buttons_on_relative_moves() {
+        // Dragging while switching desktops: the ABSOLUTE edge report keeps the
+        // held buttons, but the RELATIVE nudges must NOT duplicate them — the
+        // relative HID mouse would latch the button down forever (upstream 58664dd).
+        let hal = MockHal::new();
+        let (mut hid, mut cfg, mut fw, mut led) = make_state_for_test();
+        let mut state = DeviceState { hid: &mut hid, cfg: &mut cfg, fw: &mut fw, led: &mut led };
+        state.cfg.config.output[0].os = crate::domain::constants::OS_MACOS;
+        state.cfg.config.output[0].pos = 2; // RIGHT: moving right = away from border
+        state.cfg.config.output[0].screen_index = 1;
+        state.cfg.config.output[0].screen_count = 2;
+        state.hid.mouse_buttons = 1; // drag in progress
+
+        do_screen_switch(&mut state, &hal, SwitchDirection::Right);
+
+        let reports = hal.mouse_reports.borrow();
+        let mut abs_count = 0;
+        let mut rel_count = 0;
+        for r in reports.iter() {
+            if r[7] == ABSOLUTE {
+                abs_count += 1;
+                assert_eq!(r[0], 1, "edge report keeps held buttons");
+            } else if r[7] == RELATIVE {
+                rel_count += 1;
+                assert_eq!(r[0], 0, "relative moves must not repeat held buttons");
+            }
+        }
+        assert_eq!(abs_count, 1);
+        assert_eq!(rel_count, MACOS_SWITCH_MOVE_COUNT);
     }
 
     #[test]
